@@ -2,7 +2,7 @@
 
 Stroke-based handwritten math to LaTeX OCR.
 
-Unlike image-based OCR, this pipeline takes **pen stroke data** (sequences of `(x, y, t)` points from a tablet or touchscreen) and produces LaTeX. Stroke input is richer than pixels — it preserves timing, order, and direction, which helps disambiguate visually similar symbols.
+Unlike image-based OCR, this pipeline takes **pen stroke data** (sequences of `(x, y)` points from a tablet or touchscreen) and produces LaTeX. Stroke input is richer than pixels — it preserves timing, order, and direction, which helps disambiguate visually similar symbols.
 
 ## Architecture
 
