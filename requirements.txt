@@ -1,0 +1,11 @@
+torch>=2.4
+torchvision>=0.19
+Pillow>=10.0
+numpy>=1.26
+matplotlib>=3.8
+websockets>=14.0
+fastapi>=0.135
+uvicorn>=0.41
+pyyaml>=6.0
+sympy>=1.14
+ziamath>=0.13

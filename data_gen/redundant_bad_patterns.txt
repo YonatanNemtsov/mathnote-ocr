@@ -1,0 +1,201 @@
+# Shit: 66/200 (33%)
+# OK: 134/200
+
+[1] v9 (sup_in_sub):
+  \prod_{\left( \frac{t}{R} \right)^{W^{S}}} 6 k \pi L
+
+[4] v7 (too_short):
+  \delta
+
+[5] v13 (flat_denom):
+  \frac{u_{m i \alpha r} + j \cdot x}{2 \pm \epsilon \div l}
+
+[9] v3 (too_short):
+  6^{\sigma}
+
+[12] v2 (too_short):
+  K^{M}
+
+[17] v16 (trailing_op):
+  4 a + 2 c 3 r^{c} - n^{p} = -
+
+[21] v9 (too_short):
+  J_{H R}
+
+[22] v12 (too_short):
+  y^{k^{r}}
+
+[24] v4 (too_short):
+  \frac{- \theta}{m^{y}}
+
+[25] v6 (too_short):
+  \frac{f}{- \pi}
+
+[28] v14 (flat_denom):
+  \frac{\pi + \frac{\theta}{\frac{b}{-}}}{n - \sigma k q}
+
+[35] v13 (flat_denom):
+  \frac{\left( 4 - \mu \times d \right) + \psi \sigma^{r} \times \frac{\theta + t}{- \div \psi \times b}}{\beta^{6} \div \sqrt{2 \cdot \sigma} \times h}
+
+[42] v1 (too_short):
+  r
+
+[43] v5 (too_short):
+  W_{w q}
+
+[45] v14 (too_short):
+  \int_{\sigma}^{7}
+
+[47] v9 (too_short):
+  5 \psi
+
+[50] v11 (flat_denom):
+  \frac{\frac{\pm + l}{\times}}{e - \beta \pm \pi}
+
+[51] v1 (too_short):
+  q
+
+[52] v3 (too_short):
+  \frac{v^{4}}{U}
+
+[57] v5 (sup_in_sub):
+  \frac{G e y \sum_{p^{3 Z}}^{\frac{- X}{x}} V \epsilon I}{\frac{\Sigma}{- x} n k P}
+
+[66] v7 (too_short):
+  q m
+
+[70] v3 (too_short):
+  L \sqrt{K}
+
+[74] v11 (too_short):
+  \cdot^{w}
+
+[82] v13 (flat_denom):
+  \frac{\sqrt{k - \mu} \div \alpha^{2 \div x \pm \pm} \sqrt{v + u} \div b \frac{0 \pm q}{q \div \gamma} + E_{\epsilon} h \phi}{m \cdot u + n}
+
+[83] v11 (flat_denom):
+  \frac{\frac{\frac{\alpha}{\psi}}{c \div \sigma \div :}}{w}
+
+[84] v14 (too_short):
+  \int_{p}^{\sigma}
+
+[85] v1 (too_short):
+  \frac{X^{O}}{\frac{N^{4}}{U}}
+
+[87] v7 (too_short):
+  G_{U}
+
+[88] v12 (trailing_op):
+  a = 5 \cdot \phi \pm w = \times
+
+[90] v10 (too_short):
+  \frac{- A}{\frac{L}{i}}
+
+[91] v14 (flat_denom):
+  \prod_{\alpha - r - !}^{y} \frac{\gamma}{, + 5 + c}
+
+[93] v7 (too_short):
+  5 \Gamma
+
+[95] v11 (too_short):
+  \int_{\frac{w}{t}}^{h} u
+
+[98] v2 (too_short):
+  U
+
+[99] v7 (too_short):
+  F^{e}
+
+[101] v2 (too_short):
+  \frac{\int^{\psi^{\delta}} m}{0}
+
+[104] v8 (too_short):
+  r
+
+[105] v10 (too_short):
+  r^{k}
+
+[108] v9 (too_short):
+  \lambda
+
+[109] v10 (too_short):
+  E^{l}
+
+[111] v1 (too_short):
+  w
+
+[112] v14 (flat_denom):
+  \sum_{1}^{m} \frac{\frac{\beta}{a} + n + 5 + 8}{4 + r k + \pm}
+
+[117] v8 (too_short):
+  R w
+
+[118] v14 (too_short):
+  \int_{y q}^{z}
+
+[126] v1 (too_short):
+  R_{N J}
+
+[127] v14 (flat_denom):
+  \frac{e^{| y^{3} - m + k - b |}}{\alpha + x - m}
+
+[129] v2 (too_short):
+  C
+
+[134] v5 (too_short):
+  \frac{R^{3}}{- r}
+
+[137] v5 (too_short):
+  1
+
+[138] v14 (double_op, op_as_frac):
+  \frac{\frac{-}{p} + \sigma m + \times}{\frac{\div}{5} + q 8 - - m}
+
+[139] v5 (too_short, sup_in_sub):
+  \pi_{\psi^{5}}
+
+[142] v5 (too_short):
+  L n^{v}
+
+[143] v14 (flat_denom):
+  \frac{| n + n + m | + m + p}{2 + n - n n}
+
+[144] v11 (double_op):
+  5 . \frac{g \pm - \div 5}{6 \div \epsilon}
+
+[153] v11 (too_short):
+  \phi^{a} \frac{6}{5}
+
+[158] v4 (too_short):
+  \Delta
+
+[166] v13 (flat_denom):
+  \frac{m \div w - l}{a c 8 i \frac{n \pm j \times \epsilon}{7 \cdot \omega \times o} \cdot}
+
+[167] v9 (too_short):
+  F
+
+[169] v7 (sup_in_sub):
+  w_{p \epsilon}^{\frac{A}{\frac{\Pi^{H}}{x}}} \int_{1^{V - Z}}^{\psi^{\frac{I E}{W^{z}}}} t d t + \int_{M \nabla b}^{\left( 5 Q \right) \sqrt{S c 0}} Sigmad u = \frac{K}{\frac{\delta}{5}} K^{- \frac{s}{\Omega}}
+
+[183] v10 (too_short):
+  a
+
+[185] v14 (double_op, flat_denom):
+  \sum_{x = q + \pm - q}^{p} \frac{x}{2 - k n + 5 + 5}
+
+[186] v11 (too_short):
+  h^{1 .}
+
+[188] v4 (too_short):
+  m
+
+[191] v11 (too_short):
+  \sqrt{\frac{2}{5}}
+
+[193] v9 (too_short):
+  \frac{\epsilon^{\Psi}}{- y}
+
+[198] v4 (too_short):
+  \frac{i}{\gamma} o
+

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tree Browser</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.28/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.28/dist/katex.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #111; color: #ddd; }
+
+/* ── Toolbar ── */
+.toolbar {
+  position: sticky; top: 0; z-index: 10;
+  background: #1a1a2e; padding: 10px 20px;
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid #333;
+}
+.toolbar input[type=text] {
+  background: #222; color: #eee; border: 1px solid #444;
+  padding: 6px 12px; border-radius: 6px; font-size: 14px; width: 180px;
+  outline: none;
+}
+.toolbar input[type=text]:focus { border-color: #8b5cf6; }
+
+.tags { display: flex; gap: 4px; flex-wrap: wrap; }
+.tag-btn {
+  padding: 4px 10px; border-radius: 12px; border: 1px solid #444;
+  background: #222; color: #999; cursor: pointer; font-size: 12px;
+  transition: all 0.15s;
+}
+.tag-btn:hover { border-color: #777; color: #ccc; }
+.tag-btn.active { background: #8b5cf6; color: #fff; border-color: #8b5cf6; }
+
+.spacer { flex: 1; }
+
+.nav { display: flex; align-items: center; gap: 6px; }
+.nav button {
+  padding: 5px 12px; border-radius: 5px; border: none;
+  background: #333; color: #ccc; cursor: pointer; font-size: 14px;
+}
+.nav button:hover { background: #444; }
+.nav button:disabled { opacity: 0.3; cursor: default; }
+.page-label { font-size: 13px; color: #777; min-width: 70px; text-align: center; }
+
+.status {
+  font-size: 12px; padding: 3px 8px; border-radius: 4px;
+}
+.status.ok { background: #10b981; color: #fff; }
+.status.err { background: #ef4444; color: #fff; }
+.status.loading { background: #f59e0b; color: #fff; }
+
+.info { font-size: 12px; color: #666; }
+
+/* ── Cards ── */
+#cards { padding: 10px 20px; }
+
+.card {
+  background: #1a1a2e; border-radius: 10px;
+  border: 1px solid #333; margin-bottom: 14px; overflow: hidden;
+}
+.card-head {
+  padding: 8px 14px; display: flex; align-items: center; gap: 10px;
+  background: #16213e; border-bottom: 1px solid #2a2a4a;
+}
+.acc-badge {
+  font-weight: 700; font-size: 13px; padding: 2px 8px;
+  border-radius: 5px; color: #fff; min-width: 42px; text-align: center;
+}
+.acc-badge.good { background: #10b981; }
+.acc-badge.mid  { background: #f59e0b; }
+.acc-badge.bad  { background: #ef4444; }
+.latex-src {
+  font-family: 'Courier New', monospace; font-size: 13px; color: #8b5cf6;
+  flex: 1; overflow-x: auto; white-space: nowrap;
+}
+.n-glyphs { font-size: 11px; color: #555; }
+.match-icon { font-size: 16px; }
+.match-icon.yes { color: #10b981; }
+.match-icon.no  { color: #ef4444; }
+.card-tags { display: flex; gap: 3px; }
+.card-tag {
+  font-size: 10px; padding: 1px 6px; border-radius: 6px;
+  background: #2a2a4a; color: #888;
+}
+
+.card-body { display: flex; }
+.col { flex: 1; padding: 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.col + .col { border-left: 1px solid #2a2a4a; }
+.col-label { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+.rendered {
+  background: #fff; border-radius: 6px; padding: 8px 14px;
+  min-height: 36px; width: 100%;
+  display: flex; align-items: center; justify-content: center;
+}
+.rendered .katex { font-size: 20px; }
+.col .tree-svg { max-width: 100%; overflow-x: auto; }
+.col .tree-svg svg { max-width: 100%; height: auto; }
+
+.loading-msg {
+  text-align: center; padding: 40px; color: #555; font-size: 14px;
+}
+
+/* ── Legend ── */
+.legend {
+  padding: 6px 20px; display: flex; gap: 12px; font-size: 11px; color: #666;
+  border-bottom: 1px solid #222;
+}
+.legend span { display: flex; align-items: center; gap: 4px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <input type="text" id="search" placeholder="Filter LaTeX...">
+  <div class="tags" id="tagBar"></div>
+  <div class="spacer"></div>
+  <div class="nav">
+    <button id="prevBtn">&larr;</button>
+    <span class="page-label" id="pageLabel">-</span>
+    <button id="nextBtn">&rarr;</button>
+  </div>
+  <span class="status err" id="statusEl">Connecting...</span>
+  <span class="info" id="infoEl"></span>
+</div>
+
+<div class="legend">
+  <span><span class="dot" style="background:#666"></span> root</span>
+  <span><span class="dot" style="background:#2196F3"></span> num</span>
+  <span><span class="dot" style="background:#F44336"></span> den</span>
+  <span><span class="dot" style="background:#4CAF50"></span> sup</span>
+  <span><span class="dot" style="background:#FF9800"></span> sub</span>
+  <span><span class="dot" style="background:#9C27B0"></span> sqrt</span>
+  <span style="color:#aaa">--- dashed = seq</span>
+</div>
+
+<div id="cards">
+  <div class="loading-msg">Connecting to server...</div>
+</div>
+
+<script>
+const PER_PAGE = 5;
+let ws = null;
+let page = 0;
+let totalFiltered = 0;
+let activeTags = new Set();
+let searchText = '';
+let debounceTimer = null;
+
+const statusEl  = document.getElementById('statusEl');
+const infoEl    = document.getElementById('infoEl');
+const cardsEl   = document.getElementById('cards');
+const pageLabel = document.getElementById('pageLabel');
+const prevBtn   = document.getElementById('prevBtn');
+const nextBtn   = document.getElementById('nextBtn');
+const searchBox = document.getElementById('search');
+const tagBar    = document.getElementById('tagBar');
+
+// ── WebSocket ──
+
+function connect() {
+  ws = new WebSocket('ws://localhost:8769');
+
+  ws.onopen = () => {
+    statusEl.textContent = 'Connected';
+    statusEl.className = 'status ok';
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = 'Disconnected';
+    statusEl.className = 'status err';
+    setTimeout(connect, 2000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'init') handleInit(msg);
+    else if (msg.type === 'filter_result') handleFilterResult(msg);
+    else if (msg.type === 'page') handlePage(msg);
+    else if (msg.type === 'error') {
+      console.error('Server error:', msg.message);
+      cardsEl.innerHTML = '<div class="loading-msg">Error: ' + escHtml(msg.message) + '</div>';
+    }
+  };
+}
+
+function handleInit(msg) {
+  totalFiltered = msg.filtered;
+  infoEl.textContent = msg.total + ' total';
+
+  // Build tag buttons
+  tagBar.innerHTML = '';
+  msg.tags.forEach(tag => {
+    const btn = document.createElement('button');
+    btn.className = 'tag-btn';
+    btn.textContent = tag;
+    btn.onclick = () => {
+      if (activeTags.has(tag)) {
+        activeTags.delete(tag);
+        btn.classList.remove('active');
+      } else {
+        activeTags.add(tag);
+        btn.classList.add('active');
+      }
+      sendFilter();
+    };
+    tagBar.appendChild(btn);
+  });
+
+  requestPage(0);
+}
+
+function handleFilterResult(msg) {
+  totalFiltered = msg.filtered;
+  page = 0;
+  requestPage(0);
+}
+
+function handlePage(msg) {
+  totalFiltered = msg.total;
+  page = msg.page;
+  const totalPages = Math.ceil(totalFiltered / PER_PAGE);
+
+  pageLabel.textContent = totalPages > 0 ? (page + 1) + ' / ' + totalPages : '0';
+  prevBtn.disabled = page <= 0;
+  nextBtn.disabled = page >= totalPages - 1;
+
+  statusEl.textContent = 'Connected';
+  statusEl.className = 'status ok';
+
+  renderCards(msg.items);
+}
+
+// ── Communication ──
+
+function sendFilter() {
+  if (!ws || ws.readyState !== 1) return;
+  ws.send(JSON.stringify({
+    type: 'filter',
+    search: searchText,
+    tags: [...activeTags],
+  }));
+}
+
+function requestPage(p) {
+  if (!ws || ws.readyState !== 1) return;
+  statusEl.textContent = 'Loading...';
+  statusEl.className = 'status loading';
+  ws.send(JSON.stringify({
+    type: 'get_page',
+    page: p,
+    per_page: PER_PAGE,
+  }));
+}
+
+// ── Rendering ──
+
+function renderCards(items) {
+  if (items.length === 0) {
+    cardsEl.innerHTML = '<div class="loading-msg">No matching examples</div>';
+    return;
+  }
+
+  cardsEl.innerHTML = '';
+  items.forEach((d, i) => {
+    const accClass = d.acc >= 0.95 ? 'good' : d.acc >= 0.7 ? 'mid' : 'bad';
+    const matchCls = d.latex_match ? 'yes' : 'no';
+    const matchSym = d.latex_match ? '&#10003;' : '&#10007;';
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="card-head">
+        <span class="acc-badge ${accClass}">${(d.acc * 100).toFixed(0)}%</span>
+        <span class="latex-src">${escHtml(d.latex)}</span>
+        <span class="n-glyphs">${d.n} glyphs</span>
+        <span class="match-icon ${matchCls}">${matchSym}</span>
+        <div class="card-tags">${d.tags.map(t => '<span class="card-tag">' + t + '</span>').join('')}</div>
+      </div>
+      <div class="card-body">
+        <div class="col">
+          <span class="col-label">Ground Truth</span>
+          <div class="rendered" id="gt-r-${i}"></div>
+          <div class="tree-svg">${d.gt_svg}</div>
+        </div>
+        <div class="col">
+          <span class="col-label">Predicted</span>
+          <div class="rendered" id="pr-r-${i}"></div>
+          <div class="tree-svg">${d.pred_svg}</div>
+        </div>
+      </div>
+    `;
+    cardsEl.appendChild(card);
+
+    try { katex.render(d.gt_latex, document.getElementById('gt-r-' + i),
+          { throwOnError: false, displayMode: true }); } catch(e) {}
+    try { katex.render(d.pred_latex, document.getElementById('pr-r-' + i),
+          { throwOnError: false, displayMode: true }); } catch(e) {}
+  });
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ── Controls ──
+
+searchBox.addEventListener('input', e => {
+  searchText = e.target.value;
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(sendFilter, 300);
+});
+
+prevBtn.onclick = () => { if (page > 0) requestPage(page - 1); };
+nextBtn.onclick = () => {
+  const totalPages = Math.ceil(totalFiltered / PER_PAGE);
+  if (page < totalPages - 1) requestPage(page + 1);
+};
+
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === 'ArrowLeft')  { if (page > 0) requestPage(page - 1); }
+  if (e.key === 'ArrowRight') {
+    const totalPages = Math.ceil(totalFiltered / PER_PAGE);
+    if (page < totalPages - 1) requestPage(page + 1);
+  }
+});
+
+connect();
+</script>
+</body>
+</html>

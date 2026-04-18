@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Expression Collection — math_ocr_v2</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.28/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.28/dist/katex.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; display: flex; flex-direction: column; align-items: center; height: 100vh; }
+
+  /* Top bar — expression display */
+  .top {
+    padding: 12px 20px; display: flex; flex-direction: column; gap: 6px;
+  }
+  .top-header { display: flex; justify-content: space-between; align-items: center; }
+  h1 { font-size: 20px; color: #fff; }
+  .status { font-size: 13px; padding: 4px 10px; border-radius: 4px; display: inline-block; }
+  .status.connected { background: #10b981; color: #fff; }
+  .status.disconnected { background: #ef4444; color: #fff; }
+
+  .expression-display {
+    background: #fff; border-radius: 6px; padding: 16px 20px;
+    height: 140px; display: flex; align-items: center; justify-content: center;
+    overflow-x: auto; overflow-y: visible;
+  }
+  .expression-display .katex { font-size: 28px; color: #000; }
+  .latex-source { font-size: 11px; color: #888; font-family: monospace; word-break: break-all; }
+
+  /* Bottom area — canvas on left, progress on right */
+  .bottom { display: flex; flex: 1; overflow: hidden; }
+
+  .left { padding: 20px; display: flex; flex-direction: column; gap: 10px; }
+
+  .prompt { font-size: 16px; padding: 4px; }
+  .prompt .symbol-name { color: #3b82f6; font-weight: bold; font-size: 22px; }
+  .prompt .step-info { color: #888; font-size: 13px; }
+
+  canvas#drawCanvas { background: #fff; border-radius: 6px; cursor: crosshair; display: block; }
+
+  .toolbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .toolbar button { padding: 6px 14px; border-radius: 6px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; }
+  #nextBtn { background: #3b82f6; color: #fff; }
+  #nextBtn:hover { background: #2563eb; }
+  #undoSymbolBtn { background: #f59e0b; color: #fff; }
+  #undoSymbolBtn:hover { background: #d97706; }
+  #undoStrokeBtn { background: #444; color: #fff; }
+  #undoStrokeBtn:hover { background: #555; }
+  #clearBtn { background: #444; color: #fff; }
+  #clearBtn:hover { background: #555; }
+  #skipBtn { background: #ef4444; color: #fff; }
+  #skipBtn:hover { background: #dc2626; }
+
+  .hint { font-size: 11px; color: #888; }
+
+  /* Flash feedback */
+  .flash {
+    position: fixed; top: 12px; right: 20px;
+    font-size: 14px; font-weight: bold; padding: 8px 16px; border-radius: 8px;
+    pointer-events: none; opacity: 0; transition: opacity 0.3s;
+    z-index: 100;
+  }
+  .flash.show { opacity: 1; }
+  .flash.success { background: #10b981; color: #fff; }
+  .flash.info { background: #3b82f6; color: #fff; }
+
+  /* Right panel — progress */
+  .right { width: 200px; background: #16213e; padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+  .right h2 { font-size: 15px; color: #fff; }
+
+  .stats-row { display: flex; align-items: center; gap: 8px; }
+  .stats-row .number { font-size: 28px; font-weight: bold; color: #3b82f6; }
+  .stats-row .label { font-size: 13px; color: #888; }
+
+  .symbol-list { display: flex; flex-direction: column; gap: 3px; }
+  .symbol-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 4px 8px; border-radius: 4px; font-size: 13px;
+  }
+  .symbol-item.done { color: #10b981; }
+  .symbol-item.current { background: #3b82f6; color: #fff; font-weight: bold; }
+  .symbol-item.pending { color: #666; }
+  .symbol-item .check { width: 18px; text-align: center; }
+  .symbol-item .idx { width: 20px; text-align: right; color: inherit; opacity: 0.6; font-size: 11px; }
+
+  label { display: flex; align-items: center; gap: 6px; color: #888; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="top-header">
+    <h1>Expression Collection</h1>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <label style="color:#888;font-size:13px;display:flex;align-items:center;gap:6px;">
+        Template: <input type="text" id="templateInput" placeholder="e.g. [var]'([digit])" style="background:#2a2a4a;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:4px 8px;font-size:13px;font-family:monospace;width:280px;">
+      </label>
+      <span style="color:#666;font-size:11px;">[var] [Var] [digit] [greek] [Greek] [op] [rel] [bigop]</span>
+      <span id="status" class="status disconnected">Disconnected</span>
+    </div>
+  </div>
+  <div id="exprDisplay" class="expression-display">
+    <span style="color:#888;">Connecting...</span>
+  </div>
+  <div id="latexSource" class="latex-source"></div>
+</div>
+
+<div class="bottom">
+  <div class="left">
+    <div id="prompt" class="prompt">
+      <div class="step-info" id="stepInfo"></div>
+      <div>Draw: <span class="symbol-name" id="symbolName">—</span></div>
+    </div>
+
+    <canvas id="drawCanvas" width="600" height="300"></canvas>
+
+    <div class="toolbar">
+      <button id="nextBtn">Next (A)</button>
+      <button id="undoSymbolBtn">Undo Symbol (F)</button>
+      <button id="undoStrokeBtn">Undo Stroke (D)</button>
+      <button id="clearBtn">Clear (Esc)</button>
+      <button id="skipBtn">Skip Expr (Tab)</button>
+      <label>
+        Width: <input type="range" id="strokeSlider" min="1" max="8" step="0.5" value="2" style="width:60px;">
+        <span id="strokeVal">2.0</span>
+      </label>
+      <label>
+        Sampler: <select id="samplerSelect" style="background:#2a2a4a;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:2px 4px;font-size:12px;">
+        </select>
+      </label>
+      <label>
+        Run: <select id="runSelect" style="background:#2a2a4a;color:#e0e0e0;border:1px solid #555;border-radius:4px;padding:2px 4px;font-size:12px;">
+        </select>
+      </label>
+    </div>
+    <div class="hint">A = save & next, D = undo stroke, F = undo symbol, Esc = clear, Tab = skip</div>
+  </div>
+
+  <div class="right">
+    <div class="stats-row">
+      <span class="number" id="totalCount">0</span>
+      <span class="label">expressions collected</span>
+    </div>
+    <h2>Progress</h2>
+    <div id="symbolList" class="symbol-list"></div>
+  </div>
+</div>
+
+<div id="flash" class="flash"></div>
+
+<script>
+// ── Symbol display names (internal name → human-readable) ──
+const SYMBOL_DISPLAY = {
+  'A_cap': 'A', 'B_cap': 'B', 'C_cap': 'C', 'D_cap': 'D', 'E_cap': 'E',
+  'F_cap': 'F', 'G_cap': 'G', 'H_cap': 'H', 'I_cap': 'I', 'J_cap': 'J',
+  'K_cap': 'K', 'L_cap': 'L', 'M_cap': 'M', 'N_cap': 'N', 'O_cap': 'O',
+  'P_cap': 'P', 'Q_cap': 'Q', 'R_cap': 'R', 'S_cap': 'S', 'T_cap': 'T',
+  'U_cap': 'U', 'V_cap': 'V', 'W_cap': 'W', 'X_cap': 'X', 'Y_cap': 'Y',
+  'Z_cap': 'Z',
+  'Gamma_cap': 'Γ', 'Delta_cap': 'Δ', 'Sigma_up': 'Σ', 'Pi_up': 'Π',
+  'Phi_up': 'Φ', 'Psi_up': 'Ψ', 'Omega_up': 'Ω',
+  'alpha': 'α', 'beta': 'β', 'gamma': 'γ', 'delta': 'δ',
+  'epsilon': 'ε', 'theta': 'θ', 'lambda': 'λ', 'mu': 'μ',
+  'pi': 'π', 'sigma': 'σ', 'phi': 'φ', 'psi': 'ψ', 'omega': 'ω',
+  'times': '×', 'dot': '·', 'pm': '±',
+  'leq': '≤', 'geq': '≥', 'neq': '≠',
+  'in': '∈', 'subset': '⊂', 'cup': '∪', 'cap': '∩',
+  'partial': '∂', 'nabla': '∇', 'infty': '∞',
+  'rightarrow': '→', 'ldots': '…',
+  'int': '∫', 'sqrt': '√',
+};
+
+function displayName(name) {
+  return SYMBOL_DISPLAY[name] || name;
+}
+
+// ── State ──
+let strokes = [];          // current symbol's strokes
+let savedStrokes = [];     // array of arrays: one entry per previously saved symbol
+let currentStroke = [];
+let isDrawing = false;
+let strokeWidth = 2.0;
+let ws = null;
+
+// Expression state
+let currentExpr = null;
+
+// ── Elements ──
+const canvas = document.getElementById('drawCanvas');
+const ctx = canvas.getContext('2d');
+const exprDisplay = document.getElementById('exprDisplay');
+const symbolName = document.getElementById('symbolName');
+const stepInfo = document.getElementById('stepInfo');
+const statusEl = document.getElementById('status');
+const totalCountEl = document.getElementById('totalCount');
+const symbolList = document.getElementById('symbolList');
+const flashEl = document.getElementById('flash');
+
+// ── Flash message ──
+let flashTimeout = null;
+function flash(text, type = 'success') {
+  flashEl.textContent = text;
+  flashEl.className = `flash ${type} show`;
+  clearTimeout(flashTimeout);
+  flashTimeout = setTimeout(() => {
+    flashEl.classList.remove('show');
+  }, 1200);
+}
+
+// ── Canvas drawing ──
+function getPoint(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  return {
+    x: (clientX - rect.left) * scaleX,
+    y: (clientY - rect.top) * scaleY,
+    t: Date.now()
+  };
+}
+
+function startStroke(e) {
+  e.preventDefault();
+  isDrawing = true;
+  currentStroke = [getPoint(e)];
+}
+
+function moveStroke(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  const pt = getPoint(e);
+  currentStroke.push(pt);
+  const prev = currentStroke[currentStroke.length - 2];
+  ctx.beginPath();
+  ctx.moveTo(prev.x, prev.y);
+  ctx.lineTo(pt.x, pt.y);
+  ctx.stroke();
+}
+
+function endStroke(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  isDrawing = false;
+  if (currentStroke.length > 0) {
+    strokes.push(currentStroke);
+    currentStroke = [];
+  }
+}
+
+canvas.addEventListener('mousedown', startStroke);
+canvas.addEventListener('mousemove', moveStroke);
+canvas.addEventListener('mouseup', endStroke);
+canvas.addEventListener('mouseleave', endStroke);
+canvas.addEventListener('touchstart', startStroke, { passive: false });
+canvas.addEventListener('touchmove', moveStroke, { passive: false });
+canvas.addEventListener('touchend', endStroke, { passive: false });
+
+ctx.strokeStyle = 'black';
+ctx.lineWidth = strokeWidth;
+ctx.lineCap = 'round';
+ctx.lineJoin = 'round';
+clearCanvas();
+
+// ── Drawing helpers ──
+function redrawCanvas() {
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // Draw previously saved symbols in light gray
+  ctx.strokeStyle = '#ccc';
+  ctx.lineWidth = strokeWidth;
+  for (const symbolStrokes of savedStrokes) {
+    for (const stroke of symbolStrokes) {
+      ctx.beginPath();
+      for (let i = 0; i < stroke.length; i++) {
+        if (i === 0) ctx.moveTo(stroke[i].x, stroke[i].y);
+        else ctx.lineTo(stroke[i].x, stroke[i].y);
+      }
+      ctx.stroke();
+    }
+  }
+
+  // Draw current symbol strokes in black
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth = strokeWidth;
+  for (const stroke of strokes) {
+    ctx.beginPath();
+    for (let i = 0; i < stroke.length; i++) {
+      if (i === 0) ctx.moveTo(stroke[i].x, stroke[i].y);
+      else ctx.lineTo(stroke[i].x, stroke[i].y);
+    }
+    ctx.stroke();
+  }
+}
+
+// ── Actions ──
+function clearCanvas() {
+  strokes = [];
+  currentStroke = [];
+  redrawCanvas();
+}
+
+function clearAll() {
+  strokes = [];
+  currentStroke = [];
+  savedStrokes = [];
+  redrawCanvas();
+}
+
+function undoStroke() {
+  strokes.pop();
+  redrawCanvas();
+}
+
+function saveSymbol() {
+  if (!currentExpr) return;
+  if (strokes.length === 0) { flash('Draw something first!', 'info'); return; }
+  if (!ws || ws.readyState !== WebSocket.OPEN) { flash('Not connected!', 'info'); return; }
+
+  ws.send(JSON.stringify({
+    type: 'save_symbol',
+    strokes: strokes,
+    canvas_width: canvas.width,
+    canvas_height: canvas.height,
+    stroke_width: strokeWidth,
+  }));
+
+  // Move current strokes to saved, clear current
+  savedStrokes.push(strokes);
+  strokes = [];
+  currentStroke = [];
+  redrawCanvas();
+}
+
+function undoSymbol() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'undo_symbol' }));
+}
+
+function populateRunSelect(runs, currentRun) {
+  const sel = document.getElementById('runSelect');
+  sel.innerHTML = '';
+  for (const run of runs) {
+    const opt = document.createElement('option');
+    opt.value = run;
+    opt.textContent = run;
+    if (run === currentRun) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  // "New run" option
+  const newOpt = document.createElement('option');
+  newOpt.value = '__new__';
+  newOpt.textContent = '+ New run';
+  sel.appendChild(newOpt);
+}
+
+function skipExpr() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'skip' }));
+  clearAll();
+}
+
+// ── UI updates ──
+function renderExpression(data) {
+  currentExpr = data;
+  renderHighlightedLatex(data.highlighted_latex || data.latex);
+  document.getElementById('latexSource').textContent = data.latex;
+  updateSymbolUI(data.current_index);
+  totalCountEl.textContent = data.count || 0;
+}
+
+function renderHighlightedLatex(latex) {
+  try {
+    katex.render(latex, exprDisplay, { throwOnError: false, displayMode: true, trust: true });
+  } catch (e) {
+    exprDisplay.textContent = latex;
+  }
+}
+
+function isFracBar(index) {
+  if (!currentExpr || !currentExpr.is_bar) return false;
+  return currentExpr.is_bar[index];
+}
+
+function symbolLabel(name, index) {
+  if (isFracBar(index)) return '— (frac bar)';
+  return displayName(name);
+}
+
+function updateSymbolUI(currentIndex) {
+  if (!currentExpr) return;
+  currentExpr.current_index = currentIndex;
+
+  const symbols = currentExpr.symbols;
+  const name = symbols[currentIndex];
+
+  symbolName.textContent = symbolLabel(name, currentIndex);
+  stepInfo.textContent = `Symbol ${currentIndex + 1} of ${symbols.length}`;
+
+  // Build symbol list
+  symbolList.innerHTML = '';
+  for (let i = 0; i < symbols.length; i++) {
+    const item = document.createElement('div');
+    let cls = 'symbol-item';
+    let check = '';
+    if (i < currentIndex) {
+      cls += ' done';
+      check = '✓';
+    } else if (i === currentIndex) {
+      cls += ' current';
+      check = '→';
+    } else {
+      cls += ' pending';
+      check = ' ';
+    }
+    item.className = cls;
+    item.innerHTML = `<span class="idx">${i + 1}</span><span class="check">${check}</span><span>${symbolLabel(symbols[i], i)}</span>`;
+    symbolList.appendChild(item);
+  }
+}
+
+// ── Keyboard shortcuts ──
+document.addEventListener('keydown', e => {
+  // Disable shortcuts when typing in template input
+  if (document.activeElement === document.getElementById('templateInput')) return;
+  if (e.key === 'a' || e.key === 'Enter') { e.preventDefault(); saveSymbol(); }
+  else if (e.key === 'd') { e.preventDefault(); undoStroke(); }
+  else if (e.key === 'f') { e.preventDefault(); undoSymbol(); }
+  else if (e.key === 'Escape') { e.preventDefault(); clearCanvas(); }
+  else if (e.key === 'Tab') { e.preventDefault(); skipExpr(); }
+  else if (e.key === 'z' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); undoStroke(); }
+});
+
+// ── Button handlers ──
+document.getElementById('nextBtn').addEventListener('click', saveSymbol);
+document.getElementById('undoSymbolBtn').addEventListener('click', undoSymbol);
+document.getElementById('undoStrokeBtn').addEventListener('click', undoStroke);
+document.getElementById('clearBtn').addEventListener('click', clearCanvas);
+document.getElementById('skipBtn').addEventListener('click', skipExpr);
+
+document.getElementById('strokeSlider').addEventListener('input', e => {
+  strokeWidth = parseFloat(e.target.value);
+  document.getElementById('strokeVal').textContent = strokeWidth.toFixed(1);
+  ctx.lineWidth = strokeWidth;
+});
+
+document.getElementById('samplerSelect').addEventListener('change', () => {
+  const sampler = document.getElementById('samplerSelect').value;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'set_sampler', sampler }));
+  }
+  skipExpr();
+});
+
+document.getElementById('runSelect').addEventListener('change', () => {
+  const run = document.getElementById('runSelect').value;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'set_run', run }));
+  }
+});
+
+document.getElementById('templateInput').addEventListener('change', () => {
+  const template = document.getElementById('templateInput').value;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'set_template', template }));
+  }
+  skipExpr();
+});
+
+// ── WebSocket ──
+function connect() {
+  ws = new WebSocket('ws://localhost:8770');
+
+  ws.onopen = () => {
+    statusEl.textContent = 'Connected';
+    statusEl.className = 'status connected';
+    // Don't request expression yet — wait for versions message
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = 'Disconnected';
+    statusEl.className = 'status disconnected';
+    setTimeout(connect, 1500);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = e => {
+    const data = JSON.parse(e.data);
+
+    if (data.type === 'init') {
+      // Populate sampler selector
+      const sSel = document.getElementById('samplerSelect');
+      sSel.innerHTML = '';
+      const samplers = data.samplers;
+      for (const [name, desc] of Object.entries(samplers)) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = `${name}: ${desc}`;
+        if (name === data.current_sampler) opt.selected = true;
+        sSel.appendChild(opt);
+      }
+      // Populate run selector
+      populateRunSelect(data.runs, data.current_run);
+      totalCountEl.textContent = data.count || 0;
+      // Request first expression
+      ws.send(JSON.stringify({ type: 'get_expression' }));
+
+    } else if (data.type === 'run_changed') {
+      populateRunSelect(data.runs, data.run);
+      totalCountEl.textContent = data.count || 0;
+      flash(`Switched to ${data.run}`, 'info');
+      clearAll();
+      ws.send(JSON.stringify({ type: 'get_expression' }));
+
+    } else if (data.type === 'expression') {
+      renderExpression(data);
+      clearAll();
+
+    } else if (data.type === 'symbol_saved') {
+      flash(`Saved ${displayName(currentExpr.symbols[data.index])}`, 'success');
+      if (data.highlighted_latex) renderHighlightedLatex(data.highlighted_latex);
+      updateSymbolUI(data.current_index);
+
+    } else if (data.type === 'expression_saved') {
+      flash(`Expression #${data.count} saved!`, 'success');
+      totalCountEl.textContent = data.count;
+
+    } else if (data.type === 'symbol_undone') {
+      flash('Undid last symbol', 'info');
+      if (data.highlighted_latex) renderHighlightedLatex(data.highlighted_latex);
+      updateSymbolUI(data.current_index);
+      if (savedStrokes.length > 0) {
+        strokes = savedStrokes.pop();
+      } else {
+        strokes = [];
+      }
+      currentStroke = [];
+      redrawCanvas();
+
+    } else if (data.type === 'error') {
+      flash('Error: ' + data.message, 'info');
+    }
+  };
+}
+
+connect();
+</script>
+</body>
+</html>

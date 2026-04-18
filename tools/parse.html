@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Math OCR — math_ocr_v2</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.28/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.28/dist/katex.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; display: flex; height: 100vh; }
+
+  .main { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  h1 { font-size: 20px; color: #fff; }
+
+  .status { font-size: 13px; padding: 4px 10px; border-radius: 4px; display: inline-block; }
+  .status.connected { background: #10b981; color: #fff; }
+  .status.disconnected { background: #ef4444; color: #fff; }
+
+  .canvas-wrap { position: relative; display: inline-block; }
+  .canvas-wrap canvas { display: block; border-radius: 6px; }
+  #drawCanvas { background: #fff; cursor: crosshair; }
+  #overlayCanvas { position: absolute; top: 0; left: 0; pointer-events: none; }
+
+  .toolbar { display: flex; gap: 8px; align-items: center; }
+  .toolbar button { padding: 8px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; }
+  #detectBtn { background: #8b5cf6; color: #fff; }
+  #detectBtn:hover { background: #7c3aed; }
+  #undoBtn, #clearBtn { background: #444; color: #fff; }
+  #undoBtn:hover, #clearBtn:hover { background: #555; }
+
+  .hint { font-size: 12px; color: #888; }
+
+  /* Right panel */
+  .side { width: 420px; background: #16213e; padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+  .side h2 { font-size: 16px; color: #fff; }
+
+  .latex-rendered { text-align: center; padding: 20px; background: #fff; border-radius: 8px; min-height: 180px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+  .latex-rendered .katex-wrapper { display: inline-block; white-space: nowrap; }
+  .latex-rendered .katex { font-size: 42px; color: #000; }
+  .latex-rendered .placeholder { color: #bbb; font-size: 14px; font-style: italic; }
+  .latex-rendered .error { color: #ef4444; font-size: 13px; }
+
+  .latex-source { font-family: 'Courier New', monospace; font-size: 16px; text-align: center; padding: 10px; color: #8b5cf6; background: #1a1a2e; border-radius: 6px; min-height: 40px; word-break: break-all; }
+
+  .symbol-cards { display: flex; flex-wrap: wrap; gap: 8px; }
+  .symbol-card { background: #1a1a2e; border: 2px solid #444; border-radius: 6px; padding: 8px 12px; text-align: center; min-width: 60px; }
+  .symbol-card .sym { font-size: 24px; font-weight: bold; font-family: 'Courier New', monospace; }
+  .symbol-card .conf { font-size: 11px; color: #888; margin-top: 2px; }
+
+  .no-result { text-align: center; color: #555; padding: 20px 0; font-size: 14px; }
+
+  .relations-list { font-size: 13px; font-family: 'Courier New', monospace; }
+  .rel-row { padding: 3px 0; display: flex; align-items: center; gap: 6px; }
+  .rel-tag { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 3px; color: #fff; min-width: 52px; text-align: center; display: inline-block; }
+  .rel-root { background: #888; }
+  .rel-num { background: #f59e0b; }
+  .rel-den { background: #f97316; }
+  .rel-sup { background: #ef4444; }
+  .rel-sub { background: #10b981; }
+  .rel-sqrt { background: #8b5cf6; }
+  .rel-upper { background: #3b82f6; }
+  .rel-lower { background: #06b6d4; }
+  .rel-match { background: #ec4899; }
+
+  .partition-nav { display: flex; align-items: center; gap: 8px; }
+  .partition-nav button { background: #333; color: #ccc; border: 1px solid #555; border-radius: 4px; padding: 4px 10px; cursor: pointer; font-size: 14px; }
+  .partition-nav button:hover:not(:disabled) { background: #444; }
+  .partition-nav button:disabled { opacity: 0.3; cursor: default; }
+  .partition-nav .label { font-size: 13px; color: #888; }
+
+  #graphCanvas { background: #111827; border-radius: 8px; width: 100%; }
+  .graph-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+  .graph-legend span { font-size: 10px; display: flex; align-items: center; gap: 3px; }
+  .graph-legend .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+</style>
+</head>
+<body>
+
+<div class="main">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <h1>Math OCR</h1>
+    <span id="status" class="status disconnected">Disconnected</span>
+  </div>
+
+  <div class="canvas-wrap">
+    <canvas id="drawCanvas" width="800" height="400"></canvas>
+    <canvas id="overlayCanvas" width="800" height="400"></canvas>
+  </div>
+
+  <div class="toolbar">
+    <button id="detectBtn">Detect (Enter)</button>
+    <button id="undoBtn">Undo</button>
+    <button id="clearBtn">Clear (Esc)</button>
+    <label style="display:flex; align-items:center; gap:6px; color:#888; font-size:13px; margin-left:12px;">
+      Width: <input type="range" id="strokeSlider" min="1" max="8" step="0.5" value="2" style="width:80px;">
+      <span id="strokeVal">2.0</span>
+    </label>
+    <label style="display:flex; align-items:center; gap:6px; color:#888; font-size:13px; margin-left:12px;">
+      <input type="checkbox" id="debugCheck"> Debug
+    </label>
+  </div>
+  <div class="hint">Draw an expression, press Enter to detect. Arrow keys to switch partitions.</div>
+</div>
+
+<div class="side">
+  <div id="partitionNav" class="partition-nav" style="display:none;">
+    <button id="prevBtn">&larr;</button>
+    <span id="partitionLabel" class="label">1 / 1</span>
+    <button id="nextBtn">&rarr;</button>
+  </div>
+
+  <h2>Rendered</h2>
+  <div id="rendered" class="latex-rendered">
+    <span class="placeholder">Draw and press Enter</span>
+  </div>
+
+  <h2>LaTeX</h2>
+  <div id="latexSource" class="latex-source">&mdash;</div>
+
+  <h2>Detected Symbols</h2>
+  <div id="symbolCards" class="symbol-cards">
+    <div class="no-result">Draw and press Detect</div>
+  </div>
+
+  <h2>Relation Graph</h2>
+  <canvas id="graphCanvas" width="300" height="200"></canvas>
+  <div class="graph-legend">
+    <span><span class="dot" style="background:#888"></span>root</span>
+    <span><span class="dot" style="background:#f59e0b"></span>num</span>
+    <span><span class="dot" style="background:#f97316"></span>den</span>
+    <span><span class="dot" style="background:#ef4444"></span>sup</span>
+    <span><span class="dot" style="background:#10b981"></span>sub</span>
+    <span><span class="dot" style="background:#8b5cf6"></span>sqrt</span>
+    <span><span class="dot" style="background:#3b82f6"></span>upper</span>
+    <span><span class="dot" style="background:#06b6d4"></span>lower</span>
+  </div>
+  <div id="relationsPanel" class="relations-list">
+    <div class="no-result">No relations yet</div>
+  </div>
+</div>
+
+<script>
+const COLORS = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
+let strokeWidth = 2.0;
+
+let strokes = [];
+let currentStroke = [];
+let isDrawing = false;
+let ws = null;
+let allPartitions = [];
+let currentPartitionIdx = 0;
+let autoDetectTimer = null;
+
+const canvas = document.getElementById('drawCanvas');
+const ctx = canvas.getContext('2d');
+const overlay = document.getElementById('overlayCanvas');
+const overlayCtx = overlay.getContext('2d');
+const statusEl = document.getElementById('status');
+
+// --- Canvas drawing ---
+function getPoint(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  return {
+    x: (clientX - rect.left) * scaleX,
+    y: (clientY - rect.top) * scaleY,
+    t: Date.now()
+  };
+}
+
+function startStroke(e) {
+  e.preventDefault();
+  isDrawing = true;
+  currentStroke = [getPoint(e)];
+}
+
+function moveStroke(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  const pt = getPoint(e);
+  currentStroke.push(pt);
+  const prev = currentStroke[currentStroke.length - 2];
+  ctx.beginPath();
+  ctx.moveTo(prev.x, prev.y);
+  ctx.lineTo(pt.x, pt.y);
+  ctx.stroke();
+}
+
+function endStroke(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  isDrawing = false;
+  if (currentStroke.length > 0) {
+    strokes.push(currentStroke);
+    currentStroke = [];
+    // Auto-detect after brief pause
+    clearTimeout(autoDetectTimer);
+    autoDetectTimer = setTimeout(detect, 50);
+  }
+}
+
+canvas.addEventListener('mousedown', startStroke);
+canvas.addEventListener('mousemove', moveStroke);
+canvas.addEventListener('mouseup', endStroke);
+canvas.addEventListener('mouseleave', endStroke);
+canvas.addEventListener('touchstart', startStroke, { passive: false });
+canvas.addEventListener('touchmove', moveStroke, { passive: false });
+canvas.addEventListener('touchend', endStroke, { passive: false });
+
+ctx.strokeStyle = 'black';
+ctx.lineWidth = strokeWidth;
+ctx.lineCap = 'round';
+ctx.lineJoin = 'round';
+
+// --- Actions ---
+function clearCanvas() {
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth = strokeWidth;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  strokes = [];
+  currentStroke = [];
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'clear' }));
+  }
+  overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+  document.getElementById('rendered').innerHTML = '<span class="placeholder">Draw and press Enter</span>';
+  document.getElementById('latexSource').innerHTML = '&mdash;';
+  document.getElementById('symbolCards').innerHTML = '<div class="no-result">Draw and press Detect</div>';
+  document.getElementById('relationsPanel').innerHTML = '<div class="no-result">No relations yet</div>';
+  graphCtx.clearRect(0, 0, graphCanvas.width, graphCanvas.height);
+}
+
+function undo() {
+  strokes.pop();
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth = strokeWidth;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const stroke of strokes) {
+    ctx.beginPath();
+    for (let i = 0; i < stroke.length; i++) {
+      if (i === 0) ctx.moveTo(stroke[i].x, stroke[i].y);
+      else ctx.lineTo(stroke[i].x, stroke[i].y);
+    }
+    ctx.stroke();
+  }
+  overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+}
+
+function detect() {
+  if (strokes.length === 0) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) { alert('Not connected.'); return; }
+
+  ws.send(JSON.stringify({
+    type: 'detect',
+    strokes: strokes,
+    debug: document.getElementById('debugCheck').checked,
+    canvas_width: canvas.width,
+    canvas_height: canvas.height,
+    stroke_width: strokeWidth,
+  }));
+}
+
+const ET_COLORS = {
+  root: '#888', num: '#f59e0b', den: '#f97316', sup: '#ef4444',
+  sub: '#10b981', sqrt: '#8b5cf6', upper: '#3b82f6', lower: '#06b6d4', match: '#ec4899',
+};
+
+const graphCanvas = document.getElementById('graphCanvas');
+const graphCtx = graphCanvas.getContext('2d');
+
+function drawRelationGraph(symbols, relations) {
+  const gc = graphCtx;
+  const n = symbols.length;
+  if (n === 0) { gc.clearRect(0, 0, graphCanvas.width, graphCanvas.height); return; }
+
+  // Build adjacency: parent → children
+  // Relations: from=child, to=parent (-1 for ROOT)
+  const childrenOf = new Map(); // parentIdx → [{child, type, prob}]
+  childrenOf.set(-1, []);
+  for (let i = 0; i < n; i++) childrenOf.set(i, []);
+  for (const rel of relations) {
+    if (childrenOf.has(rel.to)) {
+      childrenOf.get(rel.to).push({ child: rel.from, type: rel.type, prob: rel.prob });
+    }
+  }
+
+  // BFS to assign depth levels (ROOT children at depth 1, ROOT virtual node at depth 0)
+  const depth = new Array(n).fill(-1);
+  const queue = [];
+  const rootChildren = childrenOf.get(-1) || [];
+  for (const rc of rootChildren) {
+    depth[rc.child] = 1;
+    queue.push(rc.child);
+  }
+  let qi = 0;
+  while (qi < queue.length) {
+    const cur = queue[qi++];
+    for (const ch of childrenOf.get(cur) || []) {
+      if (depth[ch.child] === -1) {
+        depth[ch.child] = depth[cur] + 1;
+        queue.push(ch.child);
+      }
+    }
+  }
+  for (let i = 0; i < n; i++) if (depth[i] === -1) depth[i] = 1;
+
+  const maxDepth = Math.max(...depth);
+  const nodeR = 16;
+  const levelH = 60;
+  const padX = 30, padTop = 25, padBot = 20;
+  const H = padTop + (maxDepth + 1) * levelH + padBot;
+
+  graphCanvas.height = Math.max(H, 100);
+  const W = graphCanvas.width;
+  gc.clearRect(0, 0, W, graphCanvas.height);
+
+  // Compute subtree widths bottom-up
+  const subtreeW = new Array(n).fill(1);
+  for (let d = maxDepth; d >= 0; d--) {
+    for (let i = 0; i < n; i++) {
+      if (depth[i] !== d) continue;
+      let w = 0;
+      for (const ch of childrenOf.get(i) || []) w += subtreeW[ch.child];
+      subtreeW[i] = Math.max(w, 1);
+    }
+  }
+  let totalW = 0;
+  for (const rc of rootChildren) totalW += subtreeW[rc.child];
+  totalW = Math.max(totalW, 1);
+
+  // Layout positions
+  const nodeX = new Array(n).fill(0);
+  const nodeY = new Array(n).fill(0);
+
+  function layoutChildren(parentCh, xStart, xEnd) {
+    let totalSW = 0;
+    for (const ch of parentCh) totalSW += subtreeW[ch.child];
+    if (totalSW === 0) return;
+    let x = xStart;
+    for (const ch of parentCh) {
+      const frac = subtreeW[ch.child] / totalSW;
+      const cxS = x, cxE = x + frac * (xEnd - xStart);
+      nodeX[ch.child] = (cxS + cxE) / 2;
+      nodeY[ch.child] = padTop + depth[ch.child] * levelH;
+      layoutChildren(childrenOf.get(ch.child) || [], cxS, cxE);
+      x = cxE;
+    }
+  }
+  layoutChildren(rootChildren, padX, W - padX);
+
+  // Virtual ROOT node position
+  const rootX = W / 2;
+  const rootY = padTop;
+
+  // Draw edges
+  for (const rel of relations) {
+    const ci = rel.from;
+    const pi = rel.to;
+    const color = ET_COLORS[rel.type] || '#888';
+
+    const px = pi === -1 ? rootX : nodeX[pi];
+    const py = pi === -1 ? rootY : nodeY[pi];
+    const cx = nodeX[ci], cy = nodeY[ci];
+
+    gc.strokeStyle = color;
+    gc.lineWidth = 2;
+    gc.globalAlpha = 0.9;
+    gc.beginPath();
+    gc.moveTo(px, py + nodeR);
+    gc.lineTo(cx, cy - nodeR);
+    gc.stroke();
+
+    // Arrowhead
+    const ax = cx, ay = cy - nodeR;
+    const adx = cx - px, ady = (cy - nodeR) - (py + nodeR);
+    const ang = Math.atan2(ady, adx);
+    const hl = 7, ha = 0.45;
+    gc.beginPath();
+    gc.moveTo(ax, ay);
+    gc.lineTo(ax - hl * Math.cos(ang - ha), ay - hl * Math.sin(ang - ha));
+    gc.moveTo(ax, ay);
+    gc.lineTo(ax - hl * Math.cos(ang + ha), ay - hl * Math.sin(ang + ha));
+    gc.stroke();
+    gc.globalAlpha = 1.0;
+
+    // Edge label
+    const lx = (px + cx) / 2 + (pi === -1 ? 0 : 8);
+    const ly = (py + nodeR + cy - nodeR) / 2;
+    const label = (rel.type === 'root' ? '' : rel.type + ' ') + (rel.prob * 100).toFixed(0) + '%';
+    gc.font = 'bold 10px -apple-system, sans-serif';
+    gc.textAlign = 'center';
+    gc.textBaseline = 'middle';
+    const tw = gc.measureText(label).width + 6;
+    gc.fillStyle = '#111827';
+    gc.fillRect(lx - tw / 2, ly - 7, tw, 14);
+    gc.fillStyle = color;
+    gc.fillText(label, lx, ly);
+  }
+
+  // Draw ROOT virtual node
+  gc.fillStyle = '#374151';
+  gc.strokeStyle = '#888';
+  gc.lineWidth = 2;
+  gc.beginPath();
+  gc.arc(rootX, rootY, nodeR, 0, Math.PI * 2);
+  gc.fill();
+  gc.stroke();
+  gc.fillStyle = '#aaa';
+  gc.font = 'bold 11px -apple-system, sans-serif';
+  gc.textAlign = 'center';
+  gc.textBaseline = 'middle';
+  gc.fillText('ROOT', rootX, rootY);
+
+  // Draw symbol nodes
+  for (let i = 0; i < n; i++) {
+    const x = nodeX[i], y = nodeY[i];
+    gc.fillStyle = '#1e293b';
+    gc.strokeStyle = COLORS[i % COLORS.length];
+    gc.lineWidth = 2;
+    gc.beginPath();
+    gc.arc(x, y, nodeR, 0, Math.PI * 2);
+    gc.fill();
+    gc.stroke();
+
+    gc.fillStyle = '#fff';
+    gc.font = 'bold 13px Courier New';
+    gc.textAlign = 'center';
+    gc.textBaseline = 'middle';
+    const lbl = symbols[i].symbol.length > 4 ? symbols[i].symbol.slice(0, 4) : symbols[i].symbol;
+    gc.fillText(lbl, x, y);
+  }
+}
+
+function displayResult(data) {
+  allPartitions = data.partitions || [];
+  currentPartitionIdx = 0;
+
+  const nav = document.getElementById('partitionNav');
+  if (allPartitions.length > 1) {
+    nav.style.display = 'flex';
+  } else {
+    nav.style.display = 'none';
+  }
+
+  if (allPartitions.length === 0) {
+    showEmptyResult();
+  } else {
+    showPartition(0); // server sorts by combined score
+  }
+}
+
+function showEmptyResult() {
+  document.getElementById('latexSource').textContent = '(empty)';
+  document.getElementById('rendered').innerHTML = '<span class="placeholder">No expression detected</span>';
+  document.getElementById('symbolCards').innerHTML = '<div class="no-result">No symbols detected</div>';
+  document.getElementById('relationsPanel').innerHTML = '<div class="no-result">No relations</div>';
+  overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+  graphCtx.clearRect(0, 0, graphCanvas.width, graphCanvas.height);
+}
+
+function showPartition(idx) {
+  if (idx < 0 || idx >= allPartitions.length) return;
+  currentPartitionIdx = idx;
+
+  const part = allPartitions[idx];
+  const latex = part.latex || '';
+  const symbols = part.symbols || [];
+  const relations = part.relations || [];
+
+  // Update nav
+  document.getElementById('partitionLabel').textContent = (idx + 1) + ' / ' + allPartitions.length;
+  document.getElementById('prevBtn').disabled = idx === 0;
+  document.getElementById('nextBtn').disabled = idx === allPartitions.length - 1;
+
+  // LaTeX source + combined score
+  const confStr = part.score != null ? '  (' + (part.score * 100).toFixed(0) + '%)' : '';
+  document.getElementById('latexSource').textContent = (latex || '(empty)') + confStr;
+
+  // Rendered LaTeX
+  const renderedEl = document.getElementById('rendered');
+  if (latex) {
+    try {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'katex-wrapper';
+      katex.render(latex, wrapper, { throwOnError: false, displayMode: true });
+      renderedEl.innerHTML = '';
+      renderedEl.appendChild(wrapper);
+      // Scale down to fit container (check both width and height)
+      requestAnimationFrame(() => {
+        const cW = renderedEl.clientWidth - 40;
+        const cH = renderedEl.clientHeight - 40;
+        const kW = wrapper.offsetWidth;
+        const kH = wrapper.offsetHeight;
+        const scaleX = kW > cW ? cW / kW : 1;
+        const scaleY = kH > cH ? cH / kH : 1;
+        const scale = Math.min(scaleX, scaleY);
+        if (scale < 1) {
+          wrapper.style.transform = 'scale(' + scale + ')';
+          wrapper.style.transformOrigin = 'center center';
+        }
+      });
+    } catch (e) {
+      renderedEl.innerHTML = '<span class="error">' + escHtml(e.message) + '</span>';
+    }
+  } else {
+    renderedEl.innerHTML = '<span class="placeholder">No expression detected</span>';
+  }
+
+  // Overlay: bounding boxes
+  overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+  for (let i = 0; i < symbols.length; i++) {
+    const sym = symbols[i];
+    const color = COLORS[i % COLORS.length];
+    const b = sym.bbox;
+
+    overlayCtx.strokeStyle = color;
+    overlayCtx.lineWidth = 3;
+    overlayCtx.setLineDash([6, 3]);
+    overlayCtx.strokeRect(b.x - 4, b.y - 4, b.w + 8, b.h + 8);
+    overlayCtx.setLineDash([]);
+
+    overlayCtx.font = 'bold 18px monospace';
+    overlayCtx.fillStyle = color;
+    overlayCtx.fillText(sym.symbol, b.x - 4, b.y - 10);
+  }
+
+  // Symbol cards
+  const cardsEl = document.getElementById('symbolCards');
+  if (symbols.length === 0) {
+    cardsEl.innerHTML = '<div class="no-result">No symbols detected</div>';
+  } else {
+    cardsEl.innerHTML = symbols.map((sym, i) => {
+      const color = COLORS[i % COLORS.length];
+      const pct = (sym.confidence * 100).toFixed(1);
+      return '<div class="symbol-card" style="border-color:' + color + '">' +
+        '<div class="sym" style="color:' + color + '">' + escHtml(sym.symbol) + '</div>' +
+        '<div class="conf">' + pct + '%</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  // Relations panel
+  const relEl = document.getElementById('relationsPanel');
+  if (relations.length === 0) {
+    relEl.innerHTML = '<div class="no-result">No relations</div>';
+  } else {
+    relEl.innerHTML = relations.map(rel => {
+      const childSym = symbols[rel.from] ? symbols[rel.from].symbol : '?';
+      const parentSym = rel.to >= 0 && symbols[rel.to] ? symbols[rel.to].symbol : 'ROOT';
+      const pct = (rel.prob * 100).toFixed(0) + '%';
+      return '<div class="rel-row">' +
+        '<span class="rel-tag rel-' + rel.type + '">' + rel.type + '</span> ' +
+        escHtml(parentSym) + ' → ' + escHtml(childSym) +
+        ' <span style="color:#888;font-size:11px">' + pct + '</span>' +
+      '</div>';
+    }).join('');
+  }
+
+  // Draw relation graph
+  drawRelationGraph(symbols, relations);
+}
+
+function escHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+document.getElementById('detectBtn').addEventListener('click', detect);
+document.getElementById('undoBtn').addEventListener('click', undo);
+document.getElementById('clearBtn').addEventListener('click', clearCanvas);
+document.getElementById('prevBtn').addEventListener('click', () => showPartition(currentPartitionIdx - 1));
+document.getElementById('nextBtn').addEventListener('click', () => showPartition(currentPartitionIdx + 1));
+
+document.getElementById('strokeSlider').addEventListener('input', e => {
+  strokeWidth = parseFloat(e.target.value);
+  document.getElementById('strokeVal').textContent = strokeWidth.toFixed(1);
+  ctx.lineWidth = strokeWidth;
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter') detect();
+  if (e.key === 'Escape') clearCanvas();
+  if (e.key === 'z' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); undo(); }
+  if (e.key === 'ArrowLeft' && allPartitions.length > 1) showPartition(currentPartitionIdx - 1);
+  if (e.key === 'ArrowRight' && allPartitions.length > 1) showPartition(currentPartitionIdx + 1);
+});
+
+// --- WebSocket ---
+function connect() {
+  ws = new WebSocket('ws://localhost:8768');
+
+  ws.onopen = () => {
+    statusEl.textContent = 'Connected';
+    statusEl.className = 'status connected';
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = 'Disconnected';
+    statusEl.className = 'status disconnected';
+    setTimeout(connect, 1000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = e => {
+    const data = JSON.parse(e.data);
+    if (data.type === 'result') {
+      displayResult(data);
+    } else if (data.type === 'error') {
+      alert('Error: ' + data.message);
+    }
+  };
+}
+
+connect();
+clearCanvas();
+</script>
+</body>
+</html>

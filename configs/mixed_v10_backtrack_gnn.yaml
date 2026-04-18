@@ -1,0 +1,25 @@
+# mixed_v10 with beam search + GNN verification
+
+classifier:
+  run: v9_combined
+
+grouper:
+  type: classical
+  classifier_run: v9_combined
+  top_k: 3
+
+tree_parser:
+  type: gnn
+  subset_run: mixed_v10
+  gnn_run: mixed_v10
+  max_subset: 8
+  max_iters: 3
+  scoring: full_spatial
+  cost: propagate
+  subset_strategy: spatial
+  tree_strategy: backtrack
+  tta_runs: 1
+  tta_dx: 0.05
+  tta_dy: 0.05
+  tta_size: 0.05
+  root_discount: 0.3

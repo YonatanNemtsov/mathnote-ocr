@@ -1,0 +1,39 @@
+# Default pipeline configuration
+# All fields optional — omit to use hardcoded defaults.
+
+classifier:
+  run: v9_combined
+  ood_threshold: 15.0
+  min_confidence: 0.15
+  per_class_thresholds:
+    x: 15.0
+    dot: 15.0
+    "-": 15.0
+
+grouper:
+  type: classical              # "gnn" or "classical"
+  gnn_run: null
+  classifier_run: v9_combined
+  edge_threshold: 0.0
+  top_k: 10
+  max_strokes_per_symbol: 4
+  size_multiplier: 0.1
+  min_merge_distance: 14.0
+  max_group_diameter_ratio: 2.2
+  conflict_threshold: 0.32
+  stroke_width: 2.0
+
+tree_parser:
+  type: subset            # "subset" or "gnn"
+  subset_run: mixed_v1
+  # gnn_run: mixed_v1         # only needed for type: gnn
+  max_subset: 8
+  radius_mult: 4.0
+  max_iters: 3
+  scoring: full_spatial
+  subset_strategy: spatial    # "spatial" or "neighborhood"
+  # neighborhood params (only used when subset_strategy: neighborhood)
+  # k_neighbors: 5
+  # subset_min_size: 2
+  # subset_max_size: 5
+  # cost: propagate

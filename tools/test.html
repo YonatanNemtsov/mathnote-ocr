@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Symbol Tester — math_ocr_v2</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; display: flex; height: 100vh; }
+
+  .main { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  h1 { font-size: 20px; color: #fff; }
+
+  .status { font-size: 13px; padding: 4px 10px; border-radius: 4px; display: inline-block; }
+  .status.connected { background: #10b981; color: #fff; }
+  .status.disconnected { background: #ef4444; color: #fff; }
+
+  canvas#drawCanvas { background: #fff; border-radius: 6px; cursor: crosshair; display: block; }
+
+  .toolbar { display: flex; gap: 8px; }
+  .toolbar button { padding: 8px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; }
+  #predictBtn { background: #10b981; color: #fff; }
+  #predictBtn:hover { background: #059669; }
+  #undoBtn, #clearBtn { background: #444; color: #fff; }
+  #undoBtn:hover, #clearBtn:hover { background: #555; }
+
+  .hint { font-size: 12px; color: #888; }
+
+  /* Right panel */
+  .side { width: 300px; background: #16213e; padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+  .side h2 { font-size: 16px; color: #fff; }
+
+  .prediction-symbol { font-size: 64px; font-weight: bold; text-align: center; padding: 10px; color: #3b82f6; }
+  .prediction-symbol.ood { color: #ef4444; }
+  .prediction-conf { text-align: center; font-size: 18px; color: #ccc; }
+
+  .ood-info { font-size: 13px; padding: 8px; border-radius: 6px; background: #1a1a2e; }
+  .ood-info .row { display: flex; justify-content: space-between; padding: 2px 0; }
+  .ood-info .label { color: #888; }
+  .ood-ok { color: #10b981; }
+  .ood-reject { color: #ef4444; }
+
+  .previews { display: flex; gap: 12px; justify-content: center; }
+  .preview-box { text-align: center; }
+  .preview-box canvas, .preview-box img { border: 1px solid #444; border-radius: 4px; image-rendering: pixelated; background: #fff; }
+  .preview-box .label { font-size: 11px; color: #888; margin-top: 4px; }
+
+  .bar-chart { display: flex; flex-direction: column; gap: 4px; }
+  .bar-row { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  .bar-label { width: 40px; text-align: right; color: #ccc; }
+  .bar-track { flex: 1; height: 18px; background: #1a1a2e; border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; background: #3b82f6; border-radius: 3px; transition: width 0.2s; }
+  .bar-fill.top { background: #10b981; }
+  .bar-value { width: 48px; color: #888; font-size: 12px; }
+
+  .no-prediction { text-align: center; color: #555; padding: 30px 0; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<div class="main">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <h1>Symbol Tester</h1>
+    <span id="status" class="status disconnected">Disconnected</span>
+  </div>
+
+  <canvas id="drawCanvas" width="800" height="400"></canvas>
+
+  <div class="toolbar">
+    <button id="predictBtn">Predict (Enter)</button>
+    <button id="undoBtn">Undo</button>
+    <button id="clearBtn">Clear (Esc)</button>
+    <label style="display:flex; align-items:center; gap:6px; color:#888; font-size:13px; margin-left:12px;">
+      Width: <input type="range" id="strokeSlider" min="1" max="8" step="0.5" value="2" style="width:80px;">
+      <span id="strokeVal">2.0</span>
+    </label>
+  </div>
+  <div class="hint">Draw a symbol, press Enter to classify.</div>
+</div>
+
+<div class="side">
+  <h2>Prediction</h2>
+  <div id="predictionArea">
+    <div class="no-prediction">Draw a symbol and press Predict</div>
+  </div>
+
+  <h2>Renders</h2>
+  <div class="previews">
+    <div class="preview-box">
+      <canvas id="previewCanvas" width="128" height="128"></canvas>
+      <div class="label">Live preview</div>
+    </div>
+    <div class="preview-box">
+      <img id="serverRender" width="128" height="128" />
+      <div class="label">Model input</div>
+    </div>
+  </div>
+
+  <h2>Details</h2>
+  <div id="oodInfo" class="ood-info" style="display:none;">
+    <div class="row"><span class="label">OOD Status</span><span id="oodStatus">—</span></div>
+    <div class="row"><span class="label">Proto Distance</span><span id="protoDistance">—</span></div>
+    <div class="row"><span class="label">Confidence</span><span id="confValue">—</span></div>
+  </div>
+
+  <h2>Top Predictions</h2>
+  <div id="barChart" class="bar-chart">
+    <div class="no-prediction" style="font-size:12px;">—</div>
+  </div>
+</div>
+
+<script>
+let strokeWidth = 2.0;
+
+let strokes = [];
+let currentStroke = [];
+let isDrawing = false;
+let ws = null;
+
+const canvas = document.getElementById('drawCanvas');
+const ctx = canvas.getContext('2d');
+const previewCanvas = document.getElementById('previewCanvas');
+const previewCtx = previewCanvas.getContext('2d');
+const serverRender = document.getElementById('serverRender');
+const statusEl = document.getElementById('status');
+const predictionArea = document.getElementById('predictionArea');
+const oodInfo = document.getElementById('oodInfo');
+const barChart = document.getElementById('barChart');
+
+// --- Canvas drawing ---
+function getPoint(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  return {
+    x: (clientX - rect.left) * scaleX,
+    y: (clientY - rect.top) * scaleY,
+    t: Date.now()
+  };
+}
+
+function startStroke(e) {
+  e.preventDefault();
+  isDrawing = true;
+  currentStroke = [getPoint(e)];
+}
+
+function moveStroke(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  const pt = getPoint(e);
+  currentStroke.push(pt);
+  const prev = currentStroke[currentStroke.length - 2];
+  ctx.beginPath();
+  ctx.moveTo(prev.x, prev.y);
+  ctx.lineTo(pt.x, pt.y);
+  ctx.stroke();
+}
+
+function endStroke(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  isDrawing = false;
+  if (currentStroke.length > 0) {
+    strokes.push(currentStroke);
+    currentStroke = [];
+    updatePreview();
+  }
+}
+
+canvas.addEventListener('mousedown', startStroke);
+canvas.addEventListener('mousemove', moveStroke);
+canvas.addEventListener('mouseup', endStroke);
+canvas.addEventListener('mouseleave', endStroke);
+canvas.addEventListener('touchstart', startStroke, { passive: false });
+canvas.addEventListener('touchmove', moveStroke, { passive: false });
+canvas.addEventListener('touchend', endStroke, { passive: false });
+
+ctx.strokeStyle = 'black';
+ctx.lineWidth = strokeWidth;
+ctx.lineCap = 'round';
+ctx.lineJoin = 'round';
+clearCanvas();
+
+// --- Preview ---
+function updatePreview() {
+  previewCtx.fillStyle = 'white';
+  previewCtx.fillRect(0, 0, 128, 128);
+  if (strokes.length === 0) return;
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const stroke of strokes) {
+    for (const p of stroke) {
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y);
+    }
+  }
+
+  const bw = Math.max(maxX - minX, 1);
+  const bh = Math.max(maxY - minY, 1);
+  const padding = 0.15;
+  const usable = 128 * (1 - 2 * padding);
+  let scale = usable / Math.max(bw, bh);
+  const sourceSize = Math.max(canvas.width, canvas.height);
+  const maxScale = usable / (sourceSize * 0.1);
+  scale = Math.min(scale, maxScale);
+
+  const offX = (128 - bw * scale) / 2;
+  const offY = (128 - bh * scale) / 2;
+
+  previewCtx.strokeStyle = 'black';
+  previewCtx.lineWidth = Math.max(2, strokeWidth * scale);
+  previewCtx.lineCap = 'round';
+  previewCtx.lineJoin = 'round';
+
+  for (const stroke of strokes) {
+    if (stroke.length === 1) {
+      const x = (stroke[0].x - minX) * scale + offX;
+      const y = (stroke[0].y - minY) * scale + offY;
+      previewCtx.beginPath();
+      previewCtx.arc(x, y, strokeWidth, 0, Math.PI * 2);
+      previewCtx.fillStyle = 'black';
+      previewCtx.fill();
+    } else {
+      previewCtx.beginPath();
+      for (let i = 0; i < stroke.length; i++) {
+        const x = (stroke[i].x - minX) * scale + offX;
+        const y = (stroke[i].y - minY) * scale + offY;
+        if (i === 0) previewCtx.moveTo(x, y);
+        else previewCtx.lineTo(x, y);
+      }
+      previewCtx.stroke();
+    }
+  }
+}
+
+// --- Actions ---
+function clearCanvas() {
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth = strokeWidth;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  strokes = [];
+  currentStroke = [];
+  updatePreview();
+}
+
+function undo() {
+  strokes.pop();
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth = strokeWidth;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const stroke of strokes) {
+    ctx.beginPath();
+    for (let i = 0; i < stroke.length; i++) {
+      if (i === 0) ctx.moveTo(stroke[i].x, stroke[i].y);
+      else ctx.lineTo(stroke[i].x, stroke[i].y);
+    }
+    ctx.stroke();
+  }
+  updatePreview();
+}
+
+function predict() {
+  if (strokes.length === 0) { alert('Draw something first.'); return; }
+  if (!ws || ws.readyState !== WebSocket.OPEN) { alert('Not connected.'); return; }
+
+  ws.send(JSON.stringify({
+    type: 'predict',
+    strokes: strokes,
+    canvas_width: canvas.width,
+    canvas_height: canvas.height,
+    stroke_width: strokeWidth,
+  }));
+}
+
+function displayPrediction(data) {
+  // Server render
+  serverRender.src = data.rendered_image;
+
+  // Main prediction
+  const sym = data.is_ood ? (data.raw_symbol || '?') : data.symbol;
+  const oodClass = data.is_ood ? ' ood' : '';
+  predictionArea.innerHTML = `
+    <div class="prediction-symbol${oodClass}">${escHtml(sym)}</div>
+    <div class="prediction-conf">${(data.confidence * 100).toFixed(1)}%${data.is_ood ? ' — OOD Rejected' : ''}</div>
+  `;
+
+  // OOD info
+  oodInfo.style.display = 'block';
+  document.getElementById('oodStatus').innerHTML = data.is_ood
+    ? '<span class="ood-reject">REJECTED</span>'
+    : '<span class="ood-ok">OK</span>';
+  document.getElementById('protoDistance').textContent = data.prototype_distance.toFixed(2);
+  document.getElementById('confValue').textContent = (data.confidence * 100).toFixed(1) + '%';
+
+  // Bar chart
+  const preds = data.all_predictions || [];
+  if (preds.length > 0) {
+    const maxConf = preds[0].confidence;
+    barChart.innerHTML = preds.map((p, i) => {
+      const pct = (p.confidence * 100).toFixed(1);
+      const width = maxConf > 0 ? (p.confidence / maxConf * 100) : 0;
+      const topClass = i === 0 ? ' top' : '';
+      return `<div class="bar-row">
+        <span class="bar-label">${escHtml(p.symbol)}</span>
+        <div class="bar-track"><div class="bar-fill${topClass}" style="width:${width}%"></div></div>
+        <span class="bar-value">${pct}%</span>
+      </div>`;
+    }).join('');
+  }
+}
+
+function escHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+document.getElementById('predictBtn').addEventListener('click', predict);
+document.getElementById('undoBtn').addEventListener('click', undo);
+document.getElementById('clearBtn').addEventListener('click', clearCanvas);
+
+document.getElementById('strokeSlider').addEventListener('input', e => {
+  strokeWidth = parseFloat(e.target.value);
+  document.getElementById('strokeVal').textContent = strokeWidth.toFixed(1);
+  ctx.lineWidth = strokeWidth;
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter') predict();
+  if (e.key === 'Escape') clearCanvas();
+  if (e.key === 'z' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); undo(); }
+});
+
+// --- WebSocket ---
+function connect() {
+  ws = new WebSocket('ws://localhost:8766');
+
+  ws.onopen = () => {
+    statusEl.textContent = 'Connected';
+    statusEl.className = 'status connected';
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = 'Disconnected';
+    statusEl.className = 'status disconnected';
+    setTimeout(connect, 1000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = e => {
+    const data = JSON.parse(e.data);
+    if (data.type === 'prediction') {
+      displayPrediction(data);
+    } else if (data.type === 'error') {
+      alert('Error: ' + data.message);
+    }
+  };
+}
+
+connect();
+</script>
+</body>
+</html>

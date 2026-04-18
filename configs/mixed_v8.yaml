@@ -1,0 +1,22 @@
+# Default pipeline configuration
+# All fields optional — omit to use hardcoded defaults.
+
+classifier:
+  run: v9_combined
+
+grouper:
+  type: classical              # "gnn" or "classical"
+  gnn_run: null
+  classifier_run: v9_combined
+  edge_threshold: 0.0
+  top_k: 10
+
+tree_parser:
+  type: subset            # "subset" or "gnn"
+  subset_run: mixed_v8
+  #gnn_run: mixed_v1         # only needed for type: gnn
+  max_subset: 8
+  radius_mult: 4.0
+  max_iters: 3
+  scoring: full_spatial
+  cost: propagate

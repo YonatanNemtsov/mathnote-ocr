@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Model weights
+weights/
+
+# Training data (keep build scripts and READMEs, exclude heavy files)
+data/**/*.jsonl
+data/**/*.jsonl.bak*
+data/**/*.pt
+data/**/*.pth
+data/**/*.png
+data/**/*.jpg
+data/**/*.json
+data/tmp/
+data/shared/symbols/**/*.png
+data/shared/symbols_from_expr/
+data/shared/classifier_augmented/
+data/shared/tree_handwritten/**/*.png
+data/shared/tree_handwritten/**/*.bak*
+# But keep handwritten stroke/tree data (small, essential for training)
+!data/shared/tree_handwritten/**/*.jsonl
+!data/shared/tree_handwritten/**/*.json
+!data/shared/symbols/**/*.json
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+venv/
+.venv/
+
+# Debug artifacts
+tree_vis.html

@@ -1,0 +1,26 @@
+# mixed_v9 with bottom-up tree building
+
+classifier:
+  run: v9_combined
+
+grouper:
+  type: classical
+  classifier_run: v9_combined
+  top_k: 3
+
+tree_parser:
+  type: subset
+  subset_run: mixed_v9
+  max_subset: 8
+  max_iters: 3
+  scoring: full_spatial
+  cost: propagate
+  subset_strategy: spatial
+  tree_strategy: bottomup
+  seq_threshold: 0.5
+  tta_runs: 20
+  tta_dx: 0.5
+  tta_dy: 0.5
+  tta_size: 0.3
+  spatial_penalty: 15.0
+  root_discount: 0.7

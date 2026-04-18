@@ -1,0 +1,24 @@
+# mixed_v9 with GNN refinement + Edmonds
+
+classifier:
+  run: v9_combined
+
+grouper:
+  type: classical
+  classifier_run: v9_combined
+  top_k: 10
+
+tree_parser:
+  type: subset
+  subset_run: mixed_v9
+  gnn_run: mixed_v9
+  max_subset: 8
+  max_iters: 3
+  scoring: full_spatial
+  cost: propagate
+  subset_strategy: spatial
+  tree_strategy: edmonds
+  tta_runs: 5
+  tta_dx: 0.1
+  tta_dy: 0.1
+  tta_size: 0.1

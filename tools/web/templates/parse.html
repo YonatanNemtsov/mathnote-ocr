@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Math OCR</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.28/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.28/dist/katex.min.js"></script>
+<link rel="stylesheet" href="/static/css/parse.css">
+</head>
+<body>
+
+<div class="main">
+  <div class="header">
+    <h1>Math OCR</h1>
+    <div class="header-right">
+      <select id="configSelect" class="config-select"></select>
+      <span id="status" class="status disconnected">Disconnected</span>
+    </div>
+  </div>
+
+  <div class="canvas-wrap">
+    <canvas id="drawCanvas" width="800" height="400"></canvas>
+    <canvas id="overlayCanvas" width="800" height="400"></canvas>
+  </div>
+
+  <div class="toolbar">
+    <button id="detectBtn">Detect (Enter)</button>
+    <button id="undoBtn" class="btn-secondary">Undo</button>
+    <button id="clearBtn" class="btn-secondary">Clear (Esc)</button>
+    <label>
+      Width: <input type="range" id="strokeSlider" min="1" max="8" step="0.5" value="2" style="width:80px;">
+      <span id="strokeVal">2.0</span>
+    </label>
+    <label>
+      <input type="checkbox" id="debugCheck"> Debug
+    </label>
+    <span id="timingInfo" class="timing"></span>
+  </div>
+  <div class="hint">Draw an expression, press Enter to detect. Arrow keys to switch partitions.</div>
+</div>
+
+<div class="side">
+  <div id="partitionNav" class="partition-nav" style="display:none;">
+    <button id="prevBtn">&larr;</button>
+    <span id="partitionLabel" class="label">1 / 1</span>
+    <button id="nextBtn">&rarr;</button>
+  </div>
+
+  <h2>Rendered</h2>
+  <div id="rendered" class="latex-rendered">
+    <span class="placeholder">Draw and press Enter</span>
+  </div>
+
+  <h2>LaTeX</h2>
+  <div id="latexSource" class="latex-source">&mdash;</div>
+
+  <h2>Detected Symbols</h2>
+  <div id="symbolCards" class="symbol-cards">
+    <div class="no-result">Draw and press Detect</div>
+  </div>
+
+  <div id="subsetsSection" style="display:none;">
+    <h2 class="section-header" onclick="toggleSection('subsetsContent', this)">
+      <span class="toggle">&#9660;</span> Subsets
+    </h2>
+    <div id="subsetsContent" class="section-content">
+      <div id="subsetsPanel"></div>
+    </div>
+  </div>
+
+  <h2>Relation Graph</h2>
+  <canvas id="graphCanvas" width="300" height="200"></canvas>
+  <div class="graph-legend">
+    <span><span class="dot" style="background:#888"></span>root</span>
+    <span><span class="dot" style="background:#f59e0b"></span>num</span>
+    <span><span class="dot" style="background:#f97316"></span>den</span>
+    <span><span class="dot" style="background:#ef4444"></span>sup</span>
+    <span><span class="dot" style="background:#10b981"></span>sub</span>
+    <span><span class="dot" style="background:#8b5cf6"></span>sqrt</span>
+    <span><span class="dot" style="background:#3b82f6"></span>upper</span>
+    <span><span class="dot" style="background:#06b6d4"></span>lower</span>
+  </div>
+  <div id="relationsPanel" class="relations-list">
+    <div class="no-result">No relations yet</div>
+  </div>
+</div>
+
+<script src="/static/js/canvas.js"></script>
+<script src="/static/js/graph.js"></script>
+<script src="/static/js/parse.js"></script>
+</body>
+</html>

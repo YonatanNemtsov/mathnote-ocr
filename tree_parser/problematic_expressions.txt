@@ -1,0 +1,15 @@
+# Problematic expressions that the tree parser fails on.
+# Use with test_tree.py to track regression / improvement.
+#
+# Format: one LaTeX expression per line. Lines starting with # are comments.
+
+\frac{1+\frac{1}{y}}{x+y+z}
+{\int_{0}^{1}}\frac{1+\frac{1}{x}}{x+y+z}
+{\int_{zzz}}\frac{1+\frac{1}{x}}{x+y+z}
+{\int_{zzz}}\frac{1}{x+y+z}
+e^{|x^{2}-5+x-5|}
+\frac{e^{|x^{2}-5+x|}}{4}
+\frac{{\int}\frac{1+x}{2-3}{\cdot}\frac{11}{x}}{x}
+(x^{4}-1)^{3}+1_{x}-1^{2}
+e^{-\frac{x}{y}}
+a^{-1}+b^{-1}

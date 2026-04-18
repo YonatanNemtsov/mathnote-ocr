@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Expression Detection — math_ocr_v2</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; display: flex; height: 100vh; }
+
+  .main { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  h1 { font-size: 20px; color: #fff; }
+
+  .status { font-size: 13px; padding: 4px 10px; border-radius: 4px; display: inline-block; }
+  .status.connected { background: #10b981; color: #fff; }
+  .status.disconnected { background: #ef4444; color: #fff; }
+
+  .canvas-wrap { position: relative; display: inline-block; }
+  .canvas-wrap canvas { display: block; border-radius: 6px; }
+  #drawCanvas { background: #fff; cursor: crosshair; }
+  #overlayCanvas { position: absolute; top: 0; left: 0; pointer-events: none; }
+
+  .toolbar { display: flex; gap: 8px; }
+  .toolbar button { padding: 8px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; }
+  #detectBtn { background: #8b5cf6; color: #fff; }
+  #detectBtn:hover { background: #7c3aed; }
+  #undoBtn, #clearBtn { background: #444; color: #fff; }
+  #undoBtn:hover, #clearBtn:hover { background: #555; }
+
+  .hint { font-size: 12px; color: #888; }
+
+  /* Right panel */
+  .side { width: 300px; background: #16213e; padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+  .side h2 { font-size: 16px; color: #fff; }
+
+  .expression { font-size: 28px; font-weight: bold; text-align: center; padding: 12px; color: #fff; font-family: 'Courier New', monospace; min-height: 56px; background: #1a1a2e; border-radius: 6px; }
+
+  .partition-nav { display: flex; align-items: center; gap: 8px; }
+  .partition-nav button { padding: 4px 12px; border-radius: 4px; border: 1px solid #555; background: #16213e; color: #ccc; cursor: pointer; font-size: 16px; font-weight: bold; }
+  .partition-nav button:hover { background: #1a3a5c; }
+  .partition-nav button:disabled { opacity: 0.3; cursor: default; }
+  .partition-nav .label { font-size: 13px; color: #888; flex: 1; text-align: center; }
+
+  .symbol-cards { display: flex; flex-wrap: wrap; gap: 8px; }
+  .symbol-card { background: #1a1a2e; border: 2px solid #444; border-radius: 6px; padding: 8px 12px; text-align: center; min-width: 60px; }
+  .symbol-card .sym { font-size: 24px; font-weight: bold; font-family: 'Courier New', monospace; }
+  .symbol-card .conf { font-size: 11px; color: #888; margin-top: 2px; }
+  .symbol-card .strokes { font-size: 10px; color: #555; }
+
+  .no-result { text-align: center; color: #555; padding: 20px 0; font-size: 14px; }
+
+  .stats { font-size: 13px; color: #888; }
+  .stats .row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #1a1a2e; }
+</style>
+</head>
+<body>
+
+<div class="main">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <h1>Expression Detection</h1>
+    <span id="status" class="status disconnected">Disconnected</span>
+  </div>
+
+  <div class="canvas-wrap">
+    <canvas id="drawCanvas" width="800" height="400"></canvas>
+    <canvas id="overlayCanvas" width="800" height="400"></canvas>
+  </div>
+
+  <div class="toolbar">
+    <button id="detectBtn">Detect (Enter)</button>
+    <button id="undoBtn">Undo</button>
+    <button id="clearBtn">Clear (Esc)</button>
+    <label style="display:flex; align-items:center; gap:6px; color:#888; font-size:13px; margin-left:12px;">
+      Width: <input type="range" id="strokeSlider" min="1" max="8" step="0.5" value="2" style="width:80px;">
+      <span id="strokeVal">2.0</span>
+    </label>
+  </div>
+  <div class="hint">Draw an expression, press Enter to detect. Use arrow keys to browse partitions.</div>
+</div>
+
+<div class="side">
+  <h2>Expression</h2>
+  <div id="expression" class="expression">—</div>
+
+  <div id="partitionNavWrap" style="display:none;">
+    <h2>Partition</h2>
+    <div class="partition-nav">
+      <button id="prevBtn">&larr;</button>
+      <span id="partitionLabel" class="label">1 / 1</span>
+      <button id="nextBtn">&rarr;</button>
+    </div>
+  </div>
+
+  <h2>Detected Symbols</h2>
+  <div id="symbolCards" class="symbol-cards">
+    <div class="no-result">Draw and press Detect</div>
+  </div>
+
+  <h2>Details</h2>
+  <div id="statsPanel" class="stats"></div>
+
+  <h2>Geometry Graph</h2>
+  <div id="edgesPanel" class="stats" style="font-family:'Courier New',monospace; font-size:11px;"></div>
+</div>
+
+<script>
+const COLORS = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899'];
+let strokeWidth = 2.0;
+
+let strokes = [];
+let currentStroke = [];
+let isDrawing = false;
+let ws = null;
+
+// Partition state
+let allPartitions = [];
+let currentPartitionIdx = 0;
+
+const canvas = document.getElementById('drawCanvas');
+const ctx = canvas.getContext('2d');
+const overlay = document.getElementById('overlayCanvas');
+const overlayCtx = overlay.getContext('2d');
+const statusEl = document.getElementById('status');
+const expressionEl = document.getElementById('expression');
+const symbolCards = document.getElementById('symbolCards');
+const statsPanel = document.getElementById('statsPanel');
+const partitionNavWrap = document.getElementById('partitionNavWrap');
+const partitionLabel = document.getElementById('partitionLabel');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+
+// --- Canvas drawing ---
+function getPoint(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  return {
+    x: (clientX - rect.left) * scaleX,
+    y: (clientY - rect.top) * scaleY,
+    t: Date.now()
+  };
+}
+
+function startStroke(e) {
+  e.preventDefault();
+  isDrawing = true;
+  currentStroke = [getPoint(e)];
+}
+
+function moveStroke(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  const pt = getPoint(e);
+  currentStroke.push(pt);
+  const prev = currentStroke[currentStroke.length - 2];
+  ctx.beginPath();
+  ctx.moveTo(prev.x, prev.y);
+  ctx.lineTo(pt.x, pt.y);
+  ctx.stroke();
+}
+
+function endStroke(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  isDrawing = false;
+  if (currentStroke.length > 0) {
+    strokes.push(currentStroke);
+    currentStroke = [];
+  }
+}
+
+canvas.addEventListener('mousedown', startStroke);
+canvas.addEventListener('mousemove', moveStroke);
+canvas.addEventListener('mouseup', endStroke);
+canvas.addEventListener('mouseleave', endStroke);
+canvas.addEventListener('touchstart', startStroke, { passive: false });
+canvas.addEventListener('touchmove', moveStroke, { passive: false });
+canvas.addEventListener('touchend', endStroke, { passive: false });
+
+ctx.strokeStyle = 'black';
+ctx.lineWidth = strokeWidth;
+ctx.lineCap = 'round';
+ctx.lineJoin = 'round';
+
+// --- Actions ---
+function clearCanvas() {
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth = strokeWidth;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  strokes = [];
+  currentStroke = [];
+  allPartitions = [];
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'clear' }));
+  }
+  currentPartitionIdx = 0;
+  clearOverlay();
+  expressionEl.textContent = '—';
+  symbolCards.innerHTML = '<div class="no-result">Draw and press Detect</div>';
+  statsPanel.innerHTML = '';
+  document.getElementById('edgesPanel').innerHTML = '';
+  partitionNavWrap.style.display = 'none';
+}
+
+function clearOverlay() {
+  overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+}
+
+function undo() {
+  strokes.pop();
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth = strokeWidth;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const stroke of strokes) {
+    ctx.beginPath();
+    for (let i = 0; i < stroke.length; i++) {
+      if (i === 0) ctx.moveTo(stroke[i].x, stroke[i].y);
+      else ctx.lineTo(stroke[i].x, stroke[i].y);
+    }
+    ctx.stroke();
+  }
+  clearOverlay();
+}
+
+function detect() {
+  if (strokes.length === 0) { alert('Draw something first.'); return; }
+  if (!ws || ws.readyState !== WebSocket.OPEN) { alert('Not connected.'); return; }
+
+  ws.send(JSON.stringify({
+    type: 'detect',
+    strokes: strokes,
+    canvas_width: canvas.width,
+    canvas_height: canvas.height,
+    stroke_width: strokeWidth,
+  }));
+}
+
+function showPartition(idx) {
+  if (idx < 0 || idx >= allPartitions.length) return;
+  currentPartitionIdx = idx;
+
+  const partition = allPartitions[idx];
+  const symbols = partition.symbols || [];
+
+  // Expression
+  expressionEl.textContent = partition.expression || '—';
+
+  // Nav
+  partitionLabel.textContent = `${idx + 1} / ${allPartitions.length}`;
+  prevBtn.disabled = idx === 0;
+  nextBtn.disabled = idx === allPartitions.length - 1;
+
+  // Overlay: draw bounding boxes + labels
+  clearOverlay();
+
+  for (let i = 0; i < symbols.length; i++) {
+    const sym = symbols[i];
+    const color = COLORS[i % COLORS.length];
+    const b = sym.bbox;
+
+    // Bounding box
+    overlayCtx.strokeStyle = color;
+    overlayCtx.lineWidth = 3;
+    overlayCtx.setLineDash([6, 3]);
+    overlayCtx.strokeRect(b.x - 4, b.y - 4, b.w + 8, b.h + 8);
+    overlayCtx.setLineDash([]);
+
+    // Label above bbox
+    overlayCtx.font = 'bold 18px monospace';
+    overlayCtx.fillStyle = color;
+    overlayCtx.fillText(sym.symbol, b.x - 4, b.y - 10);
+  }
+
+  // Symbol cards
+  if (symbols.length === 0) {
+    symbolCards.innerHTML = '<div class="no-result">No symbols detected</div>';
+  } else {
+    symbolCards.innerHTML = symbols.map((sym, i) => {
+      const color = COLORS[i % COLORS.length];
+      const pct = (sym.confidence * 100).toFixed(1);
+      return `<div class="symbol-card" style="border-color:${color}">
+        <div class="sym" style="color:${color}">${escHtml(sym.symbol)}</div>
+        <div class="conf">${pct}%</div>
+        <div class="strokes">${sym.stroke_indices.length} stroke${sym.stroke_indices.length > 1 ? 's' : ''}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // Stats
+  statsPanel.innerHTML = symbols.map((sym, i) => {
+    const color = COLORS[i % COLORS.length];
+    return `<div class="row">
+      <span style="color:${color}; font-weight:600;">${escHtml(sym.symbol)}</span>
+      <span>conf ${(sym.confidence * 100).toFixed(1)}% &middot; dist ${sym.prototype_distance.toFixed(1)}</span>
+    </div>`;
+  }).join('');
+
+  // Geometry graph edges (only show edges where source < target to avoid duplicates)
+  const edges = (partition.edges || []).filter(e => e.source < e.target);
+  const edgesPanel = document.getElementById('edgesPanel');
+  if (edges.length === 0) {
+    edgesPanel.innerHTML = '<div class="no-result" style="font-size:11px;">—</div>';
+  } else {
+    edgesPanel.innerHTML = edges.map(e => {
+      const s = escHtml(symbols[e.source]?.symbol || '?');
+      const t = escHtml(symbols[e.target]?.symbol || '?');
+      const v = e.v_offset >= 0 ? `+${e.v_offset.toFixed(2)}` : e.v_offset.toFixed(2);
+      const h = e.h_offset >= 0 ? `+${e.h_offset.toFixed(2)}` : e.h_offset.toFixed(2);
+      return `<div class="row">
+        <span>${s}\u2192${t}</span>
+        <span>v${v} h${h} s${e.size_ratio.toFixed(2)} o${e.overlap_v.toFixed(2)}</span>
+      </div>`;
+    }).join('');
+  }
+}
+
+function displayDetection(data) {
+  allPartitions = data.partitions || [];
+  currentPartitionIdx = 0;
+
+  if (allPartitions.length > 1) {
+    partitionNavWrap.style.display = '';
+  } else {
+    partitionNavWrap.style.display = 'none';
+  }
+
+  if (allPartitions.length > 0) {
+    showPartition(0);
+  } else {
+    expressionEl.textContent = '—';
+    symbolCards.innerHTML = '<div class="no-result">No symbols detected</div>';
+    statsPanel.innerHTML = '';
+    clearOverlay();
+  }
+}
+
+function escHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+prevBtn.addEventListener('click', () => showPartition(currentPartitionIdx - 1));
+nextBtn.addEventListener('click', () => showPartition(currentPartitionIdx + 1));
+
+document.getElementById('detectBtn').addEventListener('click', detect);
+document.getElementById('undoBtn').addEventListener('click', undo);
+document.getElementById('clearBtn').addEventListener('click', clearCanvas);
+
+document.getElementById('strokeSlider').addEventListener('input', e => {
+  strokeWidth = parseFloat(e.target.value);
+  document.getElementById('strokeVal').textContent = strokeWidth.toFixed(1);
+  ctx.lineWidth = strokeWidth;
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter') detect();
+  if (e.key === 'Escape') clearCanvas();
+  if (e.key === 'z' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); undo(); }
+  if (e.key === 'ArrowLeft' && allPartitions.length > 1) showPartition(currentPartitionIdx - 1);
+  if (e.key === 'ArrowRight' && allPartitions.length > 1) showPartition(currentPartitionIdx + 1);
+});
+
+// --- WebSocket ---
+function connect() {
+  ws = new WebSocket('ws://localhost:8767');
+
+  ws.onopen = () => {
+    statusEl.textContent = 'Connected';
+    statusEl.className = 'status connected';
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = 'Disconnected';
+    statusEl.className = 'status disconnected';
+    setTimeout(connect, 1000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = e => {
+    const data = JSON.parse(e.data);
+    if (data.type === 'detection') {
+      displayDetection(data);
+    } else if (data.type === 'error') {
+      alert('Error: ' + data.message);
+    }
+  };
+}
+
+connect();
+clearCanvas();
+</script>
+</body>
+</html>

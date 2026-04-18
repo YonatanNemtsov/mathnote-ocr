@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Symbol Collection — math_ocr_v2</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; display: flex; height: 100vh; }
+
+  /* Left panel */
+  .main { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  h1 { font-size: 20px; color: #fff; }
+
+  .status { font-size: 13px; padding: 4px 10px; border-radius: 4px; display: inline-block; }
+  .status.connected { background: #10b981; color: #fff; }
+  .status.disconnected { background: #ef4444; color: #fff; }
+
+  .label-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .label-bar input { background: #16213e; border: 1px solid #444; color: #fff; padding: 6px 10px; border-radius: 4px; width: 120px; font-size: 14px; }
+  .label-bar button { padding: 4px 10px; border-radius: 4px; border: 1px solid #555; background: #16213e; color: #ccc; cursor: pointer; font-size: 13px; }
+  .label-bar button:hover { background: #1a3a5c; }
+  .label-bar button.active { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+
+  canvas#drawCanvas { background: #fff; border-radius: 6px; cursor: crosshair; display: block; }
+
+  .toolbar { display: flex; gap: 8px; }
+  .toolbar button { padding: 8px 20px; border-radius: 6px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; }
+  #saveBtn { background: #3b82f6; color: #fff; }
+  #saveBtn:hover { background: #2563eb; }
+  #undoBtn { background: #444; color: #fff; }
+  #undoBtn:hover { background: #555; }
+  #clearBtn { background: #444; color: #fff; }
+  #clearBtn:hover { background: #555; }
+
+  .hint { font-size: 12px; color: #888; }
+
+  /* Right panel */
+  .side { width: 280px; background: #16213e; padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+  .side h2 { font-size: 16px; color: #fff; }
+
+  .current-label { font-size: 36px; font-weight: bold; color: #3b82f6; text-align: center; padding: 10px; }
+  .current-count { text-align: center; color: #888; font-size: 14px; }
+
+  .previews { display: flex; gap: 12px; justify-content: center; }
+  .preview-box { text-align: center; }
+  .preview-box canvas, .preview-box img { border: 1px solid #444; border-radius: 4px; image-rendering: pixelated; background: #fff; }
+  .preview-box .label { font-size: 11px; color: #888; margin-top: 4px; }
+
+  .stats-list { font-size: 13px; }
+  .stats-list .row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #1a1a2e; }
+  .stats-list .row .name { color: #ccc; }
+  .stats-list .row .count { color: #3b82f6; font-weight: 600; }
+</style>
+</head>
+<body>
+
+<div class="main">
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <h1>Symbol Collection</h1>
+    <span id="status" class="status disconnected">Disconnected</span>
+  </div>
+
+  <div class="label-bar">
+    <span style="font-size:13px; color:#888;">Label:</span>
+    <input type="text" id="labelInput" placeholder="e.g. x, +, alpha" />
+    <div id="quickLabels"></div>
+  </div>
+
+  <canvas id="drawCanvas" width="800" height="400"></canvas>
+
+  <div class="toolbar">
+    <button id="saveBtn">Save (Enter)</button>
+    <button id="undoBtn">Undo</button>
+    <button id="clearBtn">Clear (Esc)</button>
+    <label style="display:flex; align-items:center; gap:6px; color:#888; font-size:13px; margin-left:12px;">
+      Width: <input type="range" id="strokeSlider" min="1" max="8" step="0.5" value="2" style="width:80px;">
+      <span id="strokeVal">2.0</span>
+    </label>
+  </div>
+  <div class="hint">Draw a symbol, set the label, press Enter to save. Repeat.</div>
+</div>
+
+<div class="side">
+  <h2>Current Label</h2>
+  <div id="currentLabel" class="current-label">—</div>
+  <div id="currentCount" class="current-count">0 samples</div>
+
+  <h2>Previews</h2>
+  <div class="previews">
+    <div class="preview-box">
+      <canvas id="previewCanvas" width="128" height="128"></canvas>
+      <div class="label">Live preview</div>
+    </div>
+    <div class="preview-box">
+      <img id="serverRender" width="128" height="128" />
+      <div class="label">Server render</div>
+    </div>
+  </div>
+
+  <h2>Class Counts</h2>
+  <div id="statsPanel" class="stats-list"></div>
+</div>
+
+<script>
+const KNOWN_LABELS = [
+  // Digits
+  '0','1','2','3','4','5','6','7','8','9',
+  // Lowercase letters
+  'a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z',
+  // Uppercase letters
+  'A_cap','B_cap','C_cap','D_cap','E_cap','F_cap','G_cap','H_cap','I_cap','J_cap','K_cap','L_cap','M_cap',
+  'N_cap','O_cap','P_cap','Q_cap','R_cap','S_cap','T_cap','U_cap','V_cap','W_cap','X_cap','Y_cap','Z_cap',
+  // Operators & punctuation
+  '+','-','=','dot','times','(',')',  '[',']','!',',',':','|',
+  // Greek lowercase
+  'alpha','beta','gamma','delta','epsilon','theta','lambda','mu','pi','sigma','phi','psi','omega',
+  // Greek uppercase
+  'Gamma_cap','Delta_cap','Sigma_up','Pi_up','Phi_up','Psi_up','Omega_up',
+  // Big operators
+  'int',
+  // Relations
+  'pm','leq','geq','neq',
+  // Set / logic
+  'in','subset','cup','cap',
+  // Calculus
+  'partial','nabla',
+  // Special
+  'infty','sqrt','ldots',
+  // Arrows
+  'rightarrow',
+];
+let strokeWidth = 2.0;
+
+// --- State ---
+let strokes = [];
+let currentStroke = [];
+let isDrawing = false;
+let currentLabel = '';
+let ws = null;
+
+// --- Elements ---
+const canvas = document.getElementById('drawCanvas');
+const ctx = canvas.getContext('2d');
+const previewCanvas = document.getElementById('previewCanvas');
+const previewCtx = previewCanvas.getContext('2d');
+const serverRender = document.getElementById('serverRender');
+const labelInput = document.getElementById('labelInput');
+const statusEl = document.getElementById('status');
+const currentLabelEl = document.getElementById('currentLabel');
+const currentCountEl = document.getElementById('currentCount');
+const statsPanel = document.getElementById('statsPanel');
+const quickLabels = document.getElementById('quickLabels');
+
+// --- Quick label buttons ---
+KNOWN_LABELS.forEach(label => {
+  const btn = document.createElement('button');
+  btn.textContent = label;
+  btn.addEventListener('click', () => setLabel(label));
+  quickLabels.appendChild(btn);
+});
+
+function setLabel(label) {
+  currentLabel = label;
+  labelInput.value = label;
+  currentLabelEl.textContent = label || '—';
+  // Add button if it doesn't exist yet
+  if (label && ![...quickLabels.querySelectorAll('button')].some(b => b.textContent === label)) {
+    const btn = document.createElement('button');
+    btn.textContent = label;
+    btn.addEventListener('click', () => setLabel(label));
+    quickLabels.appendChild(btn);
+  }
+  // Highlight active button
+  quickLabels.querySelectorAll('button').forEach(b => {
+    b.classList.toggle('active', b.textContent === label);
+  });
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'set_label', label }));
+  }
+}
+
+// --- Canvas drawing ---
+function getPoint(e) {
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  return {
+    x: (clientX - rect.left) * scaleX,
+    y: (clientY - rect.top) * scaleY,
+    t: Date.now()
+  };
+}
+
+function startStroke(e) {
+  e.preventDefault();
+  isDrawing = true;
+  currentStroke = [getPoint(e)];
+}
+
+function moveStroke(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  const pt = getPoint(e);
+  currentStroke.push(pt);
+  // Draw line segment
+  const prev = currentStroke[currentStroke.length - 2];
+  ctx.beginPath();
+  ctx.moveTo(prev.x, prev.y);
+  ctx.lineTo(pt.x, pt.y);
+  ctx.stroke();
+}
+
+function endStroke(e) {
+  if (!isDrawing) return;
+  e.preventDefault();
+  isDrawing = false;
+  if (currentStroke.length > 0) {
+    strokes.push(currentStroke);
+    currentStroke = [];
+    updatePreview();
+  }
+}
+
+canvas.addEventListener('mousedown', startStroke);
+canvas.addEventListener('mousemove', moveStroke);
+canvas.addEventListener('mouseup', endStroke);
+canvas.addEventListener('mouseleave', endStroke);
+canvas.addEventListener('touchstart', startStroke, { passive: false });
+canvas.addEventListener('touchmove', moveStroke, { passive: false });
+canvas.addEventListener('touchend', endStroke, { passive: false });
+
+// Init canvas style
+ctx.strokeStyle = 'black';
+ctx.lineWidth = strokeWidth;
+ctx.lineCap = 'round';
+ctx.lineJoin = 'round';
+clearCanvas();
+
+// --- Preview ---
+function updatePreview() {
+  previewCtx.fillStyle = 'white';
+  previewCtx.fillRect(0, 0, 128, 128);
+
+  if (strokes.length === 0) return;
+
+  // Compute bounding box
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const stroke of strokes) {
+    for (const p of stroke) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+  }
+
+  const bw = Math.max(maxX - minX, 1);
+  const bh = Math.max(maxY - minY, 1);
+  const padding = 0.15;
+  const usable = 128 * (1 - 2 * padding);
+  let scale = usable / Math.max(bw, bh);
+  const sourceSize = Math.max(canvas.width, canvas.height);
+  const maxScale = usable / (sourceSize * 0.1);
+  scale = Math.min(scale, maxScale);
+
+  const offX = (128 - bw * scale) / 2;
+  const offY = (128 - bh * scale) / 2;
+
+  previewCtx.strokeStyle = 'black';
+  previewCtx.lineWidth = Math.max(2, strokeWidth * scale);
+  previewCtx.lineCap = 'round';
+  previewCtx.lineJoin = 'round';
+
+  for (const stroke of strokes) {
+    if (stroke.length === 1) {
+      const x = (stroke[0].x - minX) * scale + offX;
+      const y = (stroke[0].y - minY) * scale + offY;
+      previewCtx.beginPath();
+      previewCtx.arc(x, y, strokeWidth, 0, Math.PI * 2);
+      previewCtx.fillStyle = 'black';
+      previewCtx.fill();
+    } else {
+      previewCtx.beginPath();
+      for (let i = 0; i < stroke.length; i++) {
+        const x = (stroke[i].x - minX) * scale + offX;
+        const y = (stroke[i].y - minY) * scale + offY;
+        if (i === 0) previewCtx.moveTo(x, y);
+        else previewCtx.lineTo(x, y);
+      }
+      previewCtx.stroke();
+    }
+  }
+}
+
+// --- Actions ---
+function clearCanvas() {
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth = strokeWidth;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  strokes = [];
+  currentStroke = [];
+  updatePreview();
+}
+
+function undo() {
+  strokes.pop();
+  // Redraw
+  ctx.fillStyle = 'white';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = 'black';
+  ctx.lineWidth = strokeWidth;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (const stroke of strokes) {
+    ctx.beginPath();
+    for (let i = 0; i < stroke.length; i++) {
+      if (i === 0) ctx.moveTo(stroke[i].x, stroke[i].y);
+      else ctx.lineTo(stroke[i].x, stroke[i].y);
+    }
+    ctx.stroke();
+  }
+  updatePreview();
+}
+
+function save() {
+  if (!currentLabel) { alert('Set a label first.'); return; }
+  if (strokes.length === 0) { alert('Draw something first.'); return; }
+  if (!ws || ws.readyState !== WebSocket.OPEN) { alert('Not connected to server.'); return; }
+
+  ws.send(JSON.stringify({
+    type: 'save',
+    strokes: strokes,
+    canvas_width: canvas.width,
+    canvas_height: canvas.height,
+    stroke_width: strokeWidth,
+  }));
+
+  clearCanvas();
+}
+
+document.getElementById('saveBtn').addEventListener('click', save);
+document.getElementById('undoBtn').addEventListener('click', undo);
+document.getElementById('clearBtn').addEventListener('click', clearCanvas);
+
+document.getElementById('strokeSlider').addEventListener('input', e => {
+  strokeWidth = parseFloat(e.target.value);
+  document.getElementById('strokeVal').textContent = strokeWidth.toFixed(1);
+  ctx.lineWidth = strokeWidth;
+});
+
+labelInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    setLabel(labelInput.value.trim());
+    canvas.focus();
+  }
+});
+
+document.addEventListener('keydown', e => {
+  if (e.target === labelInput) return;
+  if (e.key === 'Enter') save();
+  if (e.key === 'Escape') clearCanvas();
+  if (e.key === 'z' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); undo(); }
+});
+
+// --- WebSocket ---
+function connect() {
+  ws = new WebSocket('ws://localhost:8765');
+
+  ws.onopen = () => {
+    statusEl.textContent = 'Connected';
+    statusEl.className = 'status connected';
+    ws.send(JSON.stringify({ type: 'get_counts' }));
+    if (currentLabel) {
+      ws.send(JSON.stringify({ type: 'set_label', label: currentLabel }));
+    }
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = 'Disconnected';
+    statusEl.className = 'status disconnected';
+    setTimeout(connect, 1000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = e => {
+    const data = JSON.parse(e.data);
+
+    if (data.type === 'label_set') {
+      currentCountEl.textContent = `${data.count} samples`;
+    } else if (data.type === 'saved') {
+      currentCountEl.textContent = `${data.count} samples`;
+      serverRender.src = data.rendered_image;
+      ws.send(JSON.stringify({ type: 'get_counts' }));
+    } else if (data.type === 'counts') {
+      displayCounts(data.counts);
+    } else if (data.type === 'error') {
+      alert('Error: ' + data.message);
+    }
+  };
+}
+
+function displayCounts(counts) {
+  const entries = Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]));
+  const total = entries.reduce((s, [, c]) => s + c, 0);
+  statsPanel.innerHTML = entries.map(([name, count]) =>
+    `<div class="row"><span class="name">${name}</span><span class="count">${count}</span></div>`
+  ).join('') + `<div class="row" style="border-top:1px solid #444; margin-top:4px; padding-top:4px;"><span class="name"><b>Total</b></span><span class="count"><b>${total}</b></span></div>`;
+}
+
+connect();
+</script>
+</body>
+</html>

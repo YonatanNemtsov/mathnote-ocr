@@ -1,0 +1,21 @@
+# mixed_v8 with neighborhood-exhaustive subset strategy
+
+classifier:
+  run: v9_combined
+
+grouper:
+  type: classical
+  classifier_run: v9_combined
+  top_k: 10
+
+tree_parser:
+  type: subset
+  subset_run: mixed_v8
+  max_subset: 8
+  max_iters: 3
+  scoring: full_spatial
+  cost: propagate
+  subset_strategy: neighborhood
+  k_neighbors: 5
+  subset_min_size: 2
+  subset_max_size: 5
