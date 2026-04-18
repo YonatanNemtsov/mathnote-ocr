@@ -7,8 +7,17 @@ dist/
 build/
 *.egg
 
-# Model weights
-weights/
+# Model weights — exclude all checkpoints except default production ones
+weights/**/checkpoint.pth
+weights/**/*.json
+weights/**/*.log
+!weights/tree_subset/mixed_v10/checkpoint.pth
+!weights/tree_subset/mixed_v10/config.json
+!weights/tree_gnn/mixed_v10/checkpoint.pth
+!weights/tree_gnn/mixed_v10/config.json
+!weights/classifier/v9_combined/checkpoint.pth
+!weights/grouper_gnn/v7/checkpoint.pth
+!weights/grouper_gnn/v7/config.json
 
 # Training data (keep build scripts and READMEs, exclude heavy files)
 data/**/*.jsonl
@@ -18,6 +27,7 @@ data/**/*.pth
 data/**/*.png
 data/**/*.jpg
 data/**/*.json
+data/**/*.log
 data/tmp/
 data/shared/symbols/**/*.png
 data/shared/symbols_from_expr/
