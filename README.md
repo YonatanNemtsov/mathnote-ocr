@@ -2,20 +2,25 @@
 
 Stroke-based handwritten math to LaTeX OCR.
 
-Unlike image-based OCR, this pipeline takes **pen stroke data** (sequences of `(x, y)` points from a tablet or touchscreen) and produces LaTeX. Stroke input is richer than pixels — it preserves timing, order, and direction, which helps disambiguate visually similar symbols.
-
 ## Architecture
 
 ```
-Strokes → Grouper → Classifier → Tree Parser → LaTeX
-         (group strokes (classify each  (predict parent+
-         into symbols)   symbol)         edge for each symbol)
+strokes → groups of strokes → classified symbols → expression tree → LaTeX
+            Grouper               Classifier          Tree Parser
 ```
 
-- **Grouper** — partitions strokes into symbols (classical, neighbor-based)
-- **Classifier** — 128×128 CNN with prototype-based OOD detection
-- **Tree Parser** — 8-symbol transformer that predicts partial parent/edge relationships for spatial subsets; predictions are aggregated into evidence, then a beam-search builder reconstructs the tree
-- **GNN Verifier** — refines tree candidates during beam search
+**Grouper** partitions the strokes into symbols. One symbol can span multiple strokes (e.g. `=` has two). The grouper enumerates plausible groupings based on spatial proximity and returns the top-K candidates.
+
+**Classifier** is a 128×128 CNN that labels each candidate symbol. It also computes a prototype distance for every class, which flags nonsense groupings as out-of-distribution — this lets the grouper reject bad partitions.
+
+**Tree Parser** builds a structured expression tree from the labeled symbols. Each node has a parent, an edge type (superscript, subscript, numerator, denominator, etc.), and a sibling order. Internally:
+
+- A small transformer (the *subset model*) is run on overlapping subsets of 3–8 symbols at a time and predicts a partial tree for each subset.
+- These predictions are aggregated into an *evidence graph* — a dense tensor of parent/edge votes for every symbol pair.
+- A second transformer (the *EvidenceGNN*) refines that evidence with edge-feature-biased attention, replacing the older hand-written propagation heuristics.
+- A bottom-up beam-search builder consumes the refined scores, builds the tree leaf-by-leaf, branches on uncertain assignments, and picks the highest-scoring result.
+
+The tree is then rendered to LaTeX.
 
 ## Installation
 
