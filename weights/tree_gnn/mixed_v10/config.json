@@ -1,0 +1,23 @@
+{
+  "subset_run": "mixed_v10",
+  "train_data": "train",
+  "val_data": "val",
+  "d_model": 64,
+  "n_heads": 4,
+  "n_layers": 3,
+  "d_ff": 128,
+  "d_edge": 11,
+  "d_arc": 32,
+  "batch_size": 32,
+  "lr": 0.001,
+  "epochs": 50,
+  "dropout": 0.1,
+  "sparse_attention": false,
+  "started_at": "2026-03-31T22:00:35.135165+00:00",
+  "best_epoch": 22,
+  "best_val_loss": 0.245909,
+  "best_parent_acc": 0.9745,
+  "best_edge_acc": 0.9952,
+  "best_seq_acc": 0.9633,
+  "finished_at": "2026-03-31T23:06:37.840105+00:00"
+}

@@ -1,0 +1,16 @@
+{
+  "train": "data/runs/tree_subset/mixed_v10/train.jsonl",
+  "val": "data/runs/tree_subset/mixed_v10/val.jsonl",
+  "d_model": 128,
+  "n_heads": 4,
+  "n_layers": 2,
+  "d_ff": 256,
+  "d_arc": 64,
+  "max_subset": 8,
+  "subsets_per_example": 3,
+  "batch_size": 64,
+  "lr": 0.0003,
+  "epochs": 200,
+  "dropout": 0.1,
+  "started_at": "2026-03-30T01:03:25.353661+00:00"
+}
