@@ -15,9 +15,9 @@ strokes → groups of strokes → classified symbols → expression tree → LaT
 
 **Tree Parser** builds a structured expression tree from the labeled symbols. Each node has a parent, an edge type (superscript, subscript, numerator, denominator, etc.), and a sibling order. Internally:
 
-- A small transformer (the *subset model*) is run on overlapping subsets of 3–8 symbols at a time and predicts a partial tree for each subset.
+- A small fixed-size transformer (the *subset model*) is run on overlapping subsets of 3–8 symbols at a time and predicts a partial tree for each subset.
 - These predictions are aggregated into an *evidence graph* — a dense tensor of parent/edge votes for every symbol pair.
-- A second transformer (the *EvidenceGNN*) refines that evidence with edge-feature-biased attention, replacing the older hand-written propagation heuristics.
+- A graph neural network (the *EvidenceGNN*) refines that evidence using edge-feature-biased attention. Unlike the subset model, the GNN operates on the full expression regardless of size.
 - A bottom-up beam-search builder consumes the refined scores, builds the tree leaf-by-leaf, branches on uncertain assignments, and picks the highest-scoring result.
 
 The tree is then rendered to LaTeX.
