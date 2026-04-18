@@ -57,15 +57,21 @@ class MathOCR:
             stroke_width=get(cfg, "grouper.stroke_width", 2.0),
         )
 
+        tp_kwargs = dict(
+            subset_run=_tree_run,
+            scoring=_scoring,
+            tree_strategy=get(cfg, "tree_parser.tree_strategy", "edmonds"),
+            tta_runs=get(cfg, "tree_parser.tta_runs", 1),
+            tta_dx=get(cfg, "tree_parser.tta_dx", 0.05),
+            tta_dy=get(cfg, "tree_parser.tta_dy", 0.05),
+            tta_size=get(cfg, "tree_parser.tta_size", 0.05),
+            root_discount=get(cfg, "tree_parser.root_discount", 0.2),
+        )
         if _gnn_run:
             from tree_parser.inference import GNNTreeParser
-            self.tree_parser = GNNTreeParser(
-                subset_run=_tree_run, gnn_run=_gnn_run, scoring=_scoring,
-            )
+            self.tree_parser = GNNTreeParser(gnn_run=_gnn_run, **tp_kwargs)
         else:
-            self.tree_parser = SubsetTreeParser(
-                subset_run=_tree_run, scoring=_scoring,
-            )
+            self.tree_parser = SubsetTreeParser(**tp_kwargs)
         self._cache = GrouperCache()
 
     def parse(
@@ -114,7 +120,7 @@ class MathOCR:
         results = []
         for partition in partitions:
             symbols = sorted(partition, key=lambda s: s.bbox.x)
-            latex, parse_conf = self.tree_parser.parse(symbols)
+            latex, parse_conf, _tree, _ev = self.tree_parser.parse_with_tree(symbols)
 
             sym_conf = 1.0
             for s in symbols:
