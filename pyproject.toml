@@ -1,0 +1,67 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mathnote-ocr"
+version = "0.1.0"
+description = "Stroke-based handwritten math to LaTeX OCR"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [
+    { name = "Yonatan Nemtsov" },
+]
+keywords = ["ocr", "math", "latex", "handwriting", "machine-learning"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Recognition",
+]
+dependencies = [
+    "torch>=2.4",
+    "torchvision>=0.19",
+    "Pillow>=10.0",
+    "numpy>=1.26",
+    "pyyaml>=6.0",
+    "ziamath>=0.13",
+]
+
+[project.optional-dependencies]
+# Tools (collection + web servers)
+tools = [
+    "fastapi>=0.135",
+    "uvicorn>=0.41",
+    "websockets>=14.0",
+]
+# Training and evaluation scripts
+dev = [
+    "matplotlib>=3.8",
+]
+
+[project.urls]
+Homepage = "https://github.com/YonatanNemtsov/mathnote-ocr"
+Repository = "https://github.com/YonatanNemtsov/mathnote-ocr"
+Issues = "https://github.com/YonatanNemtsov/mathnote-ocr/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mathnote_ocr"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/mathnote_ocr/weights" = "mathnote_ocr/weights"
+"src/mathnote_ocr/configs" = "mathnote_ocr/configs"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/mathnote_ocr",
+    "README.md",
+    "pyproject.toml",
+]
