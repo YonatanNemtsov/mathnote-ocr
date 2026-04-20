@@ -384,5 +384,5 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     app = create_app(args.config)
-    print(f"Running on http://{args.host}:{args.port}")
+    print(f"Running on http://{args.host}:{args.port}", flush=True)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
