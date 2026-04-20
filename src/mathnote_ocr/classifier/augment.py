@@ -75,8 +75,8 @@ def augment_image(
 
 
 def augment_dataset(
-    source_dir: Path = config.SYMBOLS_DIR,
-    output_dir: Path = config.AUGMENTED_DIR,
+    source_dir: Path,
+    output_dir: Path,
     copies_per_image: int = 3,
 ):
     """
@@ -114,5 +114,15 @@ def augment_dataset(
 
 
 if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--source-dir", default="data/shared/symbols",
+                    help="Source symbols dir (default: ./data/shared/symbols)")
+    ap.add_argument("--output-dir", default="data/shared/classifier_augmented",
+                    help="Output dir for augmented copies (default: ./data/shared/classifier_augmented)")
+    ap.add_argument("--copies", type=int, default=3,
+                    help="Augmented copies per image (default: 3)")
+    args = ap.parse_args()
+
     print("Generating augmented training data...\n")
-    augment_dataset()
+    augment_dataset(Path(args.source_dir), Path(args.output_dir), args.copies)

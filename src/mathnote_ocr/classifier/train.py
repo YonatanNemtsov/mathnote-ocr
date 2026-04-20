@@ -105,7 +105,7 @@ class SymbolDataset(Dataset):
         return img, size_feat
 
 
-def load_data(data_dirs: list[Path] | Path = config.SYMBOLS_DIR):
+def load_data(data_dirs: list[Path] | Path):
     """Load all symbol images and create label mapping.
 
     Accepts a single directory or a list of directories. When multiple
@@ -276,7 +276,7 @@ def main():
         device = torch.device("cpu")
 
     # Set up logging
-    run_dir = _checkpoint_path("classifier", args.run).parent
+    run_dir = _checkpoint_path("classifier", args.run, weights_dir=args.weights_dir).parent
     run_dir.mkdir(parents=True, exist_ok=True)
     log_path = run_dir / "train.log"
     log_file = open(log_path, "a")
@@ -284,14 +284,8 @@ def main():
 
     print(f"Device: {device}\n")
 
-    # Ensure weights dir exists
-    config.WEIGHTS_DIR.mkdir(parents=True, exist_ok=True)
-
     # Load and split data
-    if args.data:
-        data_dirs = [Path(d) for d in args.data]
-    else:
-        data_dirs = [config.SYMBOLS_DIR]
+    data_dirs = [Path(d) for d in args.data]
     images, labels, label_names = load_data(data_dirs)
     train_images, train_labels, val_images, val_labels = split_data(images, labels)
 
@@ -343,7 +337,7 @@ def main():
     # Resume from checkpoint if requested
     if args.resume:
         try:
-            ckpt = load_checkpoint("classifier", args.run, device=device)
+            ckpt = load_checkpoint("classifier", args.run, device=device, weights_dir=args.weights_dir)
             state = ckpt["model_state_dict"]
             # Filter out keys with shape mismatches (e.g. different num_classes)
             model_state = model.state_dict()
@@ -370,7 +364,7 @@ def main():
     model.load_state_dict(best_state)
     model.compute_prototypes(train_loader, device)
 
-    filepath = save_checkpoint("classifier", args.run, {
+    filepath = save_checkpoint("classifier", args.run, weights_dir=args.weights_dir, state_dict={
         "model_state_dict": model.state_dict(),
         "label_names": label_names,
         "prototypes": model.prototypes,
@@ -390,8 +384,10 @@ if __name__ == "__main__":
     ap.add_argument("--epochs", type=int, default=15)
     ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--lr", type=float, default=0.001)
-    ap.add_argument("--data", type=str, nargs="+", default=None,
-                     help="Data directories (default: config.SYMBOLS_DIR). Can specify multiple.")
+    ap.add_argument("--data", type=str, nargs="+", default=["data/shared/symbols"],
+                     help="Data directories (default: ./data/shared/symbols). Can specify multiple.")
+    ap.add_argument("--weights-dir", type=str, default="weights",
+                     help="Directory to save weights (default: ./weights)")
     ap.add_argument("--canvas-size", type=int, default=128, help="Image size (default 128)")
     ap.add_argument("--use-size-feat", action="store_true", help="Pass relative symbol size to model")
     ap.add_argument("--resume", action="store_true", help="Resume from existing checkpoint")

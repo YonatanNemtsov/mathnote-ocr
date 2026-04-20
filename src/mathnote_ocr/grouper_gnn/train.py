@@ -56,16 +56,14 @@ def _load_train_strokes(path: Path) -> list[dict]:
     return entries
 
 
-def _load_expr_mapping(mapping_path: Path) -> list[dict]:
+def _load_expr_mapping(mapping_path: Path, base_dir: Path) -> list[dict]:
     """Load expressions from expr_mapping.json.
 
     Reconstructs full expressions by loading symbol JSONs and grouping
-    by expr_idx.
+    by expr_idx. Paths in the mapping are resolved relative to base_dir.
     """
     with open(mapping_path) as f:
         mapping = json.load(f)
-
-    base_dir = config.ROOT_DIR  # paths in mapping are relative to math_ocr_v2/
     by_expr = defaultdict(list)
     for entry in mapping:
         by_expr[entry["expr_idx"]].append(entry)
@@ -468,6 +466,10 @@ def main():
     ap.add_argument("--pos-weight", type=float, default=4.0,
                      help="Weight for positive (same_symbol) edges in BCE loss")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--data-dir", type=str, default="data",
+                     help="Data dir (default: ./data)")
+    ap.add_argument("--weights-dir", type=str, default="weights",
+                     help="Weights output dir (default: ./weights)")
     args = ap.parse_args()
 
     random.seed(args.seed)
@@ -481,7 +483,7 @@ def main():
         device = torch.device("cpu")
 
     # Logging
-    run_dir = _checkpoint_path("grouper_gnn", args.run).parent
+    run_dir = _checkpoint_path("grouper_gnn", args.run, weights_dir=args.weights_dir).parent
     run_dir.mkdir(parents=True, exist_ok=True)
     log_path = run_dir / "train.log"
     log_file = open(log_path, "a")
@@ -491,7 +493,7 @@ def main():
     print(f"Args: {vars(args)}\n")
 
     # Load data from both sources
-    data_dir = config.DATA_DIR
+    data_dir = Path(args.data_dir)
 
     entries = []
     # Load all train_strokes.jsonl from tree_handwritten/*/
@@ -506,7 +508,7 @@ def main():
 
     expr_mapping_path = data_dir / "symbols_from_expr" / "expr_mapping.json"
     if expr_mapping_path.exists():
-        em_entries = _load_expr_mapping(expr_mapping_path)
+        em_entries = _load_expr_mapping(expr_mapping_path, data_dir.parent)
         print(f"Loaded {len(em_entries)} expressions from expr_mapping.json")
         entries.extend(em_entries)
 

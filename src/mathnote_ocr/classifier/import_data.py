@@ -172,10 +172,17 @@ def main():
     from collections import Counter
 
     ap = argparse.ArgumentParser(description="Import MathWriting-2024 symbols")
+    ap.add_argument("--source", default="data/mathwriting-2024/symbols",
+                    help="MathWriting source dir (default: ./data/mathwriting-2024/symbols)")
+    ap.add_argument("--output-dir", default="data/shared/symbols",
+                    help="Output dir (default: ./data/shared/symbols)")
     ap.add_argument("--dry-run", action="store_true", help="Just show stats, don't write")
     args = ap.parse_args()
 
-    symbols_dir = config.DATA_DIR / "mathwriting-2024" / "symbols"
+    source_dir = Path(args.source)
+    output_dir = Path(args.output_dir)
+
+    symbols_dir = source_dir
     if not symbols_dir.exists():
         print(f"Not found: {symbols_dir}")
         return
@@ -207,7 +214,7 @@ def main():
 
     # Check existing counts
     existing = {}
-    for d in config.SYMBOLS_DIR.iterdir():
+    for d in output_dir.iterdir():
         if d.is_dir():
             existing[d.name] = len(list(d.glob("*.png")))
 
@@ -232,7 +239,7 @@ def main():
     # Track next file ID per class
     next_id = {}
     for name in mapped:
-        class_dir = config.SYMBOLS_DIR / name
+        class_dir = output_dir / name
         class_dir.mkdir(parents=True, exist_ok=True)
         existing_files = sorted(class_dir.glob("*.png"))
         if existing_files:
@@ -260,7 +267,7 @@ def main():
         # Save
         file_id = next_id[name]
         next_id[name] = file_id + 1
-        class_dir = config.SYMBOLS_DIR / name
+        class_dir = output_dir / name
 
         png_path = class_dir / f"{file_id:04d}.png"
         json_path = class_dir / f"{file_id:04d}.json"
