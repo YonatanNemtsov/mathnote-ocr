@@ -18,7 +18,7 @@ tree_parser:
   cost: propagate
   subset_strategy: spatial
   tree_strategy: backtrack
-  tta_runs: 1
+  tta_runs: 5
   tta_dx: 0.05
   tta_dy: 0.05
   tta_size: 0.05
