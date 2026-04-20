@@ -4,7 +4,7 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import asyncio
 import websockets
@@ -18,18 +18,30 @@ from mathnote_ocr.classifier.inference import SymbolClassifier
 from mathnote_ocr.pipeline_config import load_config, get
 from mathnote_ocr import config
 
+REPO_ROOT = Path(__file__).parent.parent
+REPO_CONFIGS = REPO_ROOT / "configs"
+REPO_WEIGHTS = str(REPO_ROOT / "weights")
+
+
+def _resolve_config(name):
+    if name is None or "/" in name or name.endswith((".yaml", ".yml")):
+        return name
+    p = REPO_CONFIGS / f"{name}.yaml"
+    return str(p) if p.exists() else name
+
+
 import argparse
 ap = argparse.ArgumentParser()
 ap.add_argument("--config", type=str, default=None, help="Pipeline config name")
 ap.add_argument("--run", default=None, help="Classifier run name")
 _args = ap.parse_args()
 
-cfg = load_config(_args.config)
+cfg = load_config(_resolve_config(_args.config))
 classifier_run = _args.run or get(cfg, "classifier.run", "v4")
 
 # Load model at startup
 print(f"Loading classifier (run={classifier_run})...")
-classifier = SymbolClassifier(run=classifier_run)
+classifier = SymbolClassifier(run=classifier_run, weights_dir=REPO_WEIGHTS)
 print(f"Loaded. Classes: {classifier.label_names}")
 print(f"Device: {classifier.device}\n")
 

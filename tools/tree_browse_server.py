@@ -12,7 +12,7 @@ Usage:
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import asyncio
 import json
@@ -30,6 +30,8 @@ from mathnote_ocr.tree_parser.tree import (
 )
 from mathnote_ocr.tree_parser.evidence import sample_subsets_with_coverage, aggregate_evidence
 from mathnote_ocr.tree_parser.tree_builder import build_tree_from_scores
+
+REPO_WEIGHTS = str(Path(__file__).parent.parent / "weights")
 
 EDGE_COLORS = {
     -1: "#666666",
@@ -149,7 +151,7 @@ filtered_indices = []  # indices into examples[]
 
 def load_model(run_name):
     global model, symbol_vocab, max_subset
-    ckpt = load_checkpoint("tree_subset", run_name, device=device)
+    ckpt = load_checkpoint("tree_subset", run_name, device=device, weights_dir=REPO_WEIGHTS)
     cfg = ckpt["config"]
     symbol_vocab = ckpt["symbol_vocab"]
     max_subset = cfg.get("max_symbols", 8)

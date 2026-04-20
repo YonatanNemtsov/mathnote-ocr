@@ -4,7 +4,7 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import asyncio
 import websockets
@@ -16,6 +16,9 @@ import re
 from mathnote_ocr.engine.stroke import Stroke
 from mathnote_ocr.engine.renderer import render_strokes
 from mathnote_ocr import config
+
+# Set by CLI at startup
+SYMBOLS_DIR: Path = Path("data/shared/symbols")
 
 
 def get_next_id(label_dir: Path) -> str:
@@ -35,8 +38,8 @@ def get_next_id(label_dir: Path) -> str:
 def get_all_counts() -> dict[str, int]:
     """Count PNG files per class in the symbols directory."""
     counts = {}
-    if config.SYMBOLS_DIR.exists():
-        for d in sorted(config.SYMBOLS_DIR.iterdir()):
+    if SYMBOLS_DIR.exists():
+        for d in sorted(SYMBOLS_DIR.iterdir()):
             if d.is_dir():
                 counts[d.name] = len(list(d.glob("*.png")))
     return counts
@@ -54,7 +57,7 @@ async def handler(websocket):
 
             if msg_type == "set_label":
                 current_label = msg["label"].strip()
-                label_dir = config.SYMBOLS_DIR / current_label
+                label_dir = SYMBOLS_DIR / current_label
                 count = len(list(label_dir.glob("*.png"))) if label_dir.exists() else 0
                 await websocket.send(json.dumps({
                     "type": "label_set",
@@ -86,7 +89,7 @@ async def handler(websocket):
                 image = render_strokes(strokes, stroke_width=stroke_width, source_size=source_size)
 
                 # Save PNG
-                label_dir = config.SYMBOLS_DIR / current_label
+                label_dir = SYMBOLS_DIR / current_label
                 label_dir.mkdir(parents=True, exist_ok=True)
                 file_id = get_next_id(label_dir)
                 png_path = label_dir / f"{file_id}.png"
@@ -131,10 +134,10 @@ async def handler(websocket):
     print(f"[disconnect] {addr}")
 
 
-async def main():
+async def run_server(port: int):
     print("Symbol Collection Server")
-    print(f"Saving to: {config.SYMBOLS_DIR}")
-    print(f"WebSocket: ws://localhost:8765\n")
+    print(f"Saving to: {SYMBOLS_DIR}")
+    print(f"WebSocket: ws://localhost:{port}\n")
     print("Open tools/collect.html in your browser.\n")
 
     counts = get_all_counts()
@@ -144,9 +147,16 @@ async def main():
             print(f"  {label}: {count}")
         print()
 
-    async with websockets.serve(handler, "localhost", 8765):
+    async with websockets.serve(handler, "localhost", port):
         await asyncio.Future()
 
 
 if __name__ == "__main__":
-    main_loop = asyncio.run(main())
+    import argparse
+    ap = argparse.ArgumentParser(description="Symbol collection server")
+    ap.add_argument("--output-dir", default="data/shared/symbols",
+                    help="Directory to save collected symbols (default: data/shared/symbols)")
+    ap.add_argument("--port", type=int, default=8765)
+    args = ap.parse_args()
+    SYMBOLS_DIR = Path(args.output_dir).resolve()
+    asyncio.run(run_server(args.port))

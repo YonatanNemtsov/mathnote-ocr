@@ -4,7 +4,7 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import argparse
 import asyncio
@@ -21,6 +21,17 @@ from mathnote_ocr.tree_parser.tree_v2 import Edge, ROOT_ID
 from mathnote_ocr.pipeline_config import load_config, get
 from mathnote_ocr import config  # for RENDER_STROKE_WIDTH default
 
+REPO_ROOT = Path(__file__).parent.parent
+REPO_CONFIGS = REPO_ROOT / "configs"
+REPO_WEIGHTS = str(REPO_ROOT / "weights")
+
+
+def _resolve_config(name):
+    if name is None or "/" in name or name.endswith((".yaml", ".yml")):
+        return name
+    p = REPO_CONFIGS / f"{name}.yaml"
+    return str(p) if p.exists() else name
+
 # CLI — individual args override config values
 ap = argparse.ArgumentParser(description="Math OCR Pipeline Server")
 ap.add_argument("--config", type=str, default=None, help="Pipeline config name (loads configs/{name}.yaml)")
@@ -32,7 +43,7 @@ ap.add_argument("--gnn-grouper", type=str, default=None, help="GNN grouper run (
 ap.add_argument("--score-tree", type=str, default=None, help="Tree scoring method")
 server_args = ap.parse_args()
 
-cfg = load_config(server_args.config)
+cfg = load_config(_resolve_config(server_args.config))
 
 # Resolve values: CLI > config > hardcoded default
 classifier_run = server_args.classifier_run or get(cfg, "classifier.run", "v4")
@@ -51,7 +62,7 @@ if use_gnn_grouper:
     from mathnote_ocr.engine.grouper_v2 import GNNGrouper
     gnn_run = grouper_gnn_run or get(cfg, "grouper.gnn_run", "v7")
     print(f"Loading GNN grouper (gnn={gnn_run}, classifier={grouper_classifier_run})...")
-    gnn_grouper = GNNGrouper(gnn_run=gnn_run, classifier_run=grouper_classifier_run)
+    gnn_grouper = GNNGrouper(gnn_run=gnn_run, classifier_run=grouper_classifier_run, weights_dir=REPO_WEIGHTS)
     classifier = gnn_grouper.classifier
     print(f"Loaded. Classes: {classifier.label_names}")
     print(f"Device: {classifier.device}")
@@ -61,6 +72,7 @@ else:
         run=classifier_run,
         ood_threshold=get(cfg, "classifier.ood_threshold", 15.0),
         per_class_thresholds=get(cfg, "classifier.per_class_thresholds", {}),
+        weights_dir=REPO_WEIGHTS,
     )
     print(f"Loaded. Classes: {classifier.label_names}")
     print(f"Device: {classifier.device}")
@@ -83,10 +95,11 @@ if tree_gnn_run:
     seq_bonus = not server_args.gnn_simple
     print(f"Loading tree parser (run={tree_run}, gnn={tree_gnn_run}, anchor={anchor}, seq={seq_bonus})...")
     parser = GNNTreeParser(subset_run=tree_run, gnn_run=tree_gnn_run,
-                           anchor=anchor, seq_bonus=seq_bonus, scoring=score_tree)
+                           anchor=anchor, seq_bonus=seq_bonus, scoring=score_tree,
+                           weights_dir=REPO_WEIGHTS)
 else:
     print(f"Loading tree parser (run={tree_run}, mode=subset)...")
-    parser = SubsetTreeParser(subset_run=tree_run, scoring=score_tree)
+    parser = SubsetTreeParser(subset_run=tree_run, scoring=score_tree, weights_dir=REPO_WEIGHTS)
 print(f"Loaded.\n")
 
 
