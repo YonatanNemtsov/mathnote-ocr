@@ -14,7 +14,7 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
-from tree_parser.gnn.gen_data import generate, DATA_DIR
+from mathnote_ocr.tree_parser.gnn.gen_data import generate, DATA_DIR
 
 SUBSET_RUN = "mixed_v10"
 SOURCE = DATA_DIR.parent / "tree_subset" / "mixed_v10"

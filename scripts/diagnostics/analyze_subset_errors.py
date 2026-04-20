@@ -19,13 +19,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import torch
 
-from engine.checkpoint import load_checkpoint
-from tree_parser.subset_model import load_subset_model
-from tree_parser.subset_selection import make_spatial_subsets
-from tree_parser.evidence import aggregate_evidence_soft
-from tree_parser.tree import ROOT, EDGE_NAMES
-from tree_parser.costs import COST_STRATEGIES
-from latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.engine.checkpoint import load_checkpoint
+from mathnote_ocr.tree_parser.subset_model import load_subset_model
+from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets
+from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft
+from mathnote_ocr.tree_parser.tree import ROOT, EDGE_NAMES
+from mathnote_ocr.tree_parser.costs import COST_STRATEGIES
+from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
 
 log = logging.getLogger(__name__)
 

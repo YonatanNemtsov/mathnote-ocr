@@ -15,8 +15,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from tree_parser.hw_bbox_augment import augment_bboxes
-from tree_parser.tree import NUM, DEN, SUP, SUB, SQRT_CONTENT
+from mathnote_ocr.tree_parser.hw_bbox_augment import augment_bboxes
+from mathnote_ocr.tree_parser.tree import NUM, DEN, SUP, SUB, SQRT_CONTENT
 
 ET_NAMES = {-1: 'ROOT', NUM: 'NUM', DEN: 'DEN', SUP: 'SUP', SUB: 'SUB', SQRT_CONTENT: 'SQRT'}
 

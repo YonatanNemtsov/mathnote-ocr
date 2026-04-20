@@ -15,13 +15,13 @@ import copy
 import torch
 import random
 
-from tree_parser.subset_model import SubsetTreeModel
-from tree_parser.evidence import aggregate_evidence_soft
-from tree_parser.subset_selection import make_spatial_subsets
-from tree_parser.propagation import propagate_seq, propagate_old_symmetric
-from tree_parser.tree_builder import build_tree_from_evidence
-from tree_parser.tree import ROOT
-from latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft
+from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets
+from mathnote_ocr.tree_parser.propagation import propagate_seq, propagate_old_symmetric
+from mathnote_ocr.tree_parser.tree_builder import build_tree_from_evidence
+from mathnote_ocr.tree_parser.tree import ROOT
+from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
 
 
 ET_NAMES = ["NUM", "DEN", "SUP", "SUB", "SQRT", "UPPER", "LOWER"]

@@ -9,13 +9,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import torch
 
-from tree_parser.inference import SubsetTreeParser
-from tree_parser.tree_latex import tree_to_latex
-from tree_parser.tree_v2 import Tree, Node, Symbol, Edge, ROOT_ID
-from tree_parser.tree_v2 import tree_from_arrays
-from bbox import BBox
-from engine.grouper import DetectedSymbol
-from engine.stroke import Stroke
+from mathnote_ocr.tree_parser.inference import SubsetTreeParser
+from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
+from mathnote_ocr.tree_parser.tree_v2 import Tree, Node, Symbol, Edge, ROOT_ID
+from mathnote_ocr.tree_parser.tree_v2 import tree_from_arrays
+from mathnote_ocr.bbox import BBox
+from mathnote_ocr.engine.grouper import DetectedSymbol
+from mathnote_ocr.engine.stroke import Stroke
 
 
 def load_val(path, n_max=500):
@@ -97,7 +97,7 @@ def main():
     args = parser_arg.parse_args()
 
     # Load config
-    from pipeline_config import load_config
+    from mathnote_ocr.pipeline_config import load_config
     config = load_config(args.config)
     tp_cfg = config.get("tree_parser", {})
 
@@ -119,8 +119,8 @@ def main():
     # Load GNN if configured
     gnn_run = tp_cfg.get("gnn_run")
     if gnn_run:
-        from engine.checkpoint import load_checkpoint
-        from tree_parser.gnn.model import EvidenceGNN
+        from mathnote_ocr.engine.checkpoint import load_checkpoint
+        from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
         gnn_ckpt = load_checkpoint("tree_gnn", gnn_run, device=tree_parser.device)
         gnn_cfg = gnn_ckpt["config"]
         gnn_model = EvidenceGNN(

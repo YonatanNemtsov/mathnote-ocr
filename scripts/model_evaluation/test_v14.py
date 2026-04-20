@@ -9,11 +9,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import argparse
 import torch
 import random
-from data_gen.latex_sampling import v14
-from latex_utils.glyphs import _extract_glyphs
-from tree_parser.gen_data import latex_to_tree_labels
-from tree_parser.subset_model import SubsetTreeModel
-from latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.data_gen.latex_sampling import v14
+from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
+from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
 
 
 def test_checkpoint(ckpt_path: str, n_examples: int = 100, max_attempts: int = 500):

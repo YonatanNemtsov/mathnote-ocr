@@ -22,13 +22,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
 
-from engine.stroke import Stroke
-from engine.grouper import group_and_classify, GrouperCache, GrouperParams
-from classifier.inference import SymbolClassifier
-from tree_parser.inference import SubsetTreeParser
-from tree_parser.tree_v2 import Edge, ROOT_ID
-from pipeline_config import load_config, get
-import config as app_config
+from mathnote_ocr.engine.stroke import Stroke
+from mathnote_ocr.engine.grouper import group_and_classify, GrouperCache, GrouperParams
+from mathnote_ocr.classifier.inference import SymbolClassifier
+from mathnote_ocr.tree_parser.inference import SubsetTreeParser
+from mathnote_ocr.tree_parser.tree_v2 import Edge, ROOT_ID
+from mathnote_ocr.pipeline_config import load_config, get
+import mathnote_ocr.config as app_config
 
 log = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ class Pipeline:
         )
 
         if tree_gnn_run:
-            from tree_parser.inference import GNNTreeParser
+            from mathnote_ocr.tree_parser.inference import GNNTreeParser
             log.info("Loading tree parser (run=%s, gnn=%s, strategy=%s)...",
                      tree_run, tree_gnn_run, subset_strategy)
             self.parser = GNNTreeParser(gnn_run=tree_gnn_run, **tree_kwargs)

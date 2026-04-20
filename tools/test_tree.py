@@ -22,10 +22,10 @@ from urllib.parse import parse_qs, unquote
 import torch
 import ziamath as zm
 
-from latex_utils.glyphs import _extract_glyphs
-from tree_parser.subset_model import SubsetTreeModel
-from tree_parser.gnn.model import EvidenceGNN
-from tree_parser.tree import tree_to_latex, NUM_EDGE_TYPES, EDGE_NAMES
+from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
+from mathnote_ocr.tree_parser.tree import tree_to_latex, NUM_EDGE_TYPES, EDGE_NAMES
 from scripts.diagnostics.visualize_predictions import predict_tree_exhaustive, predict_tree_iterative, predict_tree_gnn
 
 

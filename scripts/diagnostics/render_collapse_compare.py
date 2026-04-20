@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from latex_utils.collapse import random_collapse, EXPR_NAME
+from mathnote_ocr.latex_utils.collapse import random_collapse, EXPR_NAME
 
 DATA = Path(__file__).parent.parent.parent / "data/runs/tree_subset/mixed_v7b/train.jsonl"
 N_EXAMPLES = 50

@@ -18,18 +18,18 @@ import re
 
 import websockets
 
-from engine.stroke import Stroke, compute_bbox
-from engine.renderer import render_strokes
-from latex_utils.glyphs import _extract_glyphs
-from latex_utils.sampling import _set_sampler, sample_expression, sampler_list
-from latex_utils.expr_aug import parse_latex, _n_frac_bars, _FUNC_GLYPH_COUNTS
-from tree_parser.gen_data import latex_to_tree_labels
-import config
+from mathnote_ocr.engine.stroke import Stroke, compute_bbox
+from mathnote_ocr.engine.renderer import render_strokes
+from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
+from mathnote_ocr.latex_utils.sampling import _set_sampler, sample_expression, sampler_list
+from mathnote_ocr.latex_utils.expr_aug import parse_latex, _n_frac_bars, _FUNC_GLYPH_COUNTS
+from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
+from mathnote_ocr import config
 
 
 # ── Template expansion ────────────────────────────────────────────────
 
-from data_gen.latex_sampling_v2.templates import (
+from mathnote_ocr.data_gen.latex_sampling_v2.templates import (
     Variable, UpperVar, Digit, Greek, GreekUpper, Op, RelOp,
     BigOp, Misc, Quant, Bracket, Punct,
 )

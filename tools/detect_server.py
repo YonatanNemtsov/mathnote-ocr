@@ -10,12 +10,12 @@ import asyncio
 import websockets
 import json
 
-from engine.stroke import Stroke
-from engine.grouper import group_and_classify, GrouperCache
-from classifier.inference import SymbolClassifier
-from engine.layout import analyze_layout
-from pipeline_config import load_config, get
-import config
+from mathnote_ocr.engine.stroke import Stroke
+from mathnote_ocr.engine.grouper import group_and_classify, GrouperCache
+from mathnote_ocr.classifier.inference import SymbolClassifier
+from mathnote_ocr.engine.layout import analyze_layout
+from mathnote_ocr.pipeline_config import load_config, get
+from mathnote_ocr import config
 
 
 # Load model at startup

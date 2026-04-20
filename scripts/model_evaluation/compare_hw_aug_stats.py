@@ -14,10 +14,10 @@ from statistics import mean, median, stdev
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from latex_utils.glyphs import _extract_glyphs
-from tree_parser.hw_bbox_augment import augment_bboxes
-from tree_parser.gen_data import latex_to_tree_labels
-from tree_parser.tree import NUM, DEN, SUP, SUB, SQRT_CONTENT, UPPER, LOWER
+from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
+from mathnote_ocr.tree_parser.hw_bbox_augment import augment_bboxes
+from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
+from mathnote_ocr.tree_parser.tree import NUM, DEN, SUP, SUB, SQRT_CONTENT, UPPER, LOWER
 from scripts.model_evaluation.compare_hw_aug import _match_glyphs_to_hw
 
 

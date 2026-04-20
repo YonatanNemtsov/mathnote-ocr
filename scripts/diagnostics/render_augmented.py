@@ -6,8 +6,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from tree_parser.hw_bbox_augment import augment_bboxes
-from tree_parser.gen_data import _process_batch, _worker_init
+from mathnote_ocr.tree_parser.hw_bbox_augment import augment_bboxes
+from mathnote_ocr.tree_parser.gen_data import _process_batch, _worker_init
 
 
 def get_stroke_loader(hw_dir: Path):

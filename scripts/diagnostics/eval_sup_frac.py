@@ -24,10 +24,10 @@ from pathlib import Path
 import torch
 import numpy as np
 
-from latex_utils.relations import compute_features_from_bbox_list
-from tree_parser.subset_model import load_subset_model
-from tree_parser.tree import NUM, DEN, SUP, SUB, SQRT_CONTENT, UPPER, LOWER, MATCH
-from tree_parser.tree import NUM_EDGE_TYPES, ROOT, EDGE_NAMES
+from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.tree_parser.subset_model import load_subset_model
+from mathnote_ocr.tree_parser.tree import NUM, DEN, SUP, SUB, SQRT_CONTENT, UPPER, LOWER, MATCH
+from mathnote_ocr.tree_parser.tree import NUM_EDGE_TYPES, ROOT, EDGE_NAMES
 
 
 # ── Config ──────────────────────────────────────────────────────────

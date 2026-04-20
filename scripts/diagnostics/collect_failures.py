@@ -17,14 +17,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import torch
 
-from engine.checkpoint import load_checkpoint
-from latex_utils.relations import compute_features_from_bbox_list
-from tree_parser.subset_model import SubsetTreeModel
-from tree_parser.tree import (
+from mathnote_ocr.engine.checkpoint import load_checkpoint
+from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.tree import (
     SymbolNode, build_tree, tree_to_latex, ROOT,
 )
-from tree_parser.evidence import aggregate_evidence_soft, propagate_seq
-from tree_parser.tree_builder import build_tree_from_evidence
+from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft, propagate_seq
+from mathnote_ocr.tree_parser.tree_builder import build_tree_from_evidence
 from scripts.diagnostics.visualize_predictions import (
     _spatial_subsets, _build_trees,
 )

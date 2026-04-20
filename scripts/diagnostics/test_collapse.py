@@ -9,7 +9,7 @@ from collections import defaultdict
 
 sys.path.insert(0, ".")
 
-from latex_utils.collapse import random_collapse, EXPR_NAME
+from mathnote_ocr.latex_utils.collapse import random_collapse, EXPR_NAME
 
 
 def make_expr(names, tree_dicts):

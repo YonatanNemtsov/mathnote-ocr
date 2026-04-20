@@ -13,9 +13,9 @@ import base64
 import io
 import re
 
-from engine.stroke import Stroke
-from engine.renderer import render_strokes
-import config
+from mathnote_ocr.engine.stroke import Stroke
+from mathnote_ocr.engine.renderer import render_strokes
+from mathnote_ocr import config
 
 
 def get_next_id(label_dir: Path) -> str:

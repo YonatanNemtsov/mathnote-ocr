@@ -45,7 +45,7 @@ def step1_generate():
         return
 
     print(f"Step 1: Generating {TRAIN_N} train + {VAL_N} val (sampler={SAMPLER}, max_symbols={MAX_SYMBOLS})...")
-    from tree_parser.gen_data import generate_dataset
+    from mathnote_ocr.tree_parser.gen_data import generate_dataset
 
     DIR.mkdir(parents=True, exist_ok=True)
     generate_dataset(TRAIN_N, DIR / "raw_train.jsonl",
@@ -61,7 +61,7 @@ def step2_augment():
         return
 
     print("Step 2: Augmenting bboxes...")
-    from tree_parser.hw_bbox_augment import augment_bboxes
+    from mathnote_ocr.tree_parser.hw_bbox_augment import augment_bboxes
 
     for src_name, dst_name in [("raw_train.jsonl", "aug_train.jsonl"),
                                 ("raw_val.jsonl", "aug_val.jsonl")]:

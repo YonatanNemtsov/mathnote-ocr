@@ -22,11 +22,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from engine.stroke import Stroke, BBox
-from engine.grouper import group_and_classify
-from classifier.inference import SymbolClassifier
-from grouper_gnn.inference import GNNGrouper
-from engine.grouper import GrouperParams
+from mathnote_ocr.engine.stroke import Stroke, BBox
+from mathnote_ocr.engine.grouper import group_and_classify
+from mathnote_ocr.classifier.inference import SymbolClassifier
+from mathnote_ocr.grouper_gnn.inference import GNNGrouper
+from mathnote_ocr.engine.grouper import GrouperParams
 
 _SIMILAR_MAP = GrouperParams().similar_symbol_map
 

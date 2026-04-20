@@ -9,17 +9,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import torch
 
-from engine.checkpoint import load_checkpoint
-from tree_parser.subset_model import SubsetTreeModel
-from tree_parser.tree_latex import tree_to_latex
-from tree_parser.tree import ROOT
+from mathnote_ocr.engine.checkpoint import load_checkpoint
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
+from mathnote_ocr.tree_parser.tree import ROOT
 from scripts.diagnostics.visualize_predictions import (
     _spatial_subsets, _run_subsets, _build_trees,
 )
-from tree_parser.evidence import (
+from mathnote_ocr.tree_parser.evidence import (
     aggregate_evidence, aggregate_evidence_soft, propagate_seq,
 )
-from tree_parser.tree_builder import build_tree_from_evidence
+from mathnote_ocr.tree_parser.tree_builder import build_tree_from_evidence
 
 
 def aggregate_evidence_hard(n_symbols, partial_outputs):

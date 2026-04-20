@@ -7,15 +7,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
-from engine.checkpoint import load_checkpoint
-from latex_utils.relations import compute_features_from_bbox_list
-from tree_parser.subset_model import SubsetTreeModel
-from tree_parser.tree_latex import tree_to_latex
-from tree_parser.evidence import aggregate_evidence_soft, evidence_to_features
-from tree_parser.subset_selection import make_spatial_subsets
-from tree_parser.tree_builder import build_tree_from_evidence, build_tree_from_scores, find_seq_conflicts
-from tree_parser.gnn.model import EvidenceGNN
-from tree_parser.costs import anchor_with_evidence, apply_seq_bonus
+from mathnote_ocr.engine.checkpoint import load_checkpoint
+from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
+from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft, evidence_to_features
+from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets
+from mathnote_ocr.tree_parser.tree_builder import build_tree_from_evidence, build_tree_from_scores, find_seq_conflicts
+from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
+from mathnote_ocr.tree_parser.costs import anchor_with_evidence, apply_seq_bonus
 
 
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")

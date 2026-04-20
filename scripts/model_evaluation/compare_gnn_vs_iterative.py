@@ -12,15 +12,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import argparse
 import torch
 
-from latex_utils.glyphs import _extract_glyphs
-from tree_parser.subset_model import SubsetTreeModel
-from tree_parser.gnn.model import EvidenceGNN
-from tree_parser.tree import tree_to_latex, build_tree, SymbolNode
-from tree_parser.gen_data import latex_to_tree_labels
+from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
+from mathnote_ocr.tree_parser.tree import tree_to_latex, build_tree, SymbolNode
+from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
 from scripts.diagnostics.visualize_predictions import (
     predict_tree_iterative, predict_tree_gnn, predict_tree_gnn_iterative,
 )
-from data_gen import sample_all
+from mathnote_ocr.data_gen import sample_all
 
 
 def _get_assignments(roots):

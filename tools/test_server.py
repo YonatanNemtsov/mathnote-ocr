@@ -12,11 +12,11 @@ import json
 import base64
 import io
 
-from engine.stroke import Stroke
-from engine.renderer import render_strokes
-from classifier.inference import SymbolClassifier
-from pipeline_config import load_config, get
-import config
+from mathnote_ocr.engine.stroke import Stroke
+from mathnote_ocr.engine.renderer import render_strokes
+from mathnote_ocr.classifier.inference import SymbolClassifier
+from mathnote_ocr.pipeline_config import load_config, get
+from mathnote_ocr import config
 
 import argparse
 ap = argparse.ArgumentParser()

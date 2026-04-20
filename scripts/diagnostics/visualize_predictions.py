@@ -15,17 +15,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import torch
 
-from engine.checkpoint import load_checkpoint
-from latex_utils.relations import compute_features_from_bbox_list
-from tree_parser.subset_model import SubsetTreeModel
-from tree_parser.tree import (
+from mathnote_ocr.engine.checkpoint import load_checkpoint
+from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.tree import (
     SymbolNode, build_tree, tree_to_latex, ROOT,
     NUM, DEN, SUP, SUB, SQRT_CONTENT, EDGE_NAMES, NUM_EDGE_TYPES,
 )
-from tree_parser.evidence import aggregate_evidence_soft, evidence_to_features
-from tree_parser.propagation import propagate_seq
-from tree_parser.subset_selection import make_spatial_subsets, _bbox_edge_dist
-from tree_parser.tree_builder import build_tree_from_evidence, build_tree_from_scores, find_seq_conflicts
+from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft, evidence_to_features
+from mathnote_ocr.tree_parser.propagation import propagate_seq
+from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets, _bbox_edge_dist
+from mathnote_ocr.tree_parser.tree_builder import build_tree_from_evidence, build_tree_from_scores, find_seq_conflicts
 
 EDGE_COLORS = {
     -1: "#666666",

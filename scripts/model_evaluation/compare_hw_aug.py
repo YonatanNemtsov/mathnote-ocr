@@ -11,9 +11,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from PIL import Image, ImageDraw, ImageFont
 
-from latex_utils.glyphs import _extract_glyphs
-from tree_parser.hw_bbox_augment import augment_bboxes
-from tree_parser.gen_data import latex_to_tree_labels
+from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
+from mathnote_ocr.tree_parser.hw_bbox_augment import augment_bboxes
+from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
 
 
 COLORS = [

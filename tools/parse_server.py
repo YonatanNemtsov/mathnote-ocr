@@ -13,13 +13,13 @@ import time
 
 import websockets
 
-from engine.stroke import Stroke
-from engine.grouper import group_and_classify, GrouperCache, GrouperParams
-from classifier.inference import SymbolClassifier
-from tree_parser.inference import SubsetTreeParser
-from tree_parser.tree_v2 import Edge, ROOT_ID
-from pipeline_config import load_config, get
-import config  # for RENDER_STROKE_WIDTH default
+from mathnote_ocr.engine.stroke import Stroke
+from mathnote_ocr.engine.grouper import group_and_classify, GrouperCache, GrouperParams
+from mathnote_ocr.classifier.inference import SymbolClassifier
+from mathnote_ocr.tree_parser.inference import SubsetTreeParser
+from mathnote_ocr.tree_parser.tree_v2 import Edge, ROOT_ID
+from mathnote_ocr.pipeline_config import load_config, get
+from mathnote_ocr import config  # for RENDER_STROKE_WIDTH default
 
 # CLI — individual args override config values
 ap = argparse.ArgumentParser(description="Math OCR Pipeline Server")
@@ -48,7 +48,7 @@ score_tree = server_args.score_tree or get(cfg, "tree_parser.scoring", "full_spa
 gnn_grouper = None
 use_gnn_grouper = grouper_gnn_run or grouper_type == "gnn"
 if use_gnn_grouper:
-    from engine.grouper_v2 import GNNGrouper
+    from mathnote_ocr.engine.grouper_v2 import GNNGrouper
     gnn_run = grouper_gnn_run or get(cfg, "grouper.gnn_run", "v7")
     print(f"Loading GNN grouper (gnn={gnn_run}, classifier={grouper_classifier_run})...")
     gnn_grouper = GNNGrouper(gnn_run=gnn_run, classifier_run=grouper_classifier_run)
@@ -78,7 +78,7 @@ grouper_params = GrouperParams(
 )
 
 if tree_gnn_run:
-    from tree_parser.inference import GNNTreeParser
+    from mathnote_ocr.tree_parser.inference import GNNTreeParser
     anchor = not server_args.gnn_simple
     seq_bonus = not server_args.gnn_simple
     print(f"Loading tree parser (run={tree_run}, gnn={tree_gnn_run}, anchor={anchor}, seq={seq_bonus})...")

@@ -21,15 +21,15 @@ import subprocess
 import torch
 import websockets
 
-from engine.checkpoint import load_checkpoint
-from latex_utils.relations import compute_features_from_bbox_list
-from tree_parser.subset_model import SubsetTreeModel
-from tree_parser.tree import (
+from mathnote_ocr.engine.checkpoint import load_checkpoint
+from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.tree import (
     SymbolNode, build_tree, tree_to_latex, ROOT,
     NUM, DEN, SUP, SUB, SQRT_CONTENT, EDGE_NAMES, NUM_EDGE_TYPES,
 )
-from tree_parser.evidence import sample_subsets_with_coverage, aggregate_evidence
-from tree_parser.tree_builder import build_tree_from_scores
+from mathnote_ocr.tree_parser.evidence import sample_subsets_with_coverage, aggregate_evidence
+from mathnote_ocr.tree_parser.tree_builder import build_tree_from_scores
 
 EDGE_COLORS = {
     -1: "#666666",

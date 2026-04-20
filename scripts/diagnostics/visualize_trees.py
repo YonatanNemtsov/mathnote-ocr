@@ -8,9 +8,9 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from latex_utils.glyphs import _extract_glyphs
-from tree_parser.gen_data import latex_to_tree_labels
-from tree_parser.tree import (
+from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
+from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
+from mathnote_ocr.tree_parser.tree import (
     SymbolNode, build_tree, tree_to_latex, ROOT,
     NUM, DEN, SUP, SUB, SQRT_CONTENT, UPPER, LOWER, EDGE_NAMES,
 )
