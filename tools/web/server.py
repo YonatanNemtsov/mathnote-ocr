@@ -15,7 +15,7 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -37,6 +37,18 @@ CONFIGS_DIR = Path(__file__).parent.parent.parent / "configs"
 WEIGHTS_DIR = Path(__file__).parent.parent.parent / "weights"
 
 
+def _resolve_config(name: str | None) -> str | None:
+    """Resolve a bare config name to the repo's configs/ dir. Leave paths alone."""
+    if name is None:
+        return None
+    if "/" in name or name.endswith((".yaml", ".yml")):
+        return name
+    repo_path = CONFIGS_DIR / f"{name}.yaml"
+    if repo_path.exists():
+        return str(repo_path)
+    return name  # fall back to bundled
+
+
 # ── Pipeline state ───────────────────────────────────────────────────
 
 class Pipeline:
@@ -44,7 +56,7 @@ class Pipeline:
 
     def __init__(self, config_name: str | None = "default"):
         self.config_name = config_name
-        self.cfg = load_config(config_name)
+        self.cfg = load_config(_resolve_config(config_name))
         self._load()
 
     def _load(self):
@@ -60,6 +72,7 @@ class Pipeline:
             run=classifier_run,
             ood_threshold=get(cfg, "classifier.ood_threshold", 15.0),
             per_class_thresholds=get(cfg, "classifier.per_class_thresholds", {}),
+            weights_dir=str(WEIGHTS_DIR),
         )
 
         self.grouper_params = GrouperParams(
@@ -92,6 +105,7 @@ class Pipeline:
             tta_size=get(cfg, "tree_parser.tta_size", 0.05),
             spatial_penalty=get(cfg, "tree_parser.spatial_penalty", 3.0),
             root_discount=get(cfg, "tree_parser.root_discount", 0.2),
+            weights_dir=str(WEIGHTS_DIR),
         )
 
         if tree_gnn_run:
@@ -109,7 +123,7 @@ class Pipeline:
     def reload(self, config_name: str):
         """Reload with a different config."""
         self.config_name = config_name
-        self.cfg = load_config(config_name)
+        self.cfg = load_config(_resolve_config(config_name))
         self._load()
 
     def get_config_summary(self) -> dict:

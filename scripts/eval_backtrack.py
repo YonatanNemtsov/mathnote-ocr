@@ -4,8 +4,9 @@ import json
 import os
 import sys
 import random
+from pathlib import Path
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import torch
 
@@ -88,20 +89,31 @@ def make_detected_symbols(ex):
     return symbols
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_CONFIGS = REPO_ROOT / "configs"
+REPO_WEIGHTS = REPO_ROOT / "weights"
+
+
 def main():
     import argparse
     parser_arg = argparse.ArgumentParser()
-    parser_arg.add_argument("--config", default="mixed_v9_backtrack")
+    parser_arg.add_argument("--config", default="mixed_v9_backtrack",
+                            help="Config name (looked up in repo configs/) or explicit path")
     parser_arg.add_argument("--n", type=int, default=100)
     parser_arg.add_argument("--val", default=None, help="Path to val.jsonl (default: mixed_v7)")
     args = parser_arg.parse_args()
 
-    # Load config
+    # Resolve config: bundled name, repo config name, or path
     from mathnote_ocr.pipeline_config import load_config
-    config = load_config(args.config)
+    cfg_arg = args.config
+    if "/" not in cfg_arg and not cfg_arg.endswith((".yaml", ".yml")):
+        repo_config = REPO_CONFIGS / f"{cfg_arg}.yaml"
+        if repo_config.exists():
+            cfg_arg = str(repo_config)
+    config = load_config(cfg_arg)
     tp_cfg = config.get("tree_parser", {})
 
-    # Build parser
+    # Build parser (use repo weights so all experiment runs are available)
     tree_parser = SubsetTreeParser(
         subset_run=tp_cfg.get("subset_run", "mixed_v9"),
         max_subset=tp_cfg.get("max_subset", 8),
@@ -114,6 +126,7 @@ def main():
         tta_dy=tp_cfg.get("tta_dy", 0.15),
         tta_size=tp_cfg.get("tta_size", 0.05),
         root_discount=tp_cfg.get("root_discount", 0.2),
+        weights_dir=str(REPO_WEIGHTS),
     )
 
     # Load GNN if configured
@@ -121,7 +134,7 @@ def main():
     if gnn_run:
         from mathnote_ocr.engine.checkpoint import load_checkpoint
         from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
-        gnn_ckpt = load_checkpoint("tree_gnn", gnn_run, device=tree_parser.device)
+        gnn_ckpt = load_checkpoint("tree_gnn", gnn_run, device=tree_parser.device, weights_dir=str(REPO_WEIGHTS))
         gnn_cfg = gnn_ckpt["config"]
         gnn_model = EvidenceGNN(
             num_symbols=gnn_cfg["num_symbols"],

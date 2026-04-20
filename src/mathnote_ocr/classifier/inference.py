@@ -33,12 +33,13 @@ class SymbolClassifier:
         device: torch.device | None = None,
         ood_threshold: float = 15.0,
         per_class_thresholds: dict[str, float] | None = None,
+        weights_dir: str | None = None,
     ):
         self.device = device or torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
 
-        checkpoint = load_checkpoint("classifier", run, device=self.device)
+        checkpoint = load_checkpoint("classifier", run, device=self.device, weights_dir=weights_dir)
         self.label_names: list[str] = checkpoint["label_names"]
         self.canvas_size: int = checkpoint.get("canvas_size", 128)
         self.use_size_feat: bool = checkpoint.get("use_size_feat", False)

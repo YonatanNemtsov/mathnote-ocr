@@ -32,6 +32,7 @@ class GNNGrouper:
         gnn_run: str = "v7",
         classifier_run: str = "v8_32",
         device: str | None = None,
+        weights_dir: str | None = None,
     ):
         if device is None:
             if torch.cuda.is_available():
@@ -41,16 +42,17 @@ class GNNGrouper:
             else:
                 device = "cpu"
         self.device = torch.device(device)
+        self.weights_dir = weights_dir
 
         # Load GNN
-        ckpt = load_checkpoint("grouper_gnn", gnn_run, device=self.device)
+        ckpt = load_checkpoint("grouper_gnn", gnn_run, device=self.device, weights_dir=weights_dir)
         cfg = ckpt["config"]
         self.gnn = StrokeGNN(**cfg).to(self.device)
         self.gnn.load_state_dict(ckpt["model_state_dict"])
         self.gnn.eval()
 
         # Load CNN classifier
-        self.classifier = SymbolClassifier(run=classifier_run, device=self.device)
+        self.classifier = SymbolClassifier(run=classifier_run, device=self.device, weights_dir=weights_dir)
 
     @torch.no_grad()
     def group_and_classify(

@@ -1,24 +1,31 @@
 """Pipeline configuration loader.
 
-Load named YAML configs from configs/ directory.
-Priority: CLI arg > config file > hardcoded default.
-
 Usage:
-    cfg = load_config("default")        # loads configs/default.yaml
-    run = get(cfg, "classifier.run", "v4")  # dotpath access with fallback
+    cfg = load_config("default")                       # bundled config
+    cfg = load_config("configs/my_experiment.yaml")    # explicit path
 """
 
 from pathlib import Path
 import yaml
 
-_CONFIGS_DIR = Path(__file__).parent / "configs"
+_PACKAGED_CONFIGS_DIR = Path(__file__).parent / "configs"
 
 
-def load_config(name):
-    """Load a named config. Returns dict, or empty dict if name is None."""
-    if name is None:
+def _resolve_config_path(name_or_path) -> Path:
+    """Bundled name (no separator, no .yaml suffix) → packaged dir.
+    Otherwise treat as a filesystem path (absolute or CWD-relative).
+    """
+    s = str(name_or_path)
+    if "/" in s or "\\" in s or s.endswith((".yaml", ".yml")):
+        return Path(s)
+    return _PACKAGED_CONFIGS_DIR / f"{s}.yaml"
+
+
+def load_config(name_or_path):
+    """Load a config by bundled name or explicit path. None → empty dict."""
+    if name_or_path is None:
         return {}
-    path = _CONFIGS_DIR / f"{name}.yaml"
+    path = _resolve_config_path(name_or_path)
     if not path.exists():
         raise FileNotFoundError(f"Config not found: {path}")
     with open(path) as f:

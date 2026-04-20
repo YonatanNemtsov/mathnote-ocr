@@ -31,6 +31,7 @@ class MathOCR:
         tree_run: str | None = None,
         gnn_run: str | None = None,
         scoring: str | None = None,
+        weights_dir: str | None = None,
     ) -> None:
         cfg = load_config(config)
 
@@ -44,6 +45,7 @@ class MathOCR:
             run=_cls_run,
             ood_threshold=get(cfg, "classifier.ood_threshold", 15.0),
             per_class_thresholds=get(cfg, "classifier.per_class_thresholds", {}),
+            weights_dir=weights_dir,
         )
 
         self.grouper_params = GrouperParams(
@@ -66,6 +68,7 @@ class MathOCR:
             tta_dy=get(cfg, "tree_parser.tta_dy", 0.05),
             tta_size=get(cfg, "tree_parser.tta_size", 0.05),
             root_discount=get(cfg, "tree_parser.root_discount", 0.2),
+            weights_dir=weights_dir,
         )
         if _gnn_run:
             from mathnote_ocr.tree_parser.inference import GNNTreeParser

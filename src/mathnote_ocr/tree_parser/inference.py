@@ -61,10 +61,12 @@ class TreeParser(ABC):
         tta_size: float = 0.05,
         spatial_penalty: float = 3.0,
         root_discount: float = 0.2,
+        weights_dir: str | None = None,
     ) -> None:
         self.device = device or torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
+        self.weights_dir = weights_dir
         self.max_subset = max_subset
         self.radius_mult = radius_mult
         self.max_iters = max_iters
@@ -83,7 +85,7 @@ class TreeParser(ABC):
         self.spatial_penalty = spatial_penalty
         self.root_discount = root_discount
 
-        subset_ckpt = load_checkpoint("tree_subset", subset_run, device=self.device)
+        subset_ckpt = load_checkpoint("tree_subset", subset_run, device=self.device, weights_dir=weights_dir)
         cfg = subset_ckpt["config"]
         self.symbol_vocab: dict[str, int] = subset_ckpt["symbol_vocab"]
 
@@ -664,7 +666,7 @@ class GNNTreeParser(TreeParser):
         self.seq_bonus = seq_bonus
 
         from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
-        gnn_ckpt = load_checkpoint("tree_gnn", gnn_run, device=self.device)
+        gnn_ckpt = load_checkpoint("tree_gnn", gnn_run, device=self.device, weights_dir=self.weights_dir)
         gnn_cfg = gnn_ckpt["config"]
         self.gnn_model = EvidenceGNN(**gnn_cfg).to(self.device)
         self.gnn_model.load_state_dict(gnn_ckpt["model_state_dict"])
