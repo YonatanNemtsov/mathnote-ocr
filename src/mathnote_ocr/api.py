@@ -175,13 +175,19 @@ class MathOCR:
 
 
 def _normalize_strokes(strokes) -> list[Stroke]:
-    """Convert point tuples to Stroke objects. Pass-through if already Stroke."""
+    """Convert point tuples to Stroke objects; assign auto-incremented ids.
+
+    Pass-through if item is already a Stroke (keeps its id).
+    """
     out: list[Stroke] = []
+    next_id = 0
     for raw in strokes:
         if isinstance(raw, Stroke):
             out.append(raw)
+            next_id = max(next_id, raw.id + 1)
         elif raw:
-            out.append(Stroke.from_points([StrokePoint(*p) for p in raw]))
+            out.append(Stroke.from_points([StrokePoint(*p) for p in raw], id=next_id))
+            next_id += 1
     return out
 
 
@@ -241,34 +247,69 @@ class Session:
         stroke_width: float | None = None,
     ) -> None:
         self._ocr = ocr
-        self._strokes: list[Stroke] = []
+        self._strokes: dict[int, Stroke] = {}
+        self._next_id: int = 0
         self._cache = GrouperCache()
         self.canvas_size = canvas_size
         self.stroke_width = stroke_width
 
     @property
     def strokes(self) -> list[Stroke]:
-        """Snapshot of the current strokes."""
-        return list(self._strokes)
+        """Current strokes in insertion order."""
+        return list(self._strokes.values())
 
     def __len__(self) -> int:
         return len(self._strokes)
 
-    def add_stroke(self, points: StrokeInput, *, width: float = 2.0) -> int:
-        """Append a stroke. Returns the new stroke's id."""
-        self._strokes.append(
-            Stroke.from_points([StrokePoint(*p) for p in points], width=width)
+    def _allocate_id(self) -> int:
+        sid = self._next_id
+        self._next_id += 1
+        return sid
+
+    def add_stroke(
+        self,
+        points: StrokeInput,
+        *,
+        id: int | None = None,
+        width: float = 2.0,
+    ) -> int:
+        """Append a stroke. If `id` is None, Session assigns a new one.
+        If `id` is provided, it must not already exist. Returns the id.
+        """
+        if id is None:
+            id = self._allocate_id()
+        elif id in self._strokes:
+            raise ValueError(f"Stroke id {id} already exists")
+        else:
+            self._next_id = max(self._next_id, id + 1)
+        self._strokes[id] = Stroke.from_points(
+            [StrokePoint(*p) for p in points], id=id, width=width
         )
-        return len(self._strokes) - 1
+        return id
 
     def remove_stroke(self, stroke_id: int) -> None:
-        """Drop a stroke by id. Invalidates cache."""
+        """Drop a stroke by id. Other strokes keep their ids. Invalidates cache."""
+        if stroke_id not in self._strokes:
+            raise KeyError(f"Stroke id {stroke_id} not found")
         del self._strokes[stroke_id]
-        self._cache = GrouperCache()
+        # Cache keyed by stroke ids — drop entries referencing the removed one.
+        self._cache.invalidate_stroke(stroke_id)
+
+    def move_stroke(self, stroke_id: int, points: StrokeInput) -> None:
+        """Replace a stroke's points (keeping its id). Invalidates cache entries
+        for this stroke; other strokes stay cached."""
+        if stroke_id not in self._strokes:
+            raise KeyError(f"Stroke id {stroke_id} not found")
+        old = self._strokes[stroke_id]
+        self._strokes[stroke_id] = Stroke.from_points(
+            [StrokePoint(*p) for p in points], id=stroke_id, width=old.width
+        )
+        self._cache.invalidate_stroke(stroke_id)
 
     def clear(self) -> None:
-        """Reset strokes and cache."""
+        """Reset strokes, cache, and id counter."""
         self._strokes.clear()
+        self._next_id = 0
         self._cache = GrouperCache()
 
     def detect(
@@ -279,7 +320,7 @@ class Session:
     ) -> Expression:
         """Run detection on the current strokes. Uses the cache."""
         return self._ocr.detect(
-            self._strokes,
+            list(self._strokes.values()),
             canvas_size=self.canvas_size,
             stroke_width=self.stroke_width,
             hints=hints,

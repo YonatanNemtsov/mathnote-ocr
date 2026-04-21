@@ -148,14 +148,17 @@ _HEURISTIC_BOOST = 0.85
 def _check_stroke_pattern(
     group: frozenset[int],
     cache: dict,
+    strokes: list[Stroke],
 ) -> set[str] | None:
     """Check if individual stroke classifications match a known pattern.
 
+    `group` holds list positions; cache is keyed by stable stroke ids,
+    so we translate via `strokes[p].id`.
     Returns set of plausible merged symbols, or None if no match.
     """
     stroke_syms = []
     for si in sorted(group):
-        singleton = frozenset([si])
+        singleton = frozenset([strokes[si].id])
         result = cache.get(singleton)
         if result is None or result.symbol is None:
             return None
@@ -185,31 +188,26 @@ def _group_confidence(
 
 
 class GrouperCache:
-    """Classification cache with automatic invalidation.
+    """Classification cache keyed by stroke ids.
 
-    Tracks stroke count between calls. On clear (0 strokes) the entire
-    cache is wiped. On undo (fewer strokes) entries referencing removed
-    indices are evicted. On append (more strokes) nothing is evicted.
+    Entries are frozenset[int] of stable stroke ids, mapped to the
+    classification result for that group. Invalidation is per-stroke:
+    when a stroke is removed or moved, we drop entries referencing it.
+    Other entries remain valid.
     """
 
     def __init__(self) -> None:
         self._data: dict[frozenset[int], ClassificationResult] = {}
-        self._num_strokes: int = 0
 
-    def update(self, num_strokes: int) -> None:
-        """Call before each group_and_classify with the current stroke count."""
-        if num_strokes == 0:
-            self._data.clear()
-        elif num_strokes < self._num_strokes:
-            bad = [k for k in self._data if any(i >= num_strokes for i in k)]
-            for k in bad:
-                del self._data[k]
-        self._num_strokes = num_strokes
+    def invalidate_stroke(self, stroke_id: int) -> None:
+        """Drop cache entries that reference a specific stroke id."""
+        bad = [k for k in self._data if stroke_id in k]
+        for k in bad:
+            del self._data[k]
 
     def clear(self) -> None:
         """Full reset (e.g. canvas clear)."""
         self._data.clear()
-        self._num_strokes = 0
 
 
 @dataclass
@@ -316,7 +314,7 @@ def _enumerate_candidate_groups(
     def _get_singleton_class(idx: int) -> str | None:
         if idx in _singleton_cache:
             return _singleton_cache[idx]
-        singleton = frozenset([idx])
+        singleton = frozenset([strokes[idx].id])
         result = cache.get(singleton) if cache else None
         if result is None:
             _singleton_cache[idx] = None
@@ -537,6 +535,14 @@ def group_and_classify(
     n = len(strokes)
     _cache = cache._data if cache is not None else {}
 
+    # Two coordinate systems: positions (for array lookups) and stable stroke
+    # ids (for cache keys). Maintain both mappings.
+    stroke_ids: list[int] = [s.id for s in strokes]            # position → stroke_id
+    stroke_id_to_pos: dict[int, int] = {sid: i for i, sid in enumerate(stroke_ids)}  # stroke_id → position
+
+    def _pos_to_ids(pos_set: frozenset[int]) -> frozenset[int]:
+        return frozenset(stroke_ids[p] for p in pos_set)
+
     # 1. Distances + neighbours
     t0 = time.perf_counter()
     distances = _compute_distance_matrix(strokes)
@@ -554,7 +560,7 @@ def group_and_classify(
     singleton_uncached: list[tuple[int, frozenset[int]]] = []
     for i in range(n):
         sg = frozenset([i])
-        if sg not in _cache:
+        if _pos_to_ids(sg) not in _cache:
             singleton_uncached.append((i, sg))
     if singleton_uncached:
         images = []
@@ -584,7 +590,7 @@ def group_and_classify(
         sf = size_feats if classifier.use_size_feat else None
         results = classifier.classify_batch(images, size_feats=sf)
         for (_, group), result in zip(singleton_uncached, results):
-            _cache[group] = result
+            _cache[_pos_to_ids(group)] = result
     t_singletons = time.perf_counter() - t0
 
     # 3. Enumerate candidate groups (singletons + multi-stroke)
@@ -606,7 +612,7 @@ def group_and_classify(
     t0 = time.perf_counter()
     uncached: list[tuple[int, frozenset[int]]] = []
     for i, group in enumerate(candidate_groups):
-        if group not in _cache:
+        if _pos_to_ids(group) not in _cache:
             uncached.append((i, group))
     if uncached:
         images = []
@@ -636,7 +642,7 @@ def group_and_classify(
         sf = size_feats if classifier.use_size_feat else None
         results = classifier.classify_batch(images, size_feats=sf)
         for (_, group), result in zip(uncached, results):
-            _cache[group] = result
+            _cache[_pos_to_ids(group)] = result
     t_classify = time.perf_counter() - t0
 
     # 4. Filter valid groups
@@ -646,7 +652,7 @@ def group_and_classify(
     rejected_conf = 0
 
     for group in candidate_groups:
-        result = _cache[group]
+        result = _cache[_pos_to_ids(group)]
 
         if result.is_ood:
             rejected_ood += 1
@@ -675,7 +681,7 @@ def group_and_classify(
         # group classifier's top-1 agrees
         has_pattern = False
         if len(group) >= 2:
-            candidates = _check_stroke_pattern(group, _cache)
+            candidates = _check_stroke_pattern(group, _cache, strokes)
             if candidates and result.symbol in candidates:
                 effective_conf = max(effective_conf, _HEURISTIC_BOOST)
                 has_pattern = True
@@ -690,7 +696,7 @@ def group_and_classify(
         if len(group) >= 2 and not has_pattern:
             singleton_confs = []
             for si in group:
-                sr = _cache.get(frozenset([si]))
+                sr = _cache.get(frozenset([stroke_ids[si]]))
                 if sr and sr.confidence is not None:
                     singleton_confs.append(
                         _group_confidence(sr, similar_map=params.similar_symbol_map)

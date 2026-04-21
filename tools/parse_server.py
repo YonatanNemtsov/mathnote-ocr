@@ -15,7 +15,7 @@ import websockets
 
 from mathnote_ocr import config  # for RENDER_STROKE_WIDTH default
 from mathnote_ocr.classifier.inference import SymbolClassifier
-from mathnote_ocr.engine.grouper import GrouperCache, GrouperParams, group_and_classify
+from mathnote_ocr.engine.grouper import GrouperParams, group_and_classify
 from mathnote_ocr.engine.stroke import Stroke
 from mathnote_ocr.pipeline_config import get, load_config
 from mathnote_ocr.tree_parser.inference import SubsetTreeParser
@@ -129,19 +129,16 @@ print("Loaded.\n")
 async def handler(websocket):
     addr = websocket.remote_address
     print(f"[connect] {addr}")
-    cache = GrouperCache()
 
     async for message in websocket:
         try:
             msg = json.loads(message)
 
             if msg["type"] == "clear":
-                cache.clear()
                 continue
 
             if msg["type"] == "detect":
                 raw_strokes = msg.get("strokes", [])
-                cache.update(len(raw_strokes))
                 if not raw_strokes:
                     await websocket.send(
                         json.dumps(
@@ -159,7 +156,7 @@ async def handler(websocket):
                     msg.get("canvas_height", 400),
                 )
 
-                strokes = [Stroke.from_dicts(pts) for pts in raw_strokes]
+                strokes = [Stroke.from_dicts(pts, id=i) for i, pts in enumerate(raw_strokes)]
 
                 t0 = time.perf_counter()
                 if gnn_grouper:
@@ -177,7 +174,6 @@ async def handler(websocket):
                         source_size=source_size,
                         top_k=top_k,
                         debug=msg.get("debug", False),
-                        cache=cache,
                         params=grouper_params,
                     )
                 t_group = time.perf_counter() - t0

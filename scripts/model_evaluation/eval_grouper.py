@@ -54,7 +54,7 @@ def expr_strokes(item: dict) -> list[Stroke]:
     all_strokes = []
     for sym in item["symbols"]:
         for stroke_points in sym["strokes"]:
-            all_strokes.append(Stroke.from_dicts(stroke_points))
+            all_strokes.append(Stroke.from_dicts(stroke_points, id=len(all_strokes)))
     return all_strokes
 
 

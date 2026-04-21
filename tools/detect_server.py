@@ -13,7 +13,7 @@ import websockets
 
 from mathnote_ocr import config
 from mathnote_ocr.classifier.inference import SymbolClassifier
-from mathnote_ocr.engine.grouper import GrouperCache, group_and_classify
+from mathnote_ocr.engine.grouper import group_and_classify
 from mathnote_ocr.engine.layout import analyze_layout
 from mathnote_ocr.engine.stroke import Stroke
 from mathnote_ocr.pipeline_config import get, load_config
@@ -50,19 +50,15 @@ print(f"Device: {classifier.device}\n")
 async def handler(websocket):
     addr = websocket.remote_address
     print(f"[connect] {addr}")
-    cache = GrouperCache()
-
     async for message in websocket:
         try:
             msg = json.loads(message)
 
             if msg["type"] == "clear":
-                cache.clear()
                 continue
 
             if msg["type"] == "detect":
                 raw_strokes = msg.get("strokes", [])
-                cache.update(len(raw_strokes))
                 if not raw_strokes:
                     await websocket.send(
                         json.dumps(
@@ -80,7 +76,7 @@ async def handler(websocket):
                     msg.get("canvas_height", 400),
                 )
 
-                strokes = [Stroke.from_dicts(pts) for pts in raw_strokes]
+                strokes = [Stroke.from_dicts(pts, id=i) for i, pts in enumerate(raw_strokes)]
 
                 all_partitions = group_and_classify(
                     strokes,
@@ -88,7 +84,6 @@ async def handler(websocket):
                     stroke_width=stroke_width,
                     source_size=source_size,
                     top_k=10,
-                    cache=cache,
                 )
 
                 def serialize_partition(symbols):

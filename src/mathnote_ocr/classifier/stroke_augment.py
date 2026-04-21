@@ -31,7 +31,7 @@ def augment_strokes(strokes: list[Stroke]) -> list[Stroke]:
         strokes = _stroke_offset(strokes)
 
     # Rebuild bboxes
-    return [Stroke.from_points(s.points) for s in strokes]
+    return [Stroke.from_points(s.points, id=s.id, width=s.width) for s in strokes]
 
 
 def _affine(strokes: list[Stroke], cx: float, cy: float) -> list[Stroke]:
@@ -60,7 +60,7 @@ def _affine(strokes: list[Stroke], cx: float, cy: float) -> list[Stroke]:
             rx *= sx
             ry *= sy
             new_pts.append(StrokePoint(cx + rx, cy + ry, p.t))
-        result.append(Stroke(new_pts, s.bbox))
+        result.append(Stroke(id=s.id, points=new_pts, bbox=s.bbox, width=s.width))
     return result
 
 
@@ -78,7 +78,7 @@ def _jitter(strokes: list[Stroke], scale: float = 0.015) -> list[Stroke]:
             StrokePoint(p.x + random.gauss(0, sigma), p.y + random.gauss(0, sigma), p.t)
             for p in s.points
         ]
-        result.append(Stroke(new_pts, s.bbox))
+        result.append(Stroke(id=s.id, points=new_pts, bbox=s.bbox, width=s.width))
     return result
 
 
@@ -95,5 +95,5 @@ def _stroke_offset(strokes: list[Stroke], scale: float = 0.02) -> list[Stroke]:
         ox = random.gauss(0, sigma)
         oy = random.gauss(0, sigma)
         new_pts = [StrokePoint(p.x + ox, p.y + oy, p.t) for p in s.points]
-        result.append(Stroke(new_pts, s.bbox))
+        result.append(Stroke(id=s.id, points=new_pts, bbox=s.bbox, width=s.width))
     return result

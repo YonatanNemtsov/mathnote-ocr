@@ -248,7 +248,7 @@ def parse_inkml(path: Path) -> tuple[str | None, list[list[dict]]]:
 
 def strokes_to_engine(raw_strokes: list[list[dict]]) -> list[Stroke]:
     """Convert raw stroke dicts to engine Stroke objects."""
-    return [Stroke.from_dicts(pts) for pts in raw_strokes]
+    return [Stroke.from_dicts(pts, id=i) for i, pts in enumerate(raw_strokes)]
 
 
 # ── Main ─────────────────────────────────────────────────────────────

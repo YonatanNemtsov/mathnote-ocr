@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 
 import mathnote_ocr.config as app_config
 from mathnote_ocr.classifier.inference import SymbolClassifier
-from mathnote_ocr.engine.grouper import GrouperCache, GrouperParams, group_and_classify
+from mathnote_ocr.engine.grouper import GrouperParams, group_and_classify
 from mathnote_ocr.engine.stroke import Stroke
 from mathnote_ocr.pipeline_config import get, load_config
 from mathnote_ocr.tree_parser.inference import SubsetTreeParser
@@ -199,7 +199,6 @@ def create_app(config_name: str | None = "default") -> FastAPI:
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
         await websocket.accept()
-        cache = GrouperCache()
         log.info("WebSocket connected")
 
         try:
@@ -208,12 +207,10 @@ def create_app(config_name: str | None = "default") -> FastAPI:
                 msg = json.loads(message)
 
                 if msg["type"] == "clear":
-                    cache.clear()
                     continue
 
                 if msg["type"] == "detect":
                     raw_strokes = msg.get("strokes", [])
-                    cache.update(len(raw_strokes))
 
                     if not raw_strokes:
                         await websocket.send_json({"type": "error", "message": "No strokes."})
@@ -225,7 +222,7 @@ def create_app(config_name: str | None = "default") -> FastAPI:
                         msg.get("canvas_height", 400),
                     )
 
-                    strokes = [Stroke.from_dicts(pts) for pts in raw_strokes]
+                    strokes = [Stroke.from_dicts(pts, id=i) for i, pts in enumerate(raw_strokes)]
 
                     t0 = time.perf_counter()
                     all_partitions = group_and_classify(
@@ -235,7 +232,6 @@ def create_app(config_name: str | None = "default") -> FastAPI:
                         source_size=source_size,
                         top_k=pipeline.top_k,
                         debug=msg.get("debug", False),
-                        cache=cache,
                         params=pipeline.grouper_params,
                     )
                     t_group = time.perf_counter() - t0

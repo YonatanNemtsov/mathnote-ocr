@@ -80,7 +80,7 @@ class SymbolDataset(Dataset):
     def _render_from_json(self, json_path: Path) -> tuple[Image.Image, float]:
         with open(json_path) as f:
             data = json.load(f)
-        strokes = [Stroke.from_dicts(pts) for pts in data["strokes"]]
+        strokes = [Stroke.from_dicts(pts, id=i) for i, pts in enumerate(data["strokes"])]
         if self.stroke_augment:
             strokes = augment_strokes(strokes)
         w_min, w_max = self.width_range
