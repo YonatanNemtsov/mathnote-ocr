@@ -28,7 +28,7 @@ class MathOCR:
         config: str | None = "default",
         *,
         classifier_run: str | None = None,
-        tree_run: str | None = None,
+        subset_run: str | None = None,
         gnn_run: str | None = None,
         scoring: str | None = None,
         weights_dir: str | None = None,
@@ -37,7 +37,7 @@ class MathOCR:
 
         # Resolve: explicit kwarg > yaml config > hardcoded default
         _cls_run = classifier_run or get(cfg, "classifier.run", "v9_combined")
-        _tree_run = tree_run or get(cfg, "tree_parser.subset_run", "mixed_v8")
+        _subset_run = subset_run or get(cfg, "tree_parser.subset_run", "mixed_v8")
         _gnn_run = gnn_run or get(cfg, "tree_parser.gnn_run")
         _scoring = scoring or get(cfg, "tree_parser.scoring", "full_spatial")
 
@@ -60,7 +60,7 @@ class MathOCR:
         )
 
         tp_kwargs = dict(
-            subset_run=_tree_run,
+            subset_run=_subset_run,
             scoring=_scoring,
             tree_strategy=get(cfg, "tree_parser.tree_strategy", "edmonds"),
             tta_runs=get(cfg, "tree_parser.tta_runs", 1),

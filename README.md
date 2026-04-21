@@ -2,6 +2,69 @@
 
 Stroke-based handwritten math to LaTeX OCR.
 
+## Installation
+
+Requires Python 3.10+.
+
+```bash
+git clone https://github.com/YonatanNemtsov/mathnote-ocr.git
+cd mathnote-ocr
+pip install -e .
+```
+
+For development setup with linting:
+
+```bash
+uv sync --group dev        # or: pip install -e .[dev]
+```
+
+To also get the tool servers (web UI, data collection):
+
+```bash
+pip install -e .[tools]
+```
+
+Default production weights (mixed_v10 subset + GNN, v9_combined classifier) are bundled with the package — no download needed.
+
+## Usage
+
+### Python API
+
+```python
+from mathnote_ocr import MathOCR
+
+ocr = MathOCR()  # uses bundled default config + weights
+
+strokes = [
+    [{"x": 10, "y": 20}, {"x": 15, "y": 25}, ...],  # first stroke
+    [{"x": 30, "y": 20}, {"x": 35, "y": 25}, ...],  # second stroke
+    ...
+]
+
+results = ocr.parse(strokes, canvas_size=800)
+# Returns [{"latex": "...", "confidence": 0.89, "symbols": [...]}]
+
+print(results[0]["latex"])  # → "x^{2} + y"
+```
+
+Between unrelated inputs, call `ocr.clear()` to reset the grouper cache (it's designed for incremental interactive use where strokes are added one by one).
+
+### Web interface
+
+```bash
+python tools/web/server.py --config mixed_v10_backtrack_gnn
+```
+
+Open [http://localhost:8768](http://localhost:8768). Draw math expressions; get LaTeX.
+
+### Collect handwritten training data
+
+```bash
+python tools/collect_expr_server.py
+```
+
+Open `tools/collect_expr.html` in your browser (pure WebSocket server on port 8770). Draw expressions matching sampled LaTeX prompts; data saves to `data/shared/tree_handwritten/`.
+
 ## Architecture
 
 ```
@@ -22,94 +85,129 @@ strokes → groups of strokes → classified symbols → expression tree → LaT
 
 The tree is then rendered to LaTeX.
 
-## Installation
+## Configuration
 
-Requires Python 3.10.
-
-```bash
-git clone https://github.com/YonatanNemtsov/mathnote-ocr.git
-cd mathnote-ocr
-pip install -r requirements.txt
-```
-
-The repo includes default production weights (mixed_v10 subset + GNN, v9_combined classifier). No download needed.
-
-## Usage
-
-### Run the web interface
-
-```bash
-python3.10 tools/web/server.py --config mixed_v10_backtrack_gnn
-```
-
-Open [http://localhost:8768](http://localhost:8768) in your browser. Draw math expressions; get LaTeX.
-
-### Collect your own handwritten training data
-
-```bash
-python3.10 tools/collect_expr_server.py
-```
-
-Then open `tools/collect_expr.html` in your browser (the server is a pure WebSocket server on port 8770; the HTML file connects to it). Draw expressions matching sampled LaTeX prompts; data saves to `data/shared/tree_handwritten/`.
-
-### Python API
+The pipeline is configured via YAML files. `MathOCR()` uses the bundled `default.yaml`. To use a different config:
 
 ```python
-from api import MathOCR
-
-ocr = MathOCR(config="mixed_v10_backtrack_gnn")
-
-# strokes: list of strokes, each stroke is a list of {"x": float, "y": float} points
-strokes = [
-    [{"x": 10, "y": 20}, {"x": 15, "y": 25}, ...],  # first stroke
-    [{"x": 30, "y": 20}, {"x": 35, "y": 25}, ...],  # second stroke
-    ...
-]
-
-results = ocr.parse(strokes, canvas_size=800)
-# Returns [{"latex": "...", "confidence": 0.89, "symbols": [...]}]
-
-print(results[0]["latex"])  # → "x^{2} + y"
+ocr = MathOCR(config="configs/mixed_v9_backtrack.yaml")
 ```
 
-Between unrelated inputs, call `ocr.clear()` to reset the grouper cache. The cache is designed for incremental (interactive) use where strokes are added one by one.
+### Config structure
+
+A pipeline config has three sections, one per stage:
+
+```yaml
+classifier:
+  run: v9_combined          # which classifier checkpoint to load
+  ood_threshold: 15.0       # reject grouping if prototype distance exceeds this
+  min_confidence: 0.15
+  per_class_thresholds:     # per-class OOD overrides (useful for ambiguous symbols)
+    x: 15.0
+    dot: 15.0
+    "-": 15.0
+
+grouper:
+  type: classical           # "classical" (neighbor-based) or "gnn"
+  classifier_run: v9_combined
+  top_k: 3                  # number of candidate partitions to return
+  max_strokes_per_symbol: 4
+  stroke_width: 2.0
+  # ...other spatial thresholds
+
+tree_parser:
+  type: gnn                 # "subset" (Edmonds' on evidence) or "gnn" (with refinement)
+  subset_run: mixed_v10     # which subset model checkpoint
+  gnn_run: mixed_v10        # which GNN checkpoint (only used if type: gnn)
+  tree_strategy: backtrack  # "backtrack" (beam search) or "edmonds" (fallback)
+  scoring: full_spatial
+  tta_runs: 1               # test-time augmentation — jitter bboxes and average
+  tta_dx: 0.05
+  tta_dy: 0.05
+  tta_size: 0.05
+  root_discount: 0.3
+```
+
+### Where weights are looked up
+
+Any `run` field (e.g., `classifier.run`, `tree_parser.subset_run`, `tree_parser.gnn_run`) can be either:
+
+- **A name** like `v9_combined`: looked up as `{weights_dir}/{model_type}/{run_name}/checkpoint.pth`, falling back to the bundled weights if not found there.
+- **A path** like `./my_weights/classifier_final.pth` (ends in `.pth` or contains `/`): loaded directly.
+
+So you can mix and match:
+
+```python
+# All bundled
+ocr = MathOCR()
+
+# Custom classifier, bundled tree parser (uses fallback)
+ocr = MathOCR(
+    classifier_run="my_v1",
+    weights_dir="./my_weights",   # has classifier/my_v1/ but not tree_subset/
+)
+
+# Point runs directly at files, no weights_dir needed
+ocr = MathOCR(
+    classifier_run="./models/my_classifier.pth",
+    subset_run="./models/my_subset.pth",
+)
+```
+
+### Bundled vs repo configs
+
+- **`src/mathnote_ocr/configs/default.yaml`** — ships with the package, used when you call `MathOCR()` or `MathOCR(config="default")`.
+- **`configs/*.yaml`** — experimental/alternative configs tracked in the repo (mixed_v9 variants, bottomup, backtrack_collapse, etc.). Reference them by path: `MathOCR(config="configs/mixed_v9_backtrack.yaml")`.
+
+### Full field reference
+
+See [`configs/reference.yaml`](configs/reference.yaml) — every supported field with its default and a one-line description. Fields marked `[experimental]` can change or be removed without notice; the rest are stable.
+
+### Creating a new config
+
+Copy an existing one (start with `configs/reference.yaml`), adjust the fields you need, reference it by path. No schema validation — unrecognized fields are silently ignored, missing ones fall back to defaults.
 
 ## Training from scratch
 
 ```bash
 # 1. Generate synthetic training data (~100MB, a few minutes)
-python3.10 data/runs/tree_subset/mixed_v10/build.py
+python data/runs/tree_subset/mixed_v10/build.py
 
 # 2. Train the subset tree parser
-python3.10 tree_parser/subset_train.py --run my_v1
+python -m mathnote_ocr.tree_parser.subset_train --run my_v1
 
 # 3. Generate GNN evidence data (needs trained subset model)
-python3.10 data/runs/gnn/mixed_v10/build_mixed_v10.py
+python data/runs/gnn/mixed_v10/build_mixed_v10.py
 
 # 4. Train the GNN
-python3.10 tree_parser/gnn/train.py --run my_v1
+python -m mathnote_ocr.tree_parser.gnn.train --run my_v1
 ```
 
 The classifier trains on included handwritten symbol JSONs in `data/shared/symbols/`:
 
 ```bash
-python3.10 classifier/train.py --run my_classifier
+python -m mathnote_ocr.classifier.train --run my_classifier
 ```
 
 ## Repository structure
 
 ```
-tree_parser/      # Tree parser: subset model + GNN + beam search builder
-classifier/       # CNN symbol classifier with prdototype OOD
-engine/           # Grouper, stroke rendering, checkpoints
-grouper_gnn/      # GNN-based grouper (optional alternative to classical)
-data_gen/         # Synthetic expression generators (v1–v16 + v3 tree-first)
-latex_utils/      # LaTeX rendering, glyph definitions, expression utilities
-configs/          # YAML pipeline configs
-scripts/          # Evaluation and diagnostic scripts
-tools/            # Web servers: collection, testing, inference UI
-data/shared/      # Handwritten dataset (5,672 symbols, 300+ expressions)
-weights/          # Default model checkpoints
+src/mathnote_ocr/     # The package
+  api.py              # Public API (MathOCR class)
+  tree_parser/        # Subset model + GNN + beam search builder
+  classifier/         # CNN classifier with prototype OOD
+  engine/             # Grouper, stroke rendering, checkpoints
+  grouper_gnn/        # GNN-based grouper (optional alternative)
+  data_gen/           # Synthetic expression generators
+  latex_utils/        # LaTeX rendering, glyphs
+  weights/            # Bundled default checkpoints
+  configs/            # Bundled default YAML config
+
+configs/              # Experiment configs (mixed_v9_*, mixed_v10_*)
+weights/              # User-trained checkpoints (development)
+data/                 # Training data
+scripts/              # Evaluation and diagnostic scripts
+tools/                # Web servers (inference UI, collection)
 ```
 
 ## License

@@ -1,0 +1,134 @@
+# Reference config — every supported field with defaults and notes.
+#
+# Most users only need classifier.run, tree_parser.subset_run, tree_parser.gnn_run,
+# and tree_parser.tree_strategy. The rest are tuning knobs or experimental.
+#
+# Fields marked [experimental] are for research use — they can change or be
+# removed without notice.
+#
+# Missing fields fall back to the hardcoded defaults shown here.
+
+
+# ── Classifier ─────────────────────────────────────────────────────────
+#
+# Any `run` field throughout this config can be either:
+#   - A name (e.g. "v9_combined"): looked up as
+#     {weights_dir}/classifier/{run}/checkpoint.pth, falling back to the
+#     bundled weights that ship with the package.
+#   - A path ending in ".pth" or containing "/": loaded directly.
+#
+# If weights_dir is not set and the run is not a path, only bundled weights
+# are available.
+
+classifier:
+  run: v9_combined
+
+  # OOD threshold: reject a grouping if its prototype distance exceeds this.
+  # Higher = more permissive. Tune per dataset.
+  ood_threshold: 15.0
+
+  # Minimum classifier confidence. Groupings below this are rejected.
+  min_confidence: 0.15
+
+  # Per-class OOD threshold overrides. Any symbol name is a valid key — only
+  # entries listed here override the global ood_threshold. Useful for common
+  # false positives (e.g., tightening `x` vs `\times`, `.` vs `\cdot`).
+  per_class_thresholds:
+    x: 15.0
+    dot: 15.0
+    "-": 15.0
+    # ...any symbol name: threshold
+
+
+# ── Grouper ────────────────────────────────────────────────────────────
+grouper:
+  # Grouping strategy. "classical" is neighbor-based stroke enumeration;
+  # "gnn" uses a learned GNN to predict same-symbol edges [experimental].
+  type: classical
+
+  # Classifier run used by the grouper. Usually same as classifier.run.
+  classifier_run: v9_combined
+
+  # [experimental] GNN grouper checkpoint (only when type: gnn).
+  gnn_run: null
+
+  # Number of top candidate partitions to return from the grouper.
+  # Higher = more candidates for the tree parser to consider, slower.
+  top_k: 3
+
+  # Max strokes that can be grouped into a single symbol.
+  # Above 4, grouping cost explodes combinatorially.
+  max_strokes_per_symbol: 4
+
+  # Default stroke width used for rendering during classification.
+  stroke_width: 2.0
+
+  # Spatial thresholds for classical grouper. Tune for your input scale.
+  size_multiplier: 0.1
+  min_merge_distance: 14.0
+  max_group_diameter_ratio: 2.2
+  conflict_threshold: 0.32
+
+
+# ── Tree parser ────────────────────────────────────────────────────────
+tree_parser:
+  # Parser type:
+  #   "subset" — subset model evidence only (+ Edmonds' fallback)
+  #   "gnn"    — subset model + GNN refinement (recommended for production)
+  type: gnn
+
+  # Subset model checkpoint name. Looked up as {weights_dir}/tree_subset/{run}/
+  subset_run: mixed_v10
+
+  # GNN checkpoint (only when type: gnn).
+  gnn_run: mixed_v10
+
+  # Tree building strategy:
+  #   "backtrack"          — bottom-up beam search (current default, seems to be most accurate.)
+  #   "backtrack_collapse" — backtrack with intermediate collapse [experimental]
+  #   "edmonds"            — maximum spanning arborescence (fast, less accurate)
+  tree_strategy: backtrack
+
+  # Scoring method for evidence aggregation.
+  #   "full_spatial" (default) — full spatial context
+  scoring: full_spatial
+
+  # Test-time augmentation: jitter symbol bboxes, run multiple times, average.
+  # tta_runs: 1 disables TTA. Higher is more robust but slower and can hurt
+  # backtrack quality.
+  tta_runs: 1
+  tta_dx: 0.05
+  tta_dy: 0.05
+  tta_size: 0.05
+
+  # Penalty applied to selecting ROOT as parent. Higher = tighter trees.
+  root_discount: 0.3
+
+  # [experimental] Subset selection strategy:
+  #   "spatial"       — default, overlapping spatial clusters
+  #   "neighborhood"  — k-nearest symbol subsets
+  #   "xaxis"         — horizontal band subsets
+  subset_strategy: spatial
+
+  # [experimental] Max symbols per subset (subset model is trained on 8).
+  max_subset: 8
+
+  # [experimental] Iteration cap for iterative strategies.
+  max_iters: 3
+
+  # [experimental] Neighborhood-subset params (only when subset_strategy: neighborhood)
+  # k_neighbors: 5
+  # subset_min_size: 2
+  # subset_max_size: 5
+
+  # [experimental] X-axis band multipliers (only when subset_strategy: xaxis)
+  # xaxis_width_mults: [0.5, 1.0, 2.0]
+
+  # [experimental] Threshold for trusting SEQ predictions in tree building.
+  # seq_threshold: 0.7
+
+  # [experimental] Penalty for spatially implausible parent assignments.
+  # spatial_penalty: 3.0
+
+  # [experimental] Evidence cost strategy ("raw" or "propagate")
+  # cost: propagate
