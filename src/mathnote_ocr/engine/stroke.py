@@ -16,22 +16,25 @@ class StrokePoint:
 class Stroke:
     points: list[StrokePoint] = field(default_factory=list)
     bbox: BBox = field(default_factory=lambda: BBox(0, 0, 0, 0))
+    width: float = 2.0  # pen width used to draw this stroke
 
     @staticmethod
-    def from_dicts(points: list[dict]) -> "Stroke":
+    def from_dicts(points: list[dict], width: float = 2.0) -> "Stroke":
         """Create a Stroke from a list of {x, y, t?} dicts."""
         stroke_points = [StrokePoint(p["x"], p["y"], p.get("t", 0.0)) for p in points]
-        return Stroke.from_points(stroke_points)
+        return Stroke.from_points(stroke_points, width=width)
 
     @staticmethod
-    def from_points(points: list[StrokePoint], min_bbox_size: float = 6.0) -> "Stroke":
+    def from_points(
+        points: list[StrokePoint], min_bbox_size: float = 6.0, width: float = 2.0
+    ) -> "Stroke":
         """Create a Stroke and compute its bounding box.
 
         Tiny strokes (dots, taps) get their bbox expanded to min_bbox_size
         so they can participate in grouping with nearby strokes.
         """
         if not points:
-            return Stroke()
+            return Stroke(width=width)
 
         xs = [p.x for p in points]
         ys = [p.y for p in points]
@@ -52,7 +55,7 @@ class Stroke:
             h = min_bbox_size
 
         bbox = BBox(min_x, min_y, w, h)
-        return Stroke(points, bbox)
+        return Stroke(points=points, bbox=bbox, width=width)
 
 
 def compute_bbox(strokes: list[Stroke]) -> BBox:
