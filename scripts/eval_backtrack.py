@@ -173,13 +173,17 @@ def main():
         try:
             pred_latex, conf, pred_tree, _ = tree_parser.parse_with_tree(detected)
         except Exception as e:
-            print(f"  [{i}] ERROR: {e}")
+            print(f"  [{i}] ERROR: {e}", flush=True)
             errors += 1
             continue
         if trees_match(pred_tree, gt_tree):
+            print(f"  [{i}] OK", flush=True)
             correct += 1
-        elif i < 20 or (i % 50 == 0):
-            print(f"  [{i}] WRONG: pred={tree_to_latex(pred_tree)}  gt={tree_to_latex(gt_tree)}")
+        else:
+            print(
+                f"  [{i}] WRONG: pred={tree_to_latex(pred_tree)}  gt={tree_to_latex(gt_tree)}",
+                flush=True,
+            )
 
     print(
         f"\nTree accuracy: {correct}/{len(examples)} = {correct / len(examples) * 100:.1f}% (errors: {errors})"
