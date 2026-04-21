@@ -11,12 +11,39 @@ Usage:
 import random
 
 from .templates import (
-    Template, Variable, UpperVar, Digit, Greek, GreekUpper, Misc, Op, BigOp,
+    BigOp,
+    Digit,
+    Greek,
+    GreekUpper,
+    Misc,
+    OneOf,
+    Op,
     RelOp,
-    OneOf, Seq, Frac as TFrac, Sqrt as TSqrt, Sup as TSup, Sub as TSub,
-    BigOpBare as TBigOpBare, BigOpLow as TBigOpLow, BigOpHigh as TBigOpHigh, BigOpLowHigh as TBigOpLowHigh,
+    Seq,
+    UpperVar,
+    Variable,
 )
-
+from .templates import (
+    BigOpBare as TBigOpBare,
+)
+from .templates import (
+    BigOpHigh as TBigOpHigh,
+)
+from .templates import (
+    BigOpLow as TBigOpLow,
+)
+from .templates import (
+    BigOpLowHigh as TBigOpLowHigh,
+)
+from .templates import (
+    Frac as TFrac,
+)
+from .templates import (
+    Sqrt as TSqrt,
+)
+from .templates import (
+    Sup as TSup,
+)
 
 # ── Symbol pool ──────────────────────────────────────────────────────
 
@@ -24,12 +51,21 @@ LOWER = list("abcdefghijklmnopqrstuvwxyz")
 UPPER = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 DIGIT = list("0123456789")
 GREEK = [
-    r"\alpha", r"\beta", r"\gamma", r"\delta", r"\epsilon",
-    r"\theta", r"\lambda", r"\mu", r"\pi", r"\sigma",
-    r"\phi", r"\psi", r"\omega",
+    r"\alpha",
+    r"\beta",
+    r"\gamma",
+    r"\delta",
+    r"\epsilon",
+    r"\theta",
+    r"\lambda",
+    r"\mu",
+    r"\pi",
+    r"\sigma",
+    r"\phi",
+    r"\psi",
+    r"\omega",
 ]
-GREEK_UPPER = [r"\Gamma", r"\Delta", r"\Sigma", r"\Pi",
-               r"\Phi", r"\Psi", r"\Omega"]
+GREEK_UPPER = [r"\Gamma", r"\Delta", r"\Sigma", r"\Pi", r"\Phi", r"\Psi", r"\Omega"]
 OPERATORS = ["+", "-", r"\times", r"\cdot", r"\pm", r"\div"]
 RELATIONS = ["=", r"\leq", r"\geq", r"\neq", "<", ">"]
 SET_LOGIC = [r"\cup", r"\cap", r"\in", r"\subset", r"\forall", r"\exists"]
@@ -37,13 +73,25 @@ CALCULUS = [r"\infty", r"\partial", r"\nabla"]
 ARROWS = [r"\rightarrow", r"\leftarrow"]
 PUNCTUATION = [".", ",", ";", ":", "!", "/", "|"]
 BRACKETS = ["[", "]", r"\lbrace", r"\rbrace"]
-FUNCTIONS = [r"\sin", r"\cos", r"\tan", r"\log", r"\ln", r"\exp",
-             r"\max", r"\min"]
+FUNCTIONS = [r"\sin", r"\cos", r"\tan", r"\log", r"\ln", r"\exp", r"\max", r"\min"]
 OTHER = [r"\ldots"]
 
-SYMBOLS = (LOWER + UPPER + DIGIT + GREEK + GREEK_UPPER +
-           OPERATORS + RELATIONS + SET_LOGIC + CALCULUS +
-           ARROWS + PUNCTUATION + BRACKETS + FUNCTIONS + OTHER)
+SYMBOLS = (
+    LOWER
+    + UPPER
+    + DIGIT
+    + GREEK
+    + GREEK_UPPER
+    + OPERATORS
+    + RELATIONS
+    + SET_LOGIC
+    + CALCULUS
+    + ARROWS
+    + PUNCTUATION
+    + BRACKETS
+    + FUNCTIONS
+    + OTHER
+)
 
 BIG_OPS = [r"\sum", r"\int", r"\prod"]
 
@@ -59,12 +107,11 @@ def _pick():
 
 
 # Symbols that can be a base for sup/sub (exclude operators, relations, etc.)
-BASE_SYMBOLS = (LOWER + UPPER + DIGIT + GREEK + GREEK_UPPER + CALCULUS)
+BASE_SYMBOLS = LOWER + UPPER + DIGIT + GREEK + GREEK_UPPER + CALCULUS
 
 # ── Sub/sup content templates ────────────────────────────────────────
 # Weights proportional to pool size so each individual symbol is ~equally likely
-_Atom1 = OneOf(Variable, UpperVar, Digit, Greek, GreekUpper, Misc,
-               weights=[26, 26, 10, 13, 7, 4])
+_Atom1 = OneOf(Variable, UpperVar, Digit, Greek, GreekUpper, Misc, weights=[26, 26, 10, 13, 7, 4])
 _Atom2 = Seq(_Atom1, _Atom1)
 _Atom3 = Seq(_Atom1, _Atom1, _Atom1)
 
@@ -74,8 +121,9 @@ SUB_CONTENT = OneOf(_Atom1, _Atom2, _Atom3, weights=[10, 2, 1])
 _LimitSup = TSup(_Atom1, SUB_CONTENT)
 _SimpleFrac = TFrac(_Atom1, _Atom1)
 _SimpleSqrt = TSqrt(_Atom1)
-_LimitPiece = OneOf(_Atom1, Op, _LimitSup, _SimpleFrac, _SimpleSqrt, RelOp,
-                    weights=[12, 3, 3, 2, 1, 2])
+_LimitPiece = OneOf(
+    _Atom1, Op, _LimitSup, _SimpleFrac, _SimpleSqrt, RelOp, weights=[12, 3, 3, 2, 1, 2]
+)
 _Limit1 = _LimitPiece
 _Limit2 = Seq(_LimitPiece, _LimitPiece)
 _Limit3 = Seq(_LimitPiece, _LimitPiece, _LimitPiece)
@@ -90,8 +138,19 @@ _BigOpWithLimits = OneOf(_BigOpLow, _BigOpHigh, _BigOpLowHigh, weights=[1, 1, 2]
 _SupFrac = TFrac(LIMIT_CONTENT, LIMIT_CONTENT)
 _NegSupFrac = Seq(Op, _SupFrac)  # e.g. -\frac{x}{y}
 _BigOpBare = TBigOpBare(BigOp)
-_SupAtom1 = OneOf(Variable, UpperVar, Digit, Greek, GreekUpper, Misc, _BigOpBare, _BigOpWithLimits, _SupFrac, _NegSupFrac,
-                  weights=[26, 26, 10, 13, 7, 4, 2, 2, 2, 2])
+_SupAtom1 = OneOf(
+    Variable,
+    UpperVar,
+    Digit,
+    Greek,
+    GreekUpper,
+    Misc,
+    _BigOpBare,
+    _BigOpWithLimits,
+    _SupFrac,
+    _NegSupFrac,
+    weights=[26, 26, 10, 13, 7, 4, 2, 2, 2, 2],
+)
 _SupAtom2 = Seq(_SupAtom1, _SupAtom1)
 _SupAtom3 = Seq(_SupAtom1, _SupAtom1, _SupAtom1)
 SUP_CONTENT = OneOf(_SupAtom1, _SupAtom2, _SupAtom3, weights=[6, 2, 1])
@@ -105,24 +164,31 @@ _FracPieceInner = OneOf(_Atom1, Op, _SupAtom, weights=[4, 1, 1])
 _FracInner1 = _FracPieceInner
 _FracInner2 = Seq(_FracPieceInner, _FracPieceInner)
 _FracInner3 = Seq(_FracPieceInner, _FracPieceInner, _FracPieceInner)
-FRAC_CONTENT_INNER = OneOf(_FracInner1, _FracInner2, _FracInner3,
-                           weights=[4, 4, 2])
+FRAC_CONTENT_INNER = OneOf(_FracInner1, _FracInner2, _FracInner3, weights=[4, 4, 2])
 
 # Nested frac uses inner content (max 1 level deep)
 _NestedFrac = TFrac(FRAC_CONTENT_INNER, FRAC_CONTENT_INNER)
 
 # Outer frac content (can contain one nested frac)
-_FracPiece = OneOf(_Atom1, Op, _NestedFrac, _SupAtom, RelOp,
-                   weights=[6, 1, 1, 2, 1])
+_FracPiece = OneOf(_Atom1, Op, _NestedFrac, _SupAtom, RelOp, weights=[6, 1, 1, 2, 1])
 _Frac1 = _FracPiece
 _Frac2 = Seq(_FracPiece, _FracPiece)
 _Frac3 = Seq(_FracPiece, _FracPiece, _FracPiece)
 _Frac4 = Seq(_FracPiece, _FracPiece, _FracPiece, _FracPiece)
 _Frac5 = Seq(_FracPiece, _FracPiece, _FracPiece, _FracPiece, _FracPiece)
 _Frac6 = Seq(_FracPiece, _FracPiece, _FracPiece, _FracPiece, _FracPiece, _FracPiece)
-_Frac7 = Seq(_FracPiece, _FracPiece, _FracPiece, _FracPiece, _FracPiece, _FracPiece, _FracPiece,)
-FRAC_CONTENT = OneOf(_Frac1, _Frac2, _Frac3, _Frac4, _Frac5, _Frac6, _Frac7,
-                     weights=[7, 4, 4, 3, 2,1,1])
+_Frac7 = Seq(
+    _FracPiece,
+    _FracPiece,
+    _FracPiece,
+    _FracPiece,
+    _FracPiece,
+    _FracPiece,
+    _FracPiece,
+)
+FRAC_CONTENT = OneOf(
+    _Frac1, _Frac2, _Frac3, _Frac4, _Frac5, _Frac6, _Frac7, weights=[7, 4, 4, 3, 2, 1, 1]
+)
 
 
 def _pick_base():
@@ -220,23 +286,22 @@ def gen_prime(budget, depth):
     return f"{base}^{{{primes}}}", 1 + n_primes
 
 
-
 # (generator_fn, min_budget, weight, max_depth)
 STRUCTURES = [
-    (gen_atom,            1, 11, 4),
-    (gen_sup,             2,  2, 1),
-    (gen_sub,             2,  2, 1),
-    (gen_sup_sub,         3,  1, 1),
-    (gen_frac,            3,  4, 2),
-    (gen_sqrt,            2,  1, 2),
-    (gen_big_op,          1,  1, 2),
-    (gen_big_op_low,      2,  1, 2),
-    (gen_big_op_high,     2,  1, 2),
-    (gen_big_op_low_high, 3,  1, 2),
-    (gen_parens,          3,  1, 2),
-    (gen_lim,             2,  1, 2),
-    (gen_binom,           3,  2, 1),
-    (gen_prime,            2,  1, 2),
+    (gen_atom, 1, 11, 4),
+    (gen_sup, 2, 2, 1),
+    (gen_sub, 2, 2, 1),
+    (gen_sup_sub, 3, 1, 1),
+    (gen_frac, 3, 4, 2),
+    (gen_sqrt, 2, 1, 2),
+    (gen_big_op, 1, 1, 2),
+    (gen_big_op_low, 2, 1, 2),
+    (gen_big_op_high, 2, 1, 2),
+    (gen_big_op_low_high, 3, 1, 2),
+    (gen_parens, 3, 1, 2),
+    (gen_lim, 2, 1, 2),
+    (gen_binom, 3, 2, 1),
+    (gen_prime, 2, 1, 2),
 ]
 
 
@@ -248,9 +313,11 @@ def random_term(budget, depth, exclude=None, symbols=None):
     if budget <= 0:
         return "", 0
 
-    opts = [(fn, w) for fn, min_b, w, max_d in STRUCTURES
-            if budget >= min_b and depth <= max_d
-            and (exclude is None or fn not in exclude)]
+    opts = [
+        (fn, w)
+        for fn, min_b, w, max_d in STRUCTURES
+        if budget >= min_b and depth <= max_d and (exclude is None or fn not in exclude)
+    ]
     if not opts:
         return _brace(random.choice(symbols or SYMBOLS)), 1
 

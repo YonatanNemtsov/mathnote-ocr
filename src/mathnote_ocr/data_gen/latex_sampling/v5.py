@@ -7,9 +7,20 @@ fractions (nested, complex num/den) and subscript/superscript patterns
 
 import random
 
-from .symbols import (_pick_base, _shared_expr, _shared_term, _shared_sub_content,
-                       VARS, UPPER, DIGITS, GREEK, GREEK_UPPER, MISC_SYMBOLS,
-                       BIGOPS, FUNCS)
+from .symbols import (
+    BIGOPS,
+    DIGITS,
+    FUNCS,
+    GREEK,
+    GREEK_UPPER,
+    MISC_SYMBOLS,
+    UPPER,
+    VARS,
+    _pick_base,
+    _shared_expr,
+    _shared_sub_content,
+    _shared_term,
+)
 
 ARITH_OPS = ["+", "-"]  # v5-specific: fewer ops for frac/index focus
 
@@ -23,20 +34,34 @@ def _atom():
     )[0]
     return random.choice(pool)
 
+
 def _expr(d=0):
     return _shared_expr(d, _atom, _pick_base, _struct)
+
 
 def _term(d):
     return _shared_term(d, _atom, _pick_base, _struct)
 
+
 def _slot(d):
     return _expr(d + 1)
+
 
 def _struct(d):
     # Heavily biased toward frac and sub/sup
     kind = random.choices(
-        ["frac", "sup", "sub", "subsup", "sqrt", "func", "bigop",
-         "parens", "factorial", "comma_list"],
+        [
+            "frac",
+            "sup",
+            "sub",
+            "subsup",
+            "sqrt",
+            "func",
+            "bigop",
+            "parens",
+            "factorial",
+            "comma_list",
+        ],
         weights=[30, 18, 14, 10, 6, 5, 8, 4, 3, 2],
     )[0]
 

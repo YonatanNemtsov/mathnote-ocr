@@ -1,14 +1,15 @@
 """Render original vs collapsed expressions side by side."""
+
 import json
 import random
 import sys
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+import matplotlib.pyplot as plt
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
-from mathnote_ocr.latex_utils.collapse import random_collapse, EXPR_NAME
+from mathnote_ocr.latex_utils.collapse import EXPR_NAME, random_collapse
 
 DATA = Path(__file__).parent.parent.parent / "data/runs/tree_subset/mixed_v7b/train.jsonl"
 N_EXAMPLES = 50
@@ -24,8 +25,9 @@ def draw_expr(ax, symbols, tree, title=""):
     for i, (sym, t) in enumerate(zip(symbols, tree)):
         x, y, w, h = sym["bbox"]
         color = (0.9, 0.6, 0.6) if sym["name"] == EXPR_NAME else colors[t["parent"] % 10]
-        rect = patches.Rectangle((x, y), w, h, linewidth=1,
-                                  edgecolor="black", facecolor=color, alpha=0.5)
+        rect = patches.Rectangle(
+            (x, y), w, h, linewidth=1, edgecolor="black", facecolor=color, alpha=0.5
+        )
         ax.add_patch(rect)
         label = f"{sym['name']}\no={t['order']}"
         ax.text(x + w / 2, y + h / 2, label, ha="center", va="center", fontsize=6)
@@ -69,10 +71,8 @@ def main():
             continue
 
         latex = ex.get("latex", "")
-        draw_expr(axes[shown, 0], symbols, tree,
-                  f"Original ({len(symbols)} syms): {latex[:50]}")
-        draw_expr(axes[shown, 1], new_syms, new_tree,
-                  f"Collapsed ({len(new_syms)} syms)")
+        draw_expr(axes[shown, 0], symbols, tree, f"Original ({len(symbols)} syms): {latex[:50]}")
+        draw_expr(axes[shown, 1], new_syms, new_tree, f"Collapsed ({len(new_syms)} syms)")
         shown += 1
 
     plt.tight_layout()

@@ -27,7 +27,6 @@ from collections import defaultdict
 
 import torch
 
-
 # ── Production ───────────────────────────────────────────────────────
 
 
@@ -43,8 +42,8 @@ def propagate_seq(evidence: dict[str, torch.Tensor], n_iters: int = 3) -> None:
 
     Modifies parent_votes in-place.
     """
-    parent_votes = evidence["parent_votes"]     # (N, N+1, E)
-    seq_votes = evidence.get("seq_votes")       # (N, N+1) or None
+    parent_votes = evidence["parent_votes"]  # (N, N+1, E)
+    seq_votes = evidence.get("seq_votes")  # (N, N+1) or None
     if seq_votes is None:
         return
 
@@ -52,9 +51,9 @@ def propagate_seq(evidence: dict[str, torch.Tensor], n_iters: int = 3) -> None:
 
     # T[i, j] = confidence that j is prev sibling of i
     # -> j's parent votes flow to i (forward direction only)
-    seq_sym = seq_votes[:, :N]                  # (N, N)
+    seq_sym = seq_votes[:, :N]  # (N, N)
     total_seq = seq_votes.sum(dim=1, keepdim=True).clamp(min=1e-6)
-    T = seq_sym / total_seq                     # (N, N) row-normalized, directed
+    T = seq_sym / total_seq  # (N, N) row-normalized, directed
 
     for _ in range(n_iters):
         propagated = torch.einsum("ik,kje->ije", T, parent_votes)
@@ -75,7 +74,8 @@ propagate_forward = propagate_seq  # alias
 
 
 def propagate_old_symmetric(
-    evidence: dict[str, torch.Tensor], n_iters: int = 3,
+    evidence: dict[str, torch.Tensor],
+    n_iters: int = 3,
 ) -> None:
     """Old symmetric propagation (before the forward-only change).
 
@@ -100,7 +100,9 @@ def propagate_old_symmetric(
 
 
 def propagate_bidir(
-    evidence: dict[str, torch.Tensor], n_fwd: int = 3, n_bwd: int = 1,
+    evidence: dict[str, torch.Tensor],
+    n_fwd: int = 3,
+    n_bwd: int = 1,
 ) -> None:
     """Forward pass then backward pass -- separate, no mixing.
 
@@ -136,7 +138,9 @@ def propagate_bidir(
 
 
 def propagate_forward_decayed(
-    evidence: dict[str, torch.Tensor], alpha: float = 0.5, n_iters: int = 10,
+    evidence: dict[str, torch.Tensor],
+    alpha: float = 0.5,
+    n_iters: int = 10,
 ) -> None:
     """Forward-only with geometric decay.
 
@@ -162,7 +166,9 @@ def propagate_forward_decayed(
 
 
 def propagate_decayed(
-    evidence: dict[str, torch.Tensor], alpha: float = 0.5, n_iters: int = 10,
+    evidence: dict[str, torch.Tensor],
+    alpha: float = 0.5,
+    n_iters: int = 10,
 ) -> None:
     """Symmetric propagation with geometric decay.
 
@@ -189,7 +195,8 @@ def propagate_decayed(
 
 
 def propagate_pool(
-    evidence: dict[str, torch.Tensor], threshold: float = 1.0,
+    evidence: dict[str, torch.Tensor],
+    threshold: float = 1.0,
 ) -> None:
     """Find sibling components from SEQ votes, pool parent votes across each.
 

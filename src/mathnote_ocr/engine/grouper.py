@@ -10,10 +10,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from mathnote_ocr.engine.stroke import Stroke, BBox, compute_bbox
+from mathnote_ocr.classifier.inference import ClassificationResult, SymbolClassifier
 from mathnote_ocr.engine.renderer import render_strokes
-from mathnote_ocr.classifier.inference import SymbolClassifier, ClassificationResult
-
+from mathnote_ocr.engine.stroke import BBox, Stroke, compute_bbox
 
 # ── Default config values (can be overridden via GrouperParams) ──────
 
@@ -48,6 +47,7 @@ def _build_similar_map(groups: list[set[str]]) -> dict[str, set[str]]:
 @dataclass
 class GrouperParams:
     """Runtime parameters for the grouper."""
+
     max_strokes_per_symbol: int = 4
     size_multiplier: float = 0.1
     min_merge_distance: float = 14.0
@@ -68,11 +68,15 @@ _DEFAULT_PARAMS = GrouperParams()
 
 # Default confusable symbols to most common variant
 _DEFAULTS = {
-    "Sigma_up": "sum", "Pi_up": "prod",
-    "X_cap": "x", "times": "x",
+    "Sigma_up": "sum",
+    "Pi_up": "prod",
+    "X_cap": "x",
+    "times": "x",
     "Z_cap": "z",
-    "o": "0", "O_cap": "0",
-    "C_cap": "c", "S_cap": "s",
+    "o": "0",
+    "O_cap": "0",
+    "C_cap": "c",
+    "S_cap": "s",
 }
 
 # ── Stroke decomposition heuristic ──────────────────────────────────
@@ -81,9 +85,11 @@ _DEFAULTS = {
 # classifier's top-1 agrees with the heuristic.
 
 _STROKE_NORMALIZE = {
-    "1": "|", "l": "|",
+    "1": "|",
+    "l": "|",
     "frac_bar": "-",
-    "O_cap": "o", "0": "o",
+    "O_cap": "o",
+    "0": "o",
     "cdot": "dot",
 }
 
@@ -159,8 +165,9 @@ def _check_stroke_pattern(
     return _STROKE_PATTERNS.get(pattern)
 
 
-def _group_confidence(result: ClassificationResult,
-                      similar_map: dict[str, set[str]] | None = None) -> float:
+def _group_confidence(
+    result: ClassificationResult, similar_map: dict[str, set[str]] | None = None
+) -> float:
     """Sum probabilities across similar/confusable symbols for partition scoring.
 
     E.g. if classifier gives x=0.4, X_cap=0.3, times=0.2, the group
@@ -248,7 +255,9 @@ def _stroke_diagonal(stroke: Stroke) -> float:
 
 
 def _max_merge_distance(
-    s1: Stroke, s2: Stroke, size_mult: float,
+    s1: Stroke,
+    s2: Stroke,
+    size_mult: float,
     min_merge_distance: float = 14.0,
 ) -> float:
     """Max bbox gap for two strokes to be considered neighbours."""
@@ -268,7 +277,9 @@ def _compute_neighbors(
     for i in range(n):
         for j in range(i + 1, n):
             if distances[i][j] <= _max_merge_distance(
-                strokes[i], strokes[j], size_mult,
+                strokes[i],
+                strokes[j],
+                size_mult,
                 min_merge_distance=min_merge_distance,
             ):
                 neighbors[i].add(j)
@@ -367,7 +378,9 @@ def _enumerate_candidate_groups(
         for ai in range(len(indices)):
             for bi in range(ai + 1, len(indices)):
                 if distances[indices[ai]][indices[bi]] > _max_merge_distance(
-                    strokes[indices[ai]], strokes[indices[bi]], size_mult,
+                    strokes[indices[ai]],
+                    strokes[indices[bi]],
+                    size_mult,
                     min_merge_distance=min_merge_distance,
                 ):
                     pairwise_ok = False
@@ -427,10 +440,7 @@ def _find_best_partitions(
         best_valid: list[int] = []
         best_count = len(scored_groups) + 1
         for s in uncovered:
-            valid = [
-                g for g in stroke_to_groups[s]
-                if scored_groups[g][0] <= uncovered
-            ]
+            valid = [g for g in stroke_to_groups[s] if scored_groups[g][0] <= uncovered]
             if len(valid) < best_count:
                 best_count = len(valid)
                 best_stroke = s
@@ -469,18 +479,18 @@ def _find_best_partitions(
     return results[:top_k]
 
 
-
 # ── Spatial validation ───────────────────────────────────────────────
 
 
 def _bboxes_overlap(bbox1: BBox, bbox2: BBox) -> bool:
     """True if two bboxes have any overlap."""
-    return (bbox1.x < bbox2.x2 and bbox2.x < bbox1.x2 and
-            bbox1.y < bbox2.y2 and bbox2.y < bbox1.y2)
+    return bbox1.x < bbox2.x2 and bbox2.x < bbox1.x2 and bbox1.y < bbox2.y2 and bbox2.y < bbox1.y2
 
 
 def _symbols_conflict(
-    bbox1: BBox, bbox2: BBox, threshold: float = 0.32,
+    bbox1: BBox,
+    bbox2: BBox,
+    threshold: float = 0.32,
 ) -> bool:
     """True if two symbol bboxes overlap AND centres are too close."""
     if not _bboxes_overlap(bbox1, bbox2):
@@ -531,7 +541,9 @@ def group_and_classify(
     t0 = time.perf_counter()
     distances = _compute_distance_matrix(strokes)
     neighbors = _compute_neighbors(
-        strokes, distances, params.size_multiplier,
+        strokes,
+        distances,
+        params.size_multiplier,
         min_merge_distance=params.min_merge_distance,
     )
     t_geo = time.perf_counter() - t0
@@ -549,12 +561,14 @@ def group_and_classify(
         size_feats = []
         for idx, group in singleton_uncached:
             group_strokes = [strokes[idx]]
-            images.append(render_strokes(
-                group_strokes,
-                canvas_size=canvas_sz,
-                stroke_width=stroke_width,
-                source_size=source_size,
-            ))
+            images.append(
+                render_strokes(
+                    group_strokes,
+                    canvas_size=canvas_sz,
+                    stroke_width=stroke_width,
+                    source_size=source_size,
+                )
+            )
             if classifier.use_size_feat:
                 all_x = [p.x for s in group_strokes for p in s.points]
                 all_y = [p.y for s in group_strokes for p in s.points]
@@ -577,8 +591,11 @@ def group_and_classify(
     #    Pattern matching uses singleton classifications from step 2.
     t0 = time.perf_counter()
     candidate_groups = _enumerate_candidate_groups(
-        strokes, distances, neighbors,
-        params.max_strokes_per_symbol, params.size_multiplier,
+        strokes,
+        distances,
+        neighbors,
+        params.max_strokes_per_symbol,
+        params.size_multiplier,
         cache=_cache,
         min_merge_distance=params.min_merge_distance,
         max_group_diameter_ratio=params.max_group_diameter_ratio,
@@ -596,12 +613,14 @@ def group_and_classify(
         size_feats = []
         for _, group in uncached:
             group_strokes = [strokes[i] for i in group]
-            images.append(render_strokes(
-                group_strokes,
-                canvas_size=canvas_sz,
-                stroke_width=stroke_width,
-                source_size=source_size,
-            ))
+            images.append(
+                render_strokes(
+                    group_strokes,
+                    canvas_size=canvas_sz,
+                    stroke_width=stroke_width,
+                    source_size=source_size,
+                )
+            )
             if classifier.use_size_feat:
                 all_x = [p.x for s in group_strokes for p in s.points]
                 all_y = [p.y for s in group_strokes for p in s.points]
@@ -632,12 +651,16 @@ def group_and_classify(
         if result.is_ood:
             rejected_ood += 1
             if debug:
-                print(f"  group {set(group)} → REJECT OOD: '{result.symbol}' dist={result.prototype_distance:.1f}")
+                print(
+                    f"  group {set(group)} → REJECT OOD: '{result.symbol}' dist={result.prototype_distance:.1f}"
+                )
             continue
         if result.confidence < params.min_confidence:
             rejected_conf += 1
             if debug:
-                print(f"  group {set(group)} → REJECT LOW CONF: '{result.symbol}' conf={result.confidence:.3f}")
+                print(
+                    f"  group {set(group)} → REJECT LOW CONF: '{result.symbol}' conf={result.confidence:.3f}"
+                )
             continue
 
         # Sum probabilities across confusion group (e.g. x+X_cap+times)
@@ -657,7 +680,9 @@ def group_and_classify(
                 effective_conf = max(effective_conf, _HEURISTIC_BOOST)
                 has_pattern = True
                 if debug:
-                    print(f"  group {set(group)} → PATTERN BOOST '{result.symbol}' to {effective_conf:.3f}")
+                    print(
+                        f"  group {set(group)} → PATTERN BOOST '{result.symbol}' to {effective_conf:.3f}"
+                    )
 
         # Singleton confidence gate: multi-stroke groups without a pattern
         # match must beat the geometric mean of their singleton confidences.
@@ -667,16 +692,20 @@ def group_and_classify(
             for si in group:
                 sr = _cache.get(frozenset([si]))
                 if sr and sr.confidence is not None:
-                    singleton_confs.append(_group_confidence(sr, similar_map=params.similar_symbol_map))
+                    singleton_confs.append(
+                        _group_confidence(sr, similar_map=params.similar_symbol_map)
+                    )
             if singleton_confs:
                 geo_mean = 1.0
                 for c in singleton_confs:
                     geo_mean *= c
-                geo_mean **= (1.0 / len(singleton_confs))
+                geo_mean **= 1.0 / len(singleton_confs)
                 if effective_conf < geo_mean:
                     if debug:
-                        print(f"  group {set(group)} → REJECT SINGLETON GATE: "
-                              f"'{result.symbol}' conf={effective_conf:.3f} < geo_mean={geo_mean:.3f}")
+                        print(
+                            f"  group {set(group)} → REJECT SINGLETON GATE: "
+                            f"'{result.symbol}' conf={effective_conf:.3f} < geo_mean={geo_mean:.3f}"
+                        )
                     continue
 
         group_strokes = [strokes[i] for i in group]
@@ -695,18 +724,22 @@ def group_and_classify(
     t_filter = time.perf_counter() - t0
 
     if debug:
-        print(f"[grouper] {len(scored_groups)} valid groups  "
-              f"rejected: ood={rejected_ood} low_conf={rejected_conf}")
+        print(
+            f"[grouper] {len(scored_groups)} valid groups  "
+            f"rejected: ood={rejected_ood} low_conf={rejected_conf}"
+        )
 
     # 5. Find best non-overlapping partitions (exact cover)
     t0 = time.perf_counter()
     partitions = _find_best_partitions(n, scored_groups, top_k)
     t_cover = time.perf_counter() - t0
 
-    print(f"  [grouper] {n}s {len(candidate_groups)}g {len(uncached)}new: "
-          f"geo={t_geo*1000:.0f}ms singles={t_singletons*1000:.0f}ms "
-          f"enum={t_enum*1000:.0f}ms classify={t_classify*1000:.0f}ms "
-          f"cover={t_cover*1000:.0f}ms")
+    print(
+        f"  [grouper] {n}s {len(candidate_groups)}g {len(uncached)}new: "
+        f"geo={t_geo * 1000:.0f}ms singles={t_singletons * 1000:.0f}ms "
+        f"enum={t_enum * 1000:.0f}ms classify={t_classify * 1000:.0f}ms "
+        f"cover={t_cover * 1000:.0f}ms"
+    )
 
     if debug:
         print(f"[grouper] {len(partitions)} valid partitions")
@@ -732,7 +765,8 @@ def _merge_bbox(a: BBox, b: BBox) -> BBox:
 
 
 def _merged_symbol(
-    parts: list[DetectedSymbol], name: str,
+    parts: list[DetectedSymbol],
+    name: str,
 ) -> DetectedSymbol:
     """Create a merged symbol from constituent parts."""
     bbox = parts[0].bbox
@@ -818,9 +852,11 @@ def _merge_leq(symbols: list[DetectedSymbol]) -> list[DetectedSymbol]:
         for mi, m in minuses:
             if mi in used:
                 continue
-            if (_horizontally_aligned(lt, m) and
-                    m.bbox.cy > lt.bbox.cy and
-                    _vertically_stacked(lt, m, gap_tol=1.5)):
+            if (
+                _horizontally_aligned(lt, m)
+                and m.bbox.cy > lt.bbox.cy
+                and _vertically_stacked(lt, m, gap_tol=1.5)
+            ):
                 merged.append(_merged_symbol([lt, m], "leq"))
                 used.add(li)
                 used.add(mi)
@@ -842,9 +878,11 @@ def _merge_geq(symbols: list[DetectedSymbol]) -> list[DetectedSymbol]:
         for mi, m in minuses:
             if mi in used:
                 continue
-            if (_horizontally_aligned(gt, m) and
-                    m.bbox.cy > gt.bbox.cy and
-                    _vertically_stacked(gt, m, gap_tol=1.5)):
+            if (
+                _horizontally_aligned(gt, m)
+                and m.bbox.cy > gt.bbox.cy
+                and _vertically_stacked(gt, m, gap_tol=1.5)
+            ):
                 merged.append(_merged_symbol([gt, m], "geq"))
                 used.add(gi)
                 used.add(mi)
@@ -888,10 +926,12 @@ def _merge_pm(symbols: list[DetectedSymbol]) -> list[DetectedSymbol]:
         for mi, m in minuses:
             if mi in used:
                 continue
-            if (_similar_width(plus, m) and
-                    _horizontally_aligned(plus, m) and
-                    m.bbox.cy > plus.bbox.cy and
-                    _vertically_stacked(plus, m, gap_tol=0.8)):
+            if (
+                _similar_width(plus, m)
+                and _horizontally_aligned(plus, m)
+                and m.bbox.cy > plus.bbox.cy
+                and _vertically_stacked(plus, m, gap_tol=0.8)
+            ):
                 merged.append(_merged_symbol([plus, m], "pm"))
                 used.add(pi)
                 used.add(mi)

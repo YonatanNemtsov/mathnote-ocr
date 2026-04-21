@@ -20,12 +20,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import torch
 
 from mathnote_ocr.engine.checkpoint import load_checkpoint
+from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.tree_parser.costs import COST_STRATEGIES
+from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft
 from mathnote_ocr.tree_parser.subset_model import load_subset_model
 from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets
-from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft
-from mathnote_ocr.tree_parser.tree import ROOT, EDGE_NAMES
-from mathnote_ocr.tree_parser.costs import COST_STRATEGIES
-from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.tree_parser.tree import EDGE_NAMES, ROOT
 
 log = logging.getLogger(__name__)
 
@@ -61,8 +61,10 @@ def _build_flat_predictions(evidence, N):
 
 def evaluate(args):
     device = (
-        torch.device("cuda") if torch.cuda.is_available()
-        else torch.device("mps") if torch.backends.mps.is_available()
+        torch.device("cuda")
+        if torch.cuda.is_available()
+        else torch.device("mps")
+        if torch.backends.mps.is_available()
         else torch.device("cpu")
     )
 
@@ -89,7 +91,7 @@ def evaluate(args):
             if len(ex["symbols"]) >= 2:
                 examples.append(ex)
     if args.max_examples:
-        examples = examples[:args.max_examples]
+        examples = examples[: args.max_examples]
     log.info("Loaded %d examples", len(examples))
 
     # Counters
@@ -99,8 +101,9 @@ def evaluate(args):
     edge_total = 0
     parent_errors_by_edge = Counter()
     edge_confusion = Counter()
-    errors_by_n_symbols = defaultdict(lambda: {"parent_ok": 0, "parent_err": 0,
-                                                "edge_ok": 0, "edge_err": 0})
+    errors_by_n_symbols = defaultdict(
+        lambda: {"parent_ok": 0, "parent_err": 0, "edge_ok": 0, "edge_err": 0}
+    )
     parent_err_symbols = Counter()
     edge_err_symbols = Counter()
     error_examples = []
@@ -134,8 +137,10 @@ def evaluate(args):
 
             with torch.no_grad():
                 out = model.forward(
-                    sub_ids.unsqueeze(0), geo.unsqueeze(0),
-                    pad_mask.unsqueeze(0), size_feats.unsqueeze(0),
+                    sub_ids.unsqueeze(0),
+                    geo.unsqueeze(0),
+                    pad_mask.unsqueeze(0),
+                    size_feats.unsqueeze(0),
                 )
             out_cpu = {k: v[0].cpu() for k, v in out.items()}
             partial_outputs.append((subset_indices, out_cpu, n_sub))
@@ -176,30 +181,43 @@ def evaluate(args):
                     has_error = True
 
         if has_error and len(error_examples) < 50:
-            error_examples.append({
-                "idx": ex_idx,
-                "latex": ex.get("latex", ""),
-                "n": N,
-                "gt_tree": tree,
-                "pred_tree": preds,
-                "names": names,
-            })
+            error_examples.append(
+                {
+                    "idx": ex_idx,
+                    "latex": ex.get("latex", ""),
+                    "n": N,
+                    "gt_tree": tree,
+                    "pred_tree": preds,
+                    "names": names,
+                }
+            )
 
         if (ex_idx + 1) % 200 == 0:
-            log.info("  %d/%d  parent=%.1f%%  edge=%.1f%%",
-                     ex_idx + 1, len(examples),
-                     100 * parent_correct / max(parent_total, 1),
-                     100 * edge_correct / max(edge_total, 1))
+            log.info(
+                "  %d/%d  parent=%.1f%%  edge=%.1f%%",
+                ex_idx + 1,
+                len(examples),
+                100 * parent_correct / max(parent_total, 1),
+                100 * edge_correct / max(edge_total, 1),
+            )
 
     # ── Report ────────────────────────────────────────────────────────
     log.info("")
     log.info("=" * 60)
     log.info("RESULTS (%d examples)", len(examples))
     log.info("=" * 60)
-    log.info("Parent accuracy: %d/%d = %.1f%%", parent_correct, parent_total,
-             100 * parent_correct / max(parent_total, 1))
-    log.info("Edge accuracy:   %d/%d = %.1f%%", edge_correct, edge_total,
-             100 * edge_correct / max(edge_total, 1))
+    log.info(
+        "Parent accuracy: %d/%d = %.1f%%",
+        parent_correct,
+        parent_total,
+        100 * parent_correct / max(parent_total, 1),
+    )
+    log.info(
+        "Edge accuracy:   %d/%d = %.1f%%",
+        edge_correct,
+        edge_total,
+        100 * edge_correct / max(edge_total, 1),
+    )
 
     log.info("")
     log.info("── Parent errors by true edge type ──")
@@ -229,8 +247,14 @@ def evaluate(args):
         e_total = d["edge_ok"] + d["edge_err"]
         p_acc = d["parent_ok"] / p_total if p_total else 0
         e_acc = d["edge_ok"] / e_total if e_total else 0
-        log.info("  N=%2d  parent=%.1f%% (%5d)  edge=%.1f%% (%5d)",
-                 n_sym, 100 * p_acc, p_total, 100 * e_acc, e_total)
+        log.info(
+            "  N=%2d  parent=%.1f%% (%5d)  edge=%.1f%% (%5d)",
+            n_sym,
+            100 * p_acc,
+            p_total,
+            100 * e_acc,
+            e_total,
+        )
 
     # Save error examples
     if error_examples:

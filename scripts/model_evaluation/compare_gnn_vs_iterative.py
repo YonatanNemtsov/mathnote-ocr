@@ -10,26 +10,31 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import argparse
+
 import torch
 
-from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
-from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
-from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
-from mathnote_ocr.tree_parser.tree import tree_to_latex, build_tree, SymbolNode
-from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
-from scripts.diagnostics.visualize_predictions import (
-    predict_tree_iterative, predict_tree_gnn, predict_tree_gnn_iterative,
-)
 from mathnote_ocr.data_gen import sample_all
+from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
+from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
+from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.tree import SymbolNode, build_tree, tree_to_latex
+from scripts.diagnostics.visualize_predictions import (
+    predict_tree_gnn,
+    predict_tree_gnn_iterative,
+    predict_tree_iterative,
+)
 
 
 def _get_assignments(roots):
     nodes = {}
+
     def walk(node):
         nodes[node.index] = (node.parent, node.edge_type)
         for children in node.children.values():
             for c in children:
                 walk(c)
+
     for r in roots:
         walk(r)
     return nodes
@@ -90,10 +95,16 @@ def main():
 
         gt_nodes = []
         for j, (s, t) in enumerate(zip(symbols, gt_tree)):
-            gt_nodes.append(SymbolNode(
-                symbol=s["name"], bbox=s["bbox"], index=j,
-                parent=t["parent"], edge_type=t["edge_type"], order=t["order"],
-            ))
+            gt_nodes.append(
+                SymbolNode(
+                    symbol=s["name"],
+                    bbox=s["bbox"],
+                    index=j,
+                    parent=t["parent"],
+                    edge_type=t["edge_type"],
+                    order=t["order"],
+                )
+            )
         gt_latex = tree_to_latex(build_tree(gt_nodes))
         gt_assign = {j: (t["parent"], t["edge_type"]) for j, t in enumerate(gt_tree)}
 
@@ -110,7 +121,9 @@ def main():
         except Exception:
             continue
         try:
-            r_gi, _ = predict_tree_gnn_iterative(gnn_model, subset_model, symbol_vocab, symbols, device)
+            r_gi, _ = predict_tree_gnn_iterative(
+                gnn_model, subset_model, symbol_vocab, symbols, device
+            )
             results["gnn+iter"] = (tree_to_latex(r_gi), _get_assignments(r_gi))
         except Exception:
             continue
@@ -132,24 +145,32 @@ def main():
                         parent_correct[a] += 1
 
         if count % 100 == 0:
-            print(f"  {count}/{args.n}  " + "  ".join(
-                f"{a}={match_count[a]}/{count} ({match_count[a]/count:.1%})"
-                for a in APPROACHES
-            ))
+            print(
+                f"  {count}/{args.n}  "
+                + "  ".join(
+                    f"{a}={match_count[a]}/{count} ({match_count[a] / count:.1%})"
+                    for a in APPROACHES
+                )
+            )
 
     print()
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
     print(f"Results on {count} examples ({total_symbols} symbols):")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
     print()
     print(f"  {'Metric':<20} {'Iterative':>12} {'GNN':>12} {'GNN+Iter':>12}")
-    print(f"  {'-'*56}")
-    print(f"  {'LaTeX match':<20} "
-          + "".join(f"{match_count[a]/count:>11.1%} " for a in APPROACHES))
-    print(f"  {'Parent acc':<20} "
-          + "".join(f"{parent_correct[a]/total_symbols:>11.1%} " for a in APPROACHES))
-    print(f"  {'Parent+Edge acc':<20} "
-          + "".join(f"{edge_correct[a]/total_symbols:>11.1%} " for a in APPROACHES))
+    print(f"  {'-' * 56}")
+    print(
+        f"  {'LaTeX match':<20} " + "".join(f"{match_count[a] / count:>11.1%} " for a in APPROACHES)
+    )
+    print(
+        f"  {'Parent acc':<20} "
+        + "".join(f"{parent_correct[a] / total_symbols:>11.1%} " for a in APPROACHES)
+    )
+    print(
+        f"  {'Parent+Edge acc':<20} "
+        + "".join(f"{edge_correct[a] / total_symbols:>11.1%} " for a in APPROACHES)
+    )
     print()
 
 

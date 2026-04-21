@@ -10,12 +10,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import json
-import re
 import xml.etree.ElementTree as ET
 
 from mathnote_ocr.engine.renderer import render_strokes
-from mathnote_ocr.engine.stroke import Stroke, StrokePoint
-from mathnote_ocr import config
+from mathnote_ocr.engine.stroke import Stroke
 
 # ── Label mapping: mathwriting label → our internal class name ────────
 
@@ -24,98 +22,184 @@ LABEL_MAP = {
     **{c: c for c in "abcdefghijklmnopqrstuvwxyz"},
     **{c: f"{c}_cap" for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"},
     **{c: c for c in "0123456789"},
-    "+": "+", "-": "-", "=": "=",
-    "(": "(", ")": ")",
-    "[": "[", "]": "]",
-    "!": "!", ",": ",", ";": ";", ":": ":", "|": "|",
-    ".": "dot", "*": "asterisk", "/": "slash",
-    "<": "lt", ">": "gt", "?": "question",
-
+    "+": "+",
+    "-": "-",
+    "=": "=",
+    "(": "(",
+    ")": ")",
+    "[": "[",
+    "]": "]",
+    "!": "!",
+    ",": ",",
+    ";": ";",
+    ":": ":",
+    "|": "|",
+    ".": "dot",
+    "*": "asterisk",
+    "/": "slash",
+    "<": "lt",
+    ">": "gt",
+    "?": "question",
     # Greek lowercase
-    "\\alpha": "alpha", "\\beta": "beta", "\\gamma": "gamma",
-    "\\delta": "delta", "\\epsilon": "epsilon", "\\zeta": "zeta",
-    "\\eta": "eta", "\\theta": "theta", "\\iota": "iota",
-    "\\kappa": "kappa", "\\lambda": "lambda", "\\mu": "mu",
-    "\\nu": "nu", "\\xi": "xi", "\\pi": "pi",
-    "\\rho": "rho", "\\sigma": "sigma", "\\tau": "tau",
-    "\\upsilon": "upsilon", "\\phi": "phi", "\\chi": "chi",
-    "\\psi": "psi", "\\omega": "omega",
-    "\\varphi": "varphi", "\\vartheta": "vartheta",
-    "\\varpi": "varpi", "\\varsigma": "varsigma",
-
+    "\\alpha": "alpha",
+    "\\beta": "beta",
+    "\\gamma": "gamma",
+    "\\delta": "delta",
+    "\\epsilon": "epsilon",
+    "\\zeta": "zeta",
+    "\\eta": "eta",
+    "\\theta": "theta",
+    "\\iota": "iota",
+    "\\kappa": "kappa",
+    "\\lambda": "lambda",
+    "\\mu": "mu",
+    "\\nu": "nu",
+    "\\xi": "xi",
+    "\\pi": "pi",
+    "\\rho": "rho",
+    "\\sigma": "sigma",
+    "\\tau": "tau",
+    "\\upsilon": "upsilon",
+    "\\phi": "phi",
+    "\\chi": "chi",
+    "\\psi": "psi",
+    "\\omega": "omega",
+    "\\varphi": "varphi",
+    "\\vartheta": "vartheta",
+    "\\varpi": "varpi",
+    "\\varsigma": "varsigma",
     # Greek uppercase
-    "\\Gamma": "Gamma_cap", "\\Delta": "Delta_cap", "\\Lambda": "Lambda_up",
-    "\\Sigma": "Sigma_up", "\\Pi": "Pi_up", "\\Phi": "Phi_up",
-    "\\Psi": "Psi_up", "\\Omega": "Omega_up", "\\Theta": "Theta_up",
-    "\\Upsilon": "Upsilon_up", "\\Xi": "Xi_up",
-
+    "\\Gamma": "Gamma_cap",
+    "\\Delta": "Delta_cap",
+    "\\Lambda": "Lambda_up",
+    "\\Sigma": "Sigma_up",
+    "\\Pi": "Pi_up",
+    "\\Phi": "Phi_up",
+    "\\Psi": "Psi_up",
+    "\\Omega": "Omega_up",
+    "\\Theta": "Theta_up",
+    "\\Upsilon": "Upsilon_up",
+    "\\Xi": "Xi_up",
     # Big operators
-    "\\sum": "sum", "\\prod": "prod", "\\int": "int",
-    "\\oint": "oint", "\\iint": "iint",
-
+    "\\sum": "sum",
+    "\\prod": "prod",
+    "\\int": "int",
+    "\\oint": "oint",
+    "\\iint": "iint",
     # Binary operators
-    "\\cdot": "dot", "\\times": "times", "\\pm": "pm", "\\mp": "mp",
-    "\\div": "div", "\\circ": "circ", "\\bullet": "bullet",
-    "\\oplus": "oplus", "\\otimes": "otimes", "\\odot": "odot",
-    "\\ominus": "ominus", "\\dagger": "dagger",
-
+    "\\cdot": "dot",
+    "\\times": "times",
+    "\\pm": "pm",
+    "\\mp": "mp",
+    "\\div": "div",
+    "\\circ": "circ",
+    "\\bullet": "bullet",
+    "\\oplus": "oplus",
+    "\\otimes": "otimes",
+    "\\odot": "odot",
+    "\\ominus": "ominus",
+    "\\dagger": "dagger",
     # Relations
-    "\\le": "leq", "\\ge": "geq", "\\ne": "neq",
-    "\\approx": "approx", "\\equiv": "equiv", "\\sim": "sim",
-    "\\simeq": "simeq", "\\cong": "cong", "\\propto": "propto",
-    "\\ll": "ll", "\\gg": "gg",
-    "\\subseteq": "subseteq", "\\subsetneq": "subsetneq",
-    "\\supset": "supset", "\\supseteq": "supseteq",
+    "\\le": "leq",
+    "\\ge": "geq",
+    "\\ne": "neq",
+    "\\approx": "approx",
+    "\\equiv": "equiv",
+    "\\sim": "sim",
+    "\\simeq": "simeq",
+    "\\cong": "cong",
+    "\\propto": "propto",
+    "\\ll": "ll",
+    "\\gg": "gg",
+    "\\subseteq": "subseteq",
+    "\\subsetneq": "subsetneq",
+    "\\supset": "supset",
+    "\\supseteq": "supseteq",
     "\\triangleq": "triangleq",
-
     # Set / logic
-    "\\in": "in", "\\notin": "notin", "\\ni": "ni",
-    "\\subset": "subset", "\\cup": "cup", "\\cap": "cap",
-    "\\emptyset": "emptyset", "\\forall": "forall", "\\exists": "exists",
-    "\\wedge": "wedge", "\\vee": "vee", "\\neg": "neg",
-    "\\vdash": "vdash", "\\Vdash": "Vdash", "\\models": "models",
-    "\\top": "top", "\\perp": "perp",
-
+    "\\in": "in",
+    "\\notin": "notin",
+    "\\ni": "ni",
+    "\\subset": "subset",
+    "\\cup": "cup",
+    "\\cap": "cap",
+    "\\emptyset": "emptyset",
+    "\\forall": "forall",
+    "\\exists": "exists",
+    "\\wedge": "wedge",
+    "\\vee": "vee",
+    "\\neg": "neg",
+    "\\vdash": "vdash",
+    "\\Vdash": "Vdash",
+    "\\models": "models",
+    "\\top": "top",
+    "\\perp": "perp",
     # Big set operators
-    "\\bigcap": "bigcap", "\\bigcup": "bigcup",
-    "\\bigoplus": "bigoplus", "\\bigvee": "bigvee", "\\bigwedge": "bigwedge",
-
+    "\\bigcap": "bigcap",
+    "\\bigcup": "bigcup",
+    "\\bigoplus": "bigoplus",
+    "\\bigvee": "bigvee",
+    "\\bigwedge": "bigwedge",
     # Calculus / special
-    "\\partial": "partial", "\\nabla": "nabla", "\\infty": "infty",
-    "\\sqrt": "sqrt", "\\prime": "prime", "\\angle": "angle",
-    "\\aleph": "aleph", "\\hbar": "hbar",
-
+    "\\partial": "partial",
+    "\\nabla": "nabla",
+    "\\infty": "infty",
+    "\\sqrt": "sqrt",
+    "\\prime": "prime",
+    "\\angle": "angle",
+    "\\aleph": "aleph",
+    "\\hbar": "hbar",
     # Arrows
-    "\\rightarrow": "rightarrow", "\\leftarrow": "leftarrow",
-    "\\Rightarrow": "Rightarrow", "\\Leftrightarrow": "Leftrightarrow",
-    "\\leftrightarrow": "leftrightarrow", "\\longrightarrow": "longrightarrow",
-    "\\hookrightarrow": "hookrightarrow", "\\mapsto": "mapsto",
-    "\\iff": "iff", "\\rightleftharpoons": "rightleftharpoons",
-
+    "\\rightarrow": "rightarrow",
+    "\\leftarrow": "leftarrow",
+    "\\Rightarrow": "Rightarrow",
+    "\\Leftrightarrow": "Leftrightarrow",
+    "\\leftrightarrow": "leftrightarrow",
+    "\\longrightarrow": "longrightarrow",
+    "\\hookrightarrow": "hookrightarrow",
+    "\\mapsto": "mapsto",
+    "\\iff": "iff",
+    "\\rightleftharpoons": "rightleftharpoons",
     # Delimiters
-    "\\langle": "langle", "\\rangle": "rangle",
-    "\\lceil": "lceil", "\\rceil": "rceil",
-    "\\lfloor": "lfloor", "\\rfloor": "rfloor",
-    "\\{": "lbrace", "\\}": "rbrace", "\\|": "Vert",
-
+    "\\langle": "langle",
+    "\\rangle": "rangle",
+    "\\lceil": "lceil",
+    "\\rceil": "rceil",
+    "\\lfloor": "lfloor",
+    "\\rfloor": "rfloor",
+    "\\{": "lbrace",
+    "\\}": "rbrace",
+    "\\|": "Vert",
     # Accents (standalone drawn strokes)
-    "\\hat": "hat", "\\tilde": "tilde",
-    "\\vec": "vec", "\\overline": "overline",
-
+    "\\hat": "hat",
+    "\\tilde": "tilde",
+    "\\vec": "vec",
+    "\\overline": "overline",
     # Structural
     "\\frac": "frac_bar",
-
     # Misc
-    "\\vdots": "vdots", "\\backslash": "backslash",
-    "\\#": "hash", "\\%": "percent",
-
+    "\\vdots": "vdots",
+    "\\backslash": "backslash",
+    "\\#": "hash",
+    "\\%": "percent",
     # Blackboard bold
-    "\\mathbb{R}": "bbR", "\\mathbb{C}": "bbC", "\\mathbb{N}": "bbN",
-    "\\mathbb{Z}": "bbZ", "\\mathbb{Q}": "bbQ", "\\mathbb{P}": "bbP",
-    "\\mathbb{E}": "bbE", "\\mathbb{F}": "bbF", "\\mathbb{I}": "bbI",
-    "\\mathbb{S}": "bbS", "\\mathbb{W}": "bbW", "\\mathbb{T}": "bbT",
-    "\\mathbb{D}": "bbD", "\\mathbb{K}": "bbK", "\\mathbb{A}": "bbA",
-    "\\mathbb{L}": "bbL", "\\mathbb{X}": "bbX",
+    "\\mathbb{R}": "bbR",
+    "\\mathbb{C}": "bbC",
+    "\\mathbb{N}": "bbN",
+    "\\mathbb{Z}": "bbZ",
+    "\\mathbb{Q}": "bbQ",
+    "\\mathbb{P}": "bbP",
+    "\\mathbb{E}": "bbE",
+    "\\mathbb{F}": "bbF",
+    "\\mathbb{I}": "bbI",
+    "\\mathbb{S}": "bbS",
+    "\\mathbb{W}": "bbW",
+    "\\mathbb{T}": "bbT",
+    "\\mathbb{D}": "bbD",
+    "\\mathbb{K}": "bbK",
+    "\\mathbb{A}": "bbA",
+    "\\mathbb{L}": "bbL",
+    "\\mathbb{X}": "bbX",
 }
 
 # Skip: \dot (accent — visually identical to "dot"), \underline (just a line),
@@ -149,11 +233,13 @@ def parse_inkml(path: Path) -> tuple[str | None, list[list[dict]]]:
         for pt_str in trace.text.strip().split(","):
             parts = pt_str.strip().split()
             if len(parts) >= 2:
-                points.append({
-                    "x": float(parts[0]),
-                    "y": float(parts[1]),
-                    "t": float(parts[2]) if len(parts) >= 3 else 0.0,
-                })
+                points.append(
+                    {
+                        "x": float(parts[0]),
+                        "y": float(parts[1]),
+                        "t": float(parts[2]) if len(parts) >= 3 else 0.0,
+                    }
+                )
         if points:
             strokes.append(points)
 
@@ -167,15 +253,22 @@ def strokes_to_engine(raw_strokes: list[list[dict]]) -> list[Stroke]:
 
 # ── Main ─────────────────────────────────────────────────────────────
 
+
 def main():
     import argparse
     from collections import Counter
 
     ap = argparse.ArgumentParser(description="Import MathWriting-2024 symbols")
-    ap.add_argument("--source", default="data/mathwriting-2024/symbols",
-                    help="MathWriting source dir (default: ./data/mathwriting-2024/symbols)")
-    ap.add_argument("--output-dir", default="data/shared/symbols",
-                    help="Output dir (default: ./data/shared/symbols)")
+    ap.add_argument(
+        "--source",
+        default="data/mathwriting-2024/symbols",
+        help="MathWriting source dir (default: ./data/mathwriting-2024/symbols)",
+    )
+    ap.add_argument(
+        "--output-dir",
+        default="data/shared/symbols",
+        help="Output dir (default: ./data/shared/symbols)",
+    )
     ap.add_argument("--dry-run", action="store_true", help="Just show stats, don't write")
     args = ap.parse_args()
 
@@ -273,12 +366,17 @@ def main():
         json_path = class_dir / f"{file_id:04d}.json"
 
         img.save(png_path)
-        json_path.write_text(json.dumps({
-            "strokes": raw_strokes,
-            "label": name,
-            "source": "mathwriting-2024",
-            "source_file": path.name,
-        }) + "\n")
+        json_path.write_text(
+            json.dumps(
+                {
+                    "strokes": raw_strokes,
+                    "label": name,
+                    "source": "mathwriting-2024",
+                    "source_file": path.name,
+                }
+            )
+            + "\n"
+        )
 
         imported[name] += 1
 

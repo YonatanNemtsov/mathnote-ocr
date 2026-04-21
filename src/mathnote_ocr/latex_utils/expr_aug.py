@@ -6,7 +6,6 @@ an LNode tree, plus glyph/frac-bar counting used by tree data generation.
 
 from __future__ import annotations
 
-
 # ── LaTeX tree parser ────────────────────────────────────────────────
 
 
@@ -23,33 +22,69 @@ class LNode:
         start: int = 0,
         end: int = 0,
     ) -> None:
-        self.kind = kind        # char, command, frac, sqrt, binom, sup, sub, func, seq
+        self.kind = kind  # char, command, frac, sqrt, binom, sup, sub, func, seq
         self.children = children or []
-        self.text = text        # for char/command: the character or command string
-        self.start = start      # start position in LaTeX string
-        self.end = end          # end position in LaTeX string
+        self.text = text  # for char/command: the character or command string
+        self.start = start  # start position in LaTeX string
+        self.end = end  # end position in LaTeX string
 
 
 # Commands that render as a single character glyph
 _SINGLE_GLYPH_CMDS = {
-    "\\alpha", "\\beta", "\\gamma", "\\delta", "\\epsilon",
-    "\\theta", "\\lambda", "\\mu", "\\pi", "\\sigma",
-    "\\phi", "\\psi", "\\omega",
-    "\\Gamma", "\\Delta", "\\Sigma", "\\Pi", "\\Phi", "\\Psi", "\\Omega",
-    "\\sum", "\\int", "\\prod",
-    "\\times", "\\cdot", "\\pm", "\\div",
-    "\\leq", "\\geq", "\\neq",
-    "\\in", "\\subset", "\\cup", "\\cap", "\\forall", "\\exists",
-    "\\partial", "\\nabla", "\\infty",
-    "\\rightarrow", "\\leftarrow",
-    "\\ldots", "\\cdots",
+    "\\alpha",
+    "\\beta",
+    "\\gamma",
+    "\\delta",
+    "\\epsilon",
+    "\\theta",
+    "\\lambda",
+    "\\mu",
+    "\\pi",
+    "\\sigma",
+    "\\phi",
+    "\\psi",
+    "\\omega",
+    "\\Gamma",
+    "\\Delta",
+    "\\Sigma",
+    "\\Pi",
+    "\\Phi",
+    "\\Psi",
+    "\\Omega",
+    "\\sum",
+    "\\int",
+    "\\prod",
+    "\\times",
+    "\\cdot",
+    "\\pm",
+    "\\div",
+    "\\leq",
+    "\\geq",
+    "\\neq",
+    "\\in",
+    "\\subset",
+    "\\cup",
+    "\\cap",
+    "\\forall",
+    "\\exists",
+    "\\partial",
+    "\\nabla",
+    "\\infty",
+    "\\rightarrow",
+    "\\leftarrow",
+    "\\ldots",
+    "\\cdots",
     "\\EXPR",
 }
 
 # Function commands → number of rendered character glyphs
 _FUNC_GLYPH_COUNTS = {
-    "\\sin": 3, "\\cos": 3, "\\tan": 3,
-    "\\log": 3, "\\ln": 2, "\\lim": 3,
+    "\\sin": 3,
+    "\\cos": 3,
+    "\\tan": 3,
+    "\\log": 3,
+    "\\ln": 2,
+    "\\lim": 3,
 }
 
 
@@ -221,5 +256,3 @@ def _n_frac_bars(node: LNode) -> int:
     """Number of fraction bars in this subtree."""
     count = 1 if node.kind == "frac" else 0
     return count + sum(_n_frac_bars(c) for c in node.children)
-
-

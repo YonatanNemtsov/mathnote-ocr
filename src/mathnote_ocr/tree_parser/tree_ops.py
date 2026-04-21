@@ -3,25 +3,44 @@
 from __future__ import annotations
 
 from mathnote_ocr.bbox import BBox
-from mathnote_ocr.tree_parser.tree_v2 import Symbol, Node, Tree, Edge, ROOT_ID, SymbolId, EdgeType, SiblingOrder
+from mathnote_ocr.tree_parser.tree_v2 import (
+    Edge,
+    EdgeType,
+    Node,
+    SiblingOrder,
+    Symbol,
+    SymbolId,
+    Tree,
+)
 
 
 def subtree(tree: Tree, sym_id: SymbolId) -> Tree:
     """Extract subtree rooted at sym_id."""
     ids = set(tree.walk(sym_id))
-    return Tree(tuple(
-        Node(n.symbol, tree.root, Edge.ROOT, 0) if n.symbol.id == sym_id else n
-        for n in tree._nodes if n.symbol.id in ids
-    ), tree.root)
+    return Tree(
+        tuple(
+            Node(n.symbol, tree.root, Edge.ROOT, 0) if n.symbol.id == sym_id else n
+            for n in tree._nodes
+            if n.symbol.id in ids
+        ),
+        tree.root,
+    )
 
 
-def graft(tree: Tree, other: Tree, parent_id: SymbolId, edge_type: EdgeType, order: SiblingOrder = 0) -> Tree:
+def graft(
+    tree: Tree, other: Tree, parent_id: SymbolId, edge_type: EdgeType, order: SiblingOrder = 0
+) -> Tree:
     """Graft another tree under parent_id."""
     root_ids = set(other.root_ids())
-    return Tree(tree._nodes + tuple(
-        Node(n.symbol, parent_id, edge_type, n.order) if n.symbol.id in root_ids else n
-        for n in other._nodes if n.symbol.id != other.root
-    ), tree.root)
+    return Tree(
+        tree._nodes
+        + tuple(
+            Node(n.symbol, parent_id, edge_type, n.order) if n.symbol.id in root_ids else n
+            for n in other._nodes
+            if n.symbol.id != other.root
+        ),
+        tree.root,
+    )
 
 
 def collapse(tree: Tree, sym_ids: set[SymbolId], expr_id: SymbolId) -> tuple[Tree, Tree]:
@@ -31,10 +50,14 @@ def collapse(tree: Tree, sym_ids: set[SymbolId], expr_id: SymbolId) -> tuple[Tre
     group_root_set = set(group_roots)
 
     # Extract subtree preserving internal structure
-    extracted = Tree(tuple(
-        Node(n.symbol, tree.root, Edge.ROOT, n.order) if n.symbol.id in group_root_set else n
-        for n in tree._nodes if n.symbol.id in sym_ids
-    ), tree.root)
+    extracted = Tree(
+        tuple(
+            Node(n.symbol, tree.root, Edge.ROOT, n.order) if n.symbol.id in group_root_set else n
+            for n in tree._nodes
+            if n.symbol.id in sym_ids
+        ),
+        tree.root,
+    )
 
     # EXPR inherits first group root's position
     ref = tree.nodes[group_roots[0]] if group_roots else tree.nodes[next(iter(sym_ids))]
@@ -56,10 +79,13 @@ def expand(tree: Tree, expr_id: SymbolId, extracted: Tree) -> Tree:
     root_ids = set(extracted.root_ids())
 
     return Tree(
-        tuple(n for n in tree._nodes if n.symbol.id != expr_id) + tuple(
+        tuple(n for n in tree._nodes if n.symbol.id != expr_id)
+        + tuple(
             Node(n.symbol, expr_node.parent_id, expr_node.edge_type, n.order)
-            if n.symbol.id in root_ids else n
-            for n in extracted._nodes if n.symbol.id != extracted.root
+            if n.symbol.id in root_ids
+            else n
+            for n in extracted._nodes
+            if n.symbol.id != extracted.root
         ),
         tree.root,
     )
@@ -79,11 +105,15 @@ def reorder_siblings(tree: Tree) -> Tree:
         for rank, sid in enumerate(sorted(sids, key=lambda s: tree.nodes[s].symbol.bbox.cx)):
             new_order[sid] = rank
 
-    return Tree(tuple(
-        Node(n.symbol, n.parent_id, n.edge_type, new_order.get(n.symbol.id, n.order))
-        if n.symbol.id in new_order else n
-        for n in tree._nodes
-    ), tree.root)
+    return Tree(
+        tuple(
+            Node(n.symbol, n.parent_id, n.edge_type, new_order.get(n.symbol.id, n.order))
+            if n.symbol.id in new_order
+            else n
+            for n in tree._nodes
+        ),
+        tree.root,
+    )
 
 
 def fix_dot_cdot(tree: Tree) -> Tree:

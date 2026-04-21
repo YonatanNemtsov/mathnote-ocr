@@ -7,15 +7,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import asyncio
-import websockets
-import json
 import base64
 import io
+import json
 import re
 
-from mathnote_ocr.engine.stroke import Stroke
-from mathnote_ocr.engine.renderer import render_strokes
+import websockets
+
 from mathnote_ocr import config
+from mathnote_ocr.engine.renderer import render_strokes
+from mathnote_ocr.engine.stroke import Stroke
 
 # Set by CLI at startup
 SYMBOLS_DIR: Path = Path("data/shared/symbols")
@@ -59,26 +60,38 @@ async def handler(websocket):
                 current_label = msg["label"].strip()
                 label_dir = SYMBOLS_DIR / current_label
                 count = len(list(label_dir.glob("*.png"))) if label_dir.exists() else 0
-                await websocket.send(json.dumps({
-                    "type": "label_set",
-                    "label": current_label,
-                    "count": count,
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "label_set",
+                            "label": current_label,
+                            "count": count,
+                        }
+                    )
+                )
 
             elif msg_type == "save":
                 if not current_label:
-                    await websocket.send(json.dumps({
-                        "type": "error",
-                        "message": "No label set. Select a label first.",
-                    }))
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "message": "No label set. Select a label first.",
+                            }
+                        )
+                    )
                     continue
 
                 raw_strokes = msg.get("strokes", [])
                 if not raw_strokes:
-                    await websocket.send(json.dumps({
-                        "type": "error",
-                        "message": "No strokes to save.",
-                    }))
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "message": "No strokes to save.",
+                            }
+                        )
+                    )
                     continue
 
                 stroke_width = msg.get("stroke_width", config.RENDER_STROKE_WIDTH)
@@ -112,24 +125,36 @@ async def handler(websocket):
                 rendered_b64 = base64.b64encode(buf.getvalue()).decode()
 
                 count = len(list(label_dir.glob("*.png")))
-                await websocket.send(json.dumps({
-                    "type": "saved",
-                    "count": count,
-                    "rendered_image": f"data:image/png;base64,{rendered_b64}",
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "saved",
+                            "count": count,
+                            "rendered_image": f"data:image/png;base64,{rendered_b64}",
+                        }
+                    )
+                )
                 print(f"  Saved {current_label}/{file_id} (total: {count})")
 
             elif msg_type == "get_counts":
-                await websocket.send(json.dumps({
-                    "type": "counts",
-                    "counts": get_all_counts(),
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "counts",
+                            "counts": get_all_counts(),
+                        }
+                    )
+                )
 
         except Exception as e:
-            await websocket.send(json.dumps({
-                "type": "error",
-                "message": str(e),
-            }))
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "error",
+                        "message": str(e),
+                    }
+                )
+            )
 
     print(f"[disconnect] {addr}")
 
@@ -153,9 +178,13 @@ async def run_server(port: int):
 
 if __name__ == "__main__":
     import argparse
+
     ap = argparse.ArgumentParser(description="Symbol collection server")
-    ap.add_argument("--output-dir", default="data/shared/symbols",
-                    help="Directory to save collected symbols (default: data/shared/symbols)")
+    ap.add_argument(
+        "--output-dir",
+        default="data/shared/symbols",
+        help="Directory to save collected symbols (default: data/shared/symbols)",
+    )
     ap.add_argument("--port", type=int, default=8765)
     args = ap.parse_args()
     SYMBOLS_DIR = Path(args.output_dir).resolve()

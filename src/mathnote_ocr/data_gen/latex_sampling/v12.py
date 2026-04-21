@@ -6,7 +6,7 @@ deeply nested mixed structures, trig with complex args, limits.
 
 import random
 
-from .symbols import (_pick_base, _shared_short_content, VARS, DIGITS, GREEK, MISC_SYMBOLS, ARITH_OPS)
+from .symbols import ARITH_OPS, DIGITS, GREEK, MISC_SYMBOLS, VARS, _pick_base, _shared_short_content
 
 
 def _atom():
@@ -192,13 +192,36 @@ def _deep_mixed():
         return "\\sqrt{" + _pick_base() + "^{2}+" + _pick_base() + "^{2}}"
     elif v < 0.45:
         # frac with sqrt in num, sup in den
-        return "\\frac{" + "\\sqrt{" + _short_expr() + "}" + "}{" + _pick_base() + "^{" + _short_expr() + "}}"
+        return (
+            "\\frac{"
+            + "\\sqrt{"
+            + _short_expr()
+            + "}"
+            + "}{"
+            + _pick_base()
+            + "^{"
+            + _short_expr()
+            + "}}"
+        )
     elif v < 0.65:
         # bigop of a fraction with sup
         op = random.choice(["\\sum", "\\int"])
         lo = _atom()
         hi = _atom()
-        return op + "_{" + lo + "}^{" + hi + "} \\frac{" + _pick_base() + "^{" + _atom() + "}}{" + _short_expr() + "}"
+        return (
+            op
+            + "_{"
+            + lo
+            + "}^{"
+            + hi
+            + "} \\frac{"
+            + _pick_base()
+            + "^{"
+            + _atom()
+            + "}}{"
+            + _short_expr()
+            + "}"
+        )
     elif v < 0.8:
         # fraction inside sqrt inside fraction
         inner = "\\sqrt{" + _frac() + "}"
@@ -220,7 +243,17 @@ def _limits():
         return "\\lim_{" + var + " \\rightarrow " + target + "} " + _frac()
     else:
         target = _atom()
-        return "\\lim_{" + var + " \\rightarrow " + target + "} " + _pick_base() + "^{" + _short_expr() + "}"
+        return (
+            "\\lim_{"
+            + var
+            + " \\rightarrow "
+            + target
+            + "} "
+            + _pick_base()
+            + "^{"
+            + _short_expr()
+            + "}"
+        )
 
 
 def _long_top_level():
@@ -257,20 +290,41 @@ def _nested_frac():
             return "\\frac{" + _frac() + "}{" + _frac() + "}"
         else:
             # frac-in-both with extra terms
-            return "\\frac{" + _short_expr() + "+" + _frac() + "}{" + _frac() + "+" + _short_expr() + "}"
+            return (
+                "\\frac{"
+                + _short_expr()
+                + "+"
+                + _frac()
+                + "}{"
+                + _frac()
+                + "+"
+                + _short_expr()
+                + "}"
+            )
     elif v < 0.7:
         # nested frac alone in numerator: \frac{\frac{a}{b}}{c+d}
         return "\\frac{" + inner + "}{" + _short_expr() + "}"
     elif v < 0.85:
         # double nested: \frac{1+\frac{1}{\frac{a}{b}}}{c} — HARD
-        return "\\frac{" + _atom() + "+" + "\\frac{" + _atom() + "}{" + _frac() + "}}{" + _short_expr() + "}"
+        return (
+            "\\frac{"
+            + _atom()
+            + "+"
+            + "\\frac{"
+            + _atom()
+            + "}{"
+            + _frac()
+            + "}}{"
+            + _short_expr()
+            + "}"
+        )
     else:
         # nested frac in denominator alone: \frac{a+b}{\frac{c}{d}}
         return "\\frac{" + _short_expr() + "}{" + _frac() + "}"
 
 
 def _bigop_with_frac():
-    """Big operator adjacent to fraction: \int \frac{...}{...}.
+    """Big operator adjacent to fraction: \\int \frac{...}{...}.
 
     Weighted heavily toward hard cases: bigop+limits+nested frac.
     """

@@ -6,9 +6,17 @@ Uses partial, nabla, infty, rightarrow, pm in proper contexts.
 
 import random
 
-from .symbols import (_pick_base, _shared_expr, _shared_term, _shared_sub_content,
-                       VARS, UPPER, DIGITS, GREEK, GREEK_UPPER, MISC_SYMBOLS,
-                       FUNCS)
+from .symbols import (
+    DIGITS,
+    FUNCS,
+    GREEK,
+    MISC_SYMBOLS,
+    VARS,
+    _pick_base,
+    _shared_expr,
+    _shared_sub_content,
+    _shared_term,
+)
 
 ARITH_OPS = ["+", "-"]  # v7-specific: calculus focus
 
@@ -22,26 +30,44 @@ def _atom():
     )[0]
     return random.choice(pool)
 
+
 def _var():
     return random.choice(VARS)
+
 
 def _expr(d=0):
     return _shared_expr(d, _atom, _pick_base, _struct)
 
+
 def _term(d):
     return _shared_term(d, _atom, _pick_base, _struct)
+
 
 def _slot(d):
     return _expr(d + 1)
 
+
 def _struct(d):
     kind = random.choices(
-        ["frac", "sup", "sub", "subsup", "sqrt", "func",
-         "integral", "sum_prod", "deriv", "partial", "lim",
-         "parens", "nabla", "pm", "infty_bound", "prime"],
-        weights=[12, 10, 8, 6, 6, 6,
-                 10, 8, 6, 5, 5,
-                 5, 3, 3, 4, 6],
+        [
+            "frac",
+            "sup",
+            "sub",
+            "subsup",
+            "sqrt",
+            "func",
+            "integral",
+            "sum_prod",
+            "deriv",
+            "partial",
+            "lim",
+            "parens",
+            "nabla",
+            "pm",
+            "infty_bound",
+            "prime",
+        ],
+        weights=[12, 10, 8, 6, 6, 6, 10, 8, 6, 5, 5, 5, 3, 3, 4, 6],
     )[0]
 
     if kind == "frac":

@@ -7,15 +7,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import asyncio
-import websockets
 import json
 
-from mathnote_ocr.engine.stroke import Stroke
-from mathnote_ocr.engine.grouper import group_and_classify, GrouperCache
-from mathnote_ocr.classifier.inference import SymbolClassifier
-from mathnote_ocr.engine.layout import analyze_layout
-from mathnote_ocr.pipeline_config import load_config, get
+import websockets
+
 from mathnote_ocr import config
+from mathnote_ocr.classifier.inference import SymbolClassifier
+from mathnote_ocr.engine.grouper import GrouperCache, group_and_classify
+from mathnote_ocr.engine.layout import analyze_layout
+from mathnote_ocr.engine.stroke import Stroke
+from mathnote_ocr.pipeline_config import get, load_config
 
 REPO_ROOT = Path(__file__).parent.parent
 REPO_CONFIGS = REPO_ROOT / "configs"
@@ -31,6 +32,7 @@ def _resolve_config(name):
 
 # Load model at startup
 import argparse
+
 ap = argparse.ArgumentParser()
 ap.add_argument("--config", type=str, default=None, help="Pipeline config name")
 ap.add_argument("--run", default=None, help="Classifier run name")
@@ -62,10 +64,14 @@ async def handler(websocket):
                 raw_strokes = msg.get("strokes", [])
                 cache.update(len(raw_strokes))
                 if not raw_strokes:
-                    await websocket.send(json.dumps({
-                        "type": "error",
-                        "message": "No strokes to detect.",
-                    }))
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "message": "No strokes to detect.",
+                            }
+                        )
+                    )
                     continue
 
                 stroke_width = msg.get("stroke_width", config.RENDER_STROKE_WIDTH)
@@ -77,7 +83,8 @@ async def handler(websocket):
                 strokes = [Stroke.from_dicts(pts) for pts in raw_strokes]
 
                 all_partitions = group_and_classify(
-                    strokes, classifier,
+                    strokes,
+                    classifier,
                     stroke_width=stroke_width,
                     source_size=source_size,
                     top_k=10,
@@ -95,8 +102,10 @@ async def handler(websocket):
                                 "prototype_distance": s.prototype_distance,
                                 "stroke_indices": s.stroke_indices,
                                 "bbox": {
-                                    "x": s.bbox.x, "y": s.bbox.y,
-                                    "w": s.bbox.w, "h": s.bbox.h,
+                                    "x": s.bbox.x,
+                                    "y": s.bbox.y,
+                                    "w": s.bbox.w,
+                                    "h": s.bbox.h,
                                 },
                                 "alternatives": [
                                     {"symbol": sym, "confidence": c}
@@ -124,16 +133,24 @@ async def handler(websocket):
                 for j, r in enumerate(results[:3]):
                     print(f"    [{j}] {r['expression']}")
 
-                await websocket.send(json.dumps({
-                    "type": "detection",
-                    "partitions": results,
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "detection",
+                            "partitions": results,
+                        }
+                    )
+                )
 
         except Exception as e:
-            await websocket.send(json.dumps({
-                "type": "error",
-                "message": str(e),
-            }))
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "error",
+                        "message": str(e),
+                    }
+                )
+            )
 
     print(f"[disconnect] {addr}")
 

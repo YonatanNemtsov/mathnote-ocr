@@ -8,22 +8,22 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import json
+import math
 import random
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader, WeightedRandomSampler
-from torchvision import transforms
 from PIL import Image
-
-import math
+from torch.utils.data import DataLoader, Dataset, WeightedRandomSampler
+from torchvision import transforms
 
 from mathnote_ocr import config
 from mathnote_ocr.classifier.model import SymbolCNNWithPrototypes
-from mathnote_ocr.engine.checkpoint import save_checkpoint, load_checkpoint, _checkpoint_path
-from mathnote_ocr.engine.stroke import Stroke
-from mathnote_ocr.engine.renderer import render_strokes
 from mathnote_ocr.classifier.stroke_augment import augment_strokes
+from mathnote_ocr.engine.checkpoint import _checkpoint_path, load_checkpoint, save_checkpoint
+from mathnote_ocr.engine.renderer import render_strokes
+from mathnote_ocr.engine.stroke import Stroke
 
 
 class SymbolDataset(Dataset):
@@ -34,9 +34,16 @@ class SymbolDataset(Dataset):
     JSON is available.
     """
 
-    def __init__(self, image_paths, labels, transform=None,
-                 width_range=None, stroke_augment=False, canvas_size=128,
-                 use_size_feat=False):
+    def __init__(
+        self,
+        image_paths,
+        labels,
+        transform=None,
+        width_range=None,
+        stroke_augment=False,
+        canvas_size=128,
+        use_size_feat=False,
+    ):
         self.image_paths = image_paths
         self.labels = labels
         self.transform = transform
@@ -99,7 +106,9 @@ class SymbolDataset(Dataset):
         if self.stroke_augment:
             source_size *= random.uniform(1.0, 2.5)
         img = render_strokes(
-            strokes, canvas_size=self.canvas_size, stroke_width=width,
+            strokes,
+            canvas_size=self.canvas_size,
+            stroke_width=width,
             source_size=source_size,
         )
         return img, size_feat
@@ -168,14 +177,13 @@ def split_data(images, labels, train_ratio=0.8):
     )
 
 
-def train(model, train_loader, val_loader, device, label_names, epochs=15, lr=0.001,
-          use_size_feat=False):
+def train(
+    model, train_loader, val_loader, device, label_names, epochs=15, lr=0.001, use_size_feat=False
+):
     """Train the model, return best state dict and metrics."""
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=5
-    )
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=5)
 
     best_val_loss = float("inf")
     best_val_acc = 0.0
@@ -252,13 +260,16 @@ def train(model, train_loader, val_loader, device, label_names, epochs=15, lr=0.
 
 class _Tee:
     """Write to both a file and the original stream."""
+
     def __init__(self, stream, log_file):
         self._stream = stream
         self._log = log_file
+
     def write(self, data):
         self._stream.write(data)
         self._log.write(data)
         self._log.flush()
+
     def flush(self):
         self._stream.flush()
         self._log.flush()
@@ -291,16 +302,20 @@ def main():
 
     # Transforms — geometric augmentation is done at stroke level,
     # keep only pixel-level effects here
-    train_transform = transforms.Compose([
-        transforms.GaussianBlur(3, sigma=(0.1, 1.5)),
-        transforms.ToTensor(),
-        transforms.RandomErasing(p=0.15, scale=(0.02, 0.08), value=1.0),
-        transforms.Normalize((0.5,), (0.5,)),
-    ])
-    val_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,)),
-    ])
+    train_transform = transforms.Compose(
+        [
+            transforms.GaussianBlur(3, sigma=(0.1, 1.5)),
+            transforms.ToTensor(),
+            transforms.RandomErasing(p=0.15, scale=(0.02, 0.08), value=1.0),
+            transforms.Normalize((0.5,), (0.5,)),
+        ]
+    )
+    val_transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,)),
+        ]
+    )
 
     # Stroke width range: 1.0-4.0 (default is 2.0)
     width_range = (1.0, 4.0)
@@ -308,18 +323,26 @@ def main():
 
     use_size = args.use_size_feat
     train_dataset = SymbolDataset(
-        train_images, train_labels, train_transform,
-        width_range=width_range, stroke_augment=True,
-        canvas_size=args.canvas_size, use_size_feat=use_size,
+        train_images,
+        train_labels,
+        train_transform,
+        width_range=width_range,
+        stroke_augment=True,
+        canvas_size=args.canvas_size,
+        use_size_feat=use_size,
     )
     val_dataset = SymbolDataset(
-        val_images, val_labels, val_transform,
+        val_images,
+        val_labels,
+        val_transform,
         width_range=(2.0, 2.0),  # fixed width for consistent val renders
-        canvas_size=args.canvas_size, use_size_feat=use_size,
+        canvas_size=args.canvas_size,
+        use_size_feat=use_size,
     )
 
     # Balanced sampling: weight each sample inversely by class frequency
     from collections import Counter
+
     class_counts = Counter(train_labels)
     sample_weights = [1.0 / class_counts[label] for label in train_labels]
     sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_labels), replacement=True)
@@ -328,7 +351,8 @@ def main():
 
     # Model
     model = SymbolCNNWithPrototypes(
-        num_classes=len(label_names), canvas_size=args.canvas_size,
+        num_classes=len(label_names),
+        canvas_size=args.canvas_size,
         use_size_feat=use_size,
     ).to(device)
     param_count = sum(p.numel() for p in model.parameters())
@@ -337,12 +361,15 @@ def main():
     # Resume from checkpoint if requested
     if args.resume:
         try:
-            ckpt = load_checkpoint("classifier", args.run, device=device, weights_dir=args.weights_dir)
+            ckpt = load_checkpoint(
+                "classifier", args.run, device=device, weights_dir=args.weights_dir
+            )
             state = ckpt["model_state_dict"]
             # Filter out keys with shape mismatches (e.g. different num_classes)
             model_state = model.state_dict()
             compatible = {
-                k: v for k, v in state.items()
+                k: v
+                for k, v in state.items()
                 if k in model_state and v.shape == model_state[k].shape
             }
             skipped = set(state.keys()) - set(compatible.keys())
@@ -355,8 +382,14 @@ def main():
 
     # Train
     best_val_loss, best_val_acc, best_state = train(
-        model, train_loader, val_loader, device, label_names,
-        epochs=args.epochs, lr=args.lr, use_size_feat=use_size,
+        model,
+        train_loader,
+        val_loader,
+        device,
+        label_names,
+        epochs=args.epochs,
+        lr=args.lr,
+        use_size_feat=use_size,
     )
 
     # Compute prototypes on training data using best weights
@@ -364,13 +397,18 @@ def main():
     model.load_state_dict(best_state)
     model.compute_prototypes(train_loader, device)
 
-    filepath = save_checkpoint("classifier", args.run, weights_dir=args.weights_dir, state_dict={
-        "model_state_dict": model.state_dict(),
-        "label_names": label_names,
-        "prototypes": model.prototypes,
-        "canvas_size": args.canvas_size,
-        "use_size_feat": use_size,
-    })
+    filepath = save_checkpoint(
+        "classifier",
+        args.run,
+        weights_dir=args.weights_dir,
+        state_dict={
+            "model_state_dict": model.state_dict(),
+            "label_names": label_names,
+            "prototypes": model.prototypes,
+            "canvas_size": args.canvas_size,
+            "use_size_feat": use_size,
+        },
+    )
     print(f"\nModel with prototypes saved to: {filepath}")
     print(f"Log: {log_path}")
     sys.stdout = sys.__stdout__
@@ -379,17 +417,31 @@ def main():
 
 if __name__ == "__main__":
     import argparse
+
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run", type=str, default="default", help="Run name (saves to weights/classifier/<name>/)")
+    ap.add_argument(
+        "--run", type=str, default="default", help="Run name (saves to weights/classifier/<name>/)"
+    )
     ap.add_argument("--epochs", type=int, default=15)
     ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--lr", type=float, default=0.001)
-    ap.add_argument("--data", type=str, nargs="+", default=["data/shared/symbols"],
-                     help="Data directories (default: ./data/shared/symbols). Can specify multiple.")
-    ap.add_argument("--weights-dir", type=str, default="weights",
-                     help="Directory to save weights (default: ./weights)")
+    ap.add_argument(
+        "--data",
+        type=str,
+        nargs="+",
+        default=["data/shared/symbols"],
+        help="Data directories (default: ./data/shared/symbols). Can specify multiple.",
+    )
+    ap.add_argument(
+        "--weights-dir",
+        type=str,
+        default="weights",
+        help="Directory to save weights (default: ./weights)",
+    )
     ap.add_argument("--canvas-size", type=int, default=128, help="Image size (default 128)")
-    ap.add_argument("--use-size-feat", action="store_true", help="Pass relative symbol size to model")
+    ap.add_argument(
+        "--use-size-feat", action="store_true", help="Pass relative symbol size to model"
+    )
     ap.add_argument("--resume", action="store_true", help="Resume from existing checkpoint")
     args = ap.parse_args()
     main()

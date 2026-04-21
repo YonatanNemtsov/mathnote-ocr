@@ -21,7 +21,6 @@ import torch.nn.functional as F
 
 from mathnote_ocr.tree_parser.tree import NUM_EDGE_TYPES, ROOT
 
-
 # ── Encoder (lightweight geo-bias transformer) ───────────────────────
 
 
@@ -64,8 +63,8 @@ class GeoBiasEncoderLayer(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,              # (B, S, D)
-        geo_buckets: torch.Tensor,     # (B, 3, S, S) long
+        x: torch.Tensor,  # (B, S, D)
+        geo_buckets: torch.Tensor,  # (B, 3, S, S) long
         key_padding_mask: torch.Tensor | None = None,  # (B, S) True=pad
     ) -> torch.Tensor:
         residual = x
@@ -87,9 +86,7 @@ class GeoBiasEncoderLayer(nn.Module):
         scores = scores + geo_bias
 
         if key_padding_mask is not None:
-            scores = scores.masked_fill(
-                key_padding_mask.unsqueeze(1).unsqueeze(2), float("-inf")
-            )
+            scores = scores.masked_fill(key_padding_mask.unsqueeze(1).unsqueeze(2), float("-inf"))
 
         attn = F.softmax(scores, dim=-1)
         attn = self.attn_dropout(attn)
@@ -138,7 +135,7 @@ class BiaffineScorer(nn.Module):
 
     def forward(
         self,
-        h: torch.Tensor,              # (B, S, D)
+        h: torch.Tensor,  # (B, S, D)
         pad_mask: torch.Tensor | None = None,  # (B, S) True=pad
     ) -> torch.Tensor:
         """Returns parent scores: (B, S, S+1).
@@ -147,8 +144,8 @@ class BiaffineScorer(nn.Module):
         """
         B, S, _ = h.shape
 
-        h_child = self.W_child(h)     # (B, S, d_arc)
-        h_parent = self.W_parent(h)   # (B, S, d_arc)
+        h_child = self.W_child(h)  # (B, S, d_arc)
+        h_parent = self.W_parent(h)  # (B, S, d_arc)
 
         # Biaffine: child_i^T U parent_j → (B, S, S)
         # (B, S, d_arc) @ (d_arc, d_arc) → (B, S, d_arc)
@@ -158,7 +155,7 @@ class BiaffineScorer(nn.Module):
         # Add bias terms
         pair_scores = (
             pair_scores
-            + self.b_child(h_child)           # (B, S, 1) broadcast over parents
+            + self.b_child(h_child)  # (B, S, 1) broadcast over parents
             + self.b_parent(h_parent).transpose(1, 2)  # (B, 1, S) broadcast over children
         )
 
@@ -231,10 +228,12 @@ class SubsetTreeModel(nn.Module):
         self.yoff_embed = nn.Embedding(4, d_model)
 
         # Encoder layers
-        self.enc_layers = nn.ModuleList([
-            GeoBiasEncoderLayer(d_model, n_heads, d_ff, n_geo_buckets, dropout)
-            for _ in range(n_layers)
-        ])
+        self.enc_layers = nn.ModuleList(
+            [
+                GeoBiasEncoderLayer(d_model, n_heads, d_ff, n_geo_buckets, dropout)
+                for _ in range(n_layers)
+            ]
+        )
         self.enc_norm = nn.LayerNorm(d_model)
 
         # Parent prediction (biaffine)
@@ -284,9 +283,9 @@ class SubsetTreeModel(nn.Module):
 
     def encode(
         self,
-        symbol_ids: torch.Tensor,    # (B, S)
-        geo_buckets: torch.Tensor,   # (B, 3, S, S) long
-        pad_mask: torch.Tensor,      # (B, S) True=pad
+        symbol_ids: torch.Tensor,  # (B, S)
+        geo_buckets: torch.Tensor,  # (B, 3, S, S) long
+        pad_mask: torch.Tensor,  # (B, S) True=pad
         size_feats: torch.Tensor | None = None,  # (B, S, 2) long
     ) -> torch.Tensor:
         """Encode symbols into contextual representations."""
@@ -302,9 +301,9 @@ class SubsetTreeModel(nn.Module):
 
     def forward(
         self,
-        symbol_ids: torch.Tensor,    # (B, S)
-        geo_buckets: torch.Tensor,   # (B, 3, S, S)
-        pad_mask: torch.Tensor,      # (B, S)
+        symbol_ids: torch.Tensor,  # (B, S)
+        geo_buckets: torch.Tensor,  # (B, 3, S, S)
+        pad_mask: torch.Tensor,  # (B, S)
         size_feats: torch.Tensor | None = None,
     ) -> dict[str, torch.Tensor]:
         """Full forward pass.
@@ -325,23 +324,25 @@ class SubsetTreeModel(nn.Module):
 
         # Edge type scores for each (child, possible_parent) pair
         # Build pairwise features: concat child repr with each parent repr
-        h_child = h.unsqueeze(2).expand(-1, -1, S, -1)      # (B, S, S, D)
-        h_parent = h.unsqueeze(1).expand(-1, S, -1, -1)     # (B, S, S, D)
+        h_child = h.unsqueeze(2).expand(-1, -1, S, -1)  # (B, S, S, D)
+        h_parent = h.unsqueeze(1).expand(-1, S, -1, -1)  # (B, S, S, D)
         pair_feats = torch.cat([h_child, h_parent], dim=-1)  # (B, S, S, 2D)
 
         edge_sym = self.edge_type_mlp(pair_feats)  # (B, S, S, E)
-        edge_root = self.root_edge_mlp(h)           # (B, S, E)
+        edge_root = self.root_edge_mlp(h)  # (B, S, E)
 
         edge_type_scores = torch.cat(
-            [edge_sym, edge_root.unsqueeze(2)], dim=2,
+            [edge_sym, edge_root.unsqueeze(2)],
+            dim=2,
         )  # (B, S, S+1, E)
 
         # Order predictions
         order_sym = self.order_mlp(pair_feats).squeeze(-1)  # (B, S, S)
-        order_root = self.root_order_mlp(h).squeeze(-1)     # (B, S)
+        order_root = self.root_order_mlp(h).squeeze(-1)  # (B, S)
 
         order_preds = torch.cat(
-            [order_sym, order_root.unsqueeze(2)], dim=2,
+            [order_sym, order_root.unsqueeze(2)],
+            dim=2,
         )  # (B, S, S+1)
 
         return {
@@ -377,10 +378,10 @@ class SubsetTreeModel(nn.Module):
         if n_real is None:
             n_real = (~pad_mask).sum().item()
 
-        parent_scores = out["parent_scores"][0]        # (S, S+1)
+        parent_scores = out["parent_scores"][0]  # (S, S+1)
         edge_type_scores = out["edge_type_scores"][0]  # (S, S+1, E)
-        order_preds = out["order_preds"][0]            # (S, S+1)
-        seq_scores = out["seq_scores"][0]              # (S, S+1)
+        order_preds = out["order_preds"][0]  # (S, S+1)
+        seq_scores = out["seq_scores"][0]  # (S, S+1)
 
         results = []
         for i in range(n_real):

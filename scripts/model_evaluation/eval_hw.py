@@ -7,16 +7,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import torch
+
 from mathnote_ocr.engine.checkpoint import load_checkpoint
 from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
-from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
-from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
-from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft, evidence_to_features
-from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets
-from mathnote_ocr.tree_parser.tree_builder import build_tree_from_evidence, build_tree_from_scores, find_seq_conflicts
-from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
 from mathnote_ocr.tree_parser.costs import anchor_with_evidence, apply_seq_bonus
-
+from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft, evidence_to_features
+from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets
+from mathnote_ocr.tree_parser.tree_builder import (
+    build_tree_from_evidence,
+    build_tree_from_scores,
+    find_seq_conflicts,
+)
+from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
 
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
@@ -106,7 +110,8 @@ def predict_gnn(model, vocab, gnn_model, names, bboxes):
     _, edge_features = evidence_to_features(evidence)
     sym_ids = torch.tensor(
         [vocab.get(n, vocab.get("<unk>", 1)) for n in names],
-        dtype=torch.long, device=device,
+        dtype=torch.long,
+        device=device,
     )
     _, size_feats = compute_features_from_bbox_list(bboxes, N)
     pad_mask = torch.zeros(N, dtype=torch.bool, device=device)
@@ -138,7 +143,7 @@ def main():
     if "--gnn" in args:
         idx = args.index("--gnn")
         gnn_run = args[idx + 1]
-        args = args[:idx] + args[idx + 2:]
+        args = args[:idx] + args[idx + 2 :]
     runs = args if args else ["dg_all_v2", "dg_aug"]
 
     print("Loading models...")
@@ -203,7 +208,7 @@ def main():
                     diffs.append(f"    {r0}: {preds[r0]}")
 
         if (i + 1) % 50 == 0:
-            print(f"  {i+1}/{len(hw_data)}...")
+            print(f"  {i + 1}/{len(hw_data)}...")
 
     print()
     for d in diffs:
@@ -212,7 +217,7 @@ def main():
     n = len(hw_data)
     print()
     for label in labels:
-        print(f"{label}: {counts[label]}/{n} = {counts[label]/n*100:.1f}%")
+        print(f"{label}: {counts[label]}/{n} = {counts[label] / n * 100:.1f}%")
 
 
 if __name__ == "__main__":

@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from mathnote_ocr.engine.stroke import BBox
 from mathnote_ocr.engine.grouper import DetectedSymbol
+from mathnote_ocr.engine.stroke import BBox
 
 
 @dataclass

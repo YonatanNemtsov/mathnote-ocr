@@ -1,9 +1,10 @@
 """Symbol classification with prototype-based OOD detection."""
 
-import torch
-from torchvision import transforms
-from PIL import Image
 from dataclasses import dataclass
+
+import torch
+from PIL import Image
+from torchvision import transforms
 
 from mathnote_ocr.classifier.model import SymbolCNNWithPrototypes
 from mathnote_ocr.engine.checkpoint import load_checkpoint
@@ -18,10 +19,12 @@ class ClassificationResult:
     alternatives: list[tuple[str, float]] = None  # [(symbol, confidence), ...]
 
 
-_transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.5,), (0.5,)),
-])
+_transform = transforms.Compose(
+    [
+        transforms.ToTensor(),
+        transforms.Normalize((0.5,), (0.5,)),
+    ]
+)
 
 
 class SymbolClassifier:
@@ -35,9 +38,7 @@ class SymbolClassifier:
         per_class_thresholds: dict[str, float] | None = None,
         weights_dir: str | None = None,
     ):
-        self.device = device or torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         checkpoint = load_checkpoint("classifier", run, device=self.device, weights_dir=weights_dir)
         self.label_names: list[str] = checkpoint["label_names"]
@@ -80,7 +81,8 @@ class SymbolClassifier:
         if self.use_size_feat:
             sf = torch.tensor(
                 [size_feat if size_feat is not None else 0.5],
-                dtype=torch.float32, device=self.device,
+                dtype=torch.float32,
+                device=self.device,
             )
 
         with torch.no_grad():
@@ -93,26 +95,20 @@ class SymbolClassifier:
             confidence = conf.item()
 
             # Distance to predicted class prototype
-            distance = torch.norm(
-                features[0] - self.model.prototypes[predicted_class]
-            ).item()
+            distance = torch.norm(features[0] - self.model.prototypes[predicted_class]).item()
 
             # Top-N alternatives
             top_n = min(5, probs.shape[1])
             top_confs, top_indices = probs[0].topk(top_n)
             alternatives = [
-                (self.label_names[top_indices[j].item()],
-                 top_confs[j].item())
-                for j in range(top_n)
+                (self.label_names[top_indices[j].item()], top_confs[j].item()) for j in range(top_n)
             ]
 
         # Determine threshold
         if ood_threshold is not None:
             threshold = ood_threshold
         else:
-            threshold = self.per_class_thresholds.get(
-                predicted_symbol, self.ood_threshold
-            )
+            threshold = self.per_class_thresholds.get(predicted_symbol, self.ood_threshold)
 
         is_ood = distance > threshold
 
@@ -158,24 +154,23 @@ class SymbolClassifier:
             confidence = confs[i].item()
             distance = distances[i].item()
 
-            threshold = self.per_class_thresholds.get(
-                predicted_symbol, self.ood_threshold
-            )
+            threshold = self.per_class_thresholds.get(predicted_symbol, self.ood_threshold)
             is_ood = distance > threshold
 
             alternatives = [
-                (self.label_names[top_indices[i, j].item()],
-                 top_confs[i, j].item())
+                (self.label_names[top_indices[i, j].item()], top_confs[i, j].item())
                 for j in range(top_n)
             ]
 
-            results.append(ClassificationResult(
-                symbol=None if is_ood else predicted_symbol,
-                confidence=confidence,
-                prototype_distance=distance,
-                is_ood=is_ood,
-                alternatives=alternatives,
-            ))
+            results.append(
+                ClassificationResult(
+                    symbol=None if is_ood else predicted_symbol,
+                    confidence=confidence,
+                    prototype_distance=distance,
+                    is_ood=is_ood,
+                    alternatives=alternatives,
+                )
+            )
         return results
 
     def classify_topn(
@@ -197,7 +192,8 @@ class SymbolClassifier:
         if self.use_size_feat:
             sf = torch.tensor(
                 [size_feat if size_feat is not None else 0.5],
-                dtype=torch.float32, device=self.device,
+                dtype=torch.float32,
+                device=self.device,
             )
 
         with torch.no_grad():
@@ -209,16 +205,12 @@ class SymbolClassifier:
             predicted_symbol = self.label_names[predicted_class]
             confidence = top_conf.item()
 
-            distance = torch.norm(
-                features[0] - self.model.prototypes[predicted_class]
-            ).item()
+            distance = torch.norm(features[0] - self.model.prototypes[predicted_class]).item()
 
         if ood_threshold is not None:
             threshold = ood_threshold
         else:
-            threshold = self.per_class_thresholds.get(
-                predicted_symbol, self.ood_threshold
-            )
+            threshold = self.per_class_thresholds.get(predicted_symbol, self.ood_threshold)
 
         is_ood = distance > threshold
 

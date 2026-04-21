@@ -9,20 +9,18 @@ from __future__ import annotations
 
 import torch
 
-from mathnote_ocr.tree_parser.tree import NUM_EDGE_TYPES, ROOT
-
 # Re-exports for backward compatibility — these now live in dedicated modules
 from mathnote_ocr.tree_parser.propagation import propagate_seq  # noqa: F401
 from mathnote_ocr.tree_parser.subset_selection import (  # noqa: F401
     _bbox_centers,
-    _bbox_edge_dist,
     _bbox_dist,
-    sample_subsets_spatial,
+    _bbox_edge_dist,
     enumerate_subsets_exhaustive,
-    sample_subsets_with_coverage,
     make_spatial_subsets,
+    sample_subsets_spatial,
+    sample_subsets_with_coverage,
 )
-
+from mathnote_ocr.tree_parser.tree import NUM_EDGE_TYPES, ROOT
 
 # ── Evidence aggregation ─────────────────────────────────────────────
 
@@ -142,9 +140,9 @@ def aggregate_evidence_soft(
     for subset_indices, out, n_sub in partial_outputs:
         S = out["parent_scores"].shape[0]  # padded subset size
 
-        parent_probs = F.softmax(out["parent_scores"][:n_sub], dim=-1)   # (n_sub, S+1)
-        seq_probs = F.softmax(out["seq_scores"][:n_sub], dim=-1)         # (n_sub, S+1)
-        order_preds = out["order_preds"][:n_sub]                         # (n_sub, S+1)
+        parent_probs = F.softmax(out["parent_scores"][:n_sub], dim=-1)  # (n_sub, S+1)
+        seq_probs = F.softmax(out["seq_scores"][:n_sub], dim=-1)  # (n_sub, S+1)
+        order_preds = out["order_preds"][:n_sub]  # (n_sub, S+1)
 
         for i in range(n_sub):
             gi = subset_indices[i]
@@ -214,6 +212,7 @@ def jitter_bboxes(
 ) -> list[list[float]]:
     """Add gaussian jitter to bounding boxes for TTA."""
     import random
+
     result = []
     for x, y, w, h in bboxes:
         ref = max(h, 5)
@@ -267,22 +266,21 @@ def evidence_to_features(
         edge_features: (N, N+1, F_edge) — per-pair features encoding
             the aggregated evidence.
     """
-    parent_votes = evidence["parent_votes"]     # (N, N+1, E)
-    order_sum = evidence["order_sum"]           # (N, N+1)
-    order_count = evidence["order_count"]       # (N, N+1)
+    parent_votes = evidence["parent_votes"]  # (N, N+1, E)
+    order_sum = evidence["order_sum"]  # (N, N+1)
+    order_count = evidence["order_count"]  # (N, N+1)
     pair_cooccurrence = evidence["pair_cooccurrence"]  # (N, N)
-    seq_votes = evidence.get("seq_votes")       # (N, N+1) or None
+    seq_votes = evidence.get("seq_votes")  # (N, N+1) or None
 
     N = parent_votes.shape[0]
 
     # Normalize votes by co-occurrence (what fraction of times they
     # appeared together did the model predict this relationship?)
     # Add root co-occurrence column (total subsets this child appeared in)
-    root_cooccurrence = pair_cooccurrence.sum(dim=1, keepdim=True) / max(
-        1, N - 1
-    )  # approximate
+    root_cooccurrence = pair_cooccurrence.sum(dim=1, keepdim=True) / max(1, N - 1)  # approximate
     full_cooccurrence = torch.cat(
-        [pair_cooccurrence, root_cooccurrence], dim=1,
+        [pair_cooccurrence, root_cooccurrence],
+        dim=1,
     )  # (N, N+1)
 
     # Vote fractions per edge type

@@ -13,8 +13,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from mathnote_ocr.tree_parser.tree import NUM_EDGE_TYPES
 from mathnote_ocr.tree_parser.subset_model import BiaffineScorer
+from mathnote_ocr.tree_parser.tree import NUM_EDGE_TYPES
 
 
 class EvidenceBiasLayer(nn.Module):
@@ -60,8 +60,8 @@ class EvidenceBiasLayer(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,                # (B, N, D)
-        edge_feats: torch.Tensor,        # (B, N, N, d_edge)
+        x: torch.Tensor,  # (B, N, D)
+        edge_feats: torch.Tensor,  # (B, N, N, d_edge)
         key_padding_mask: torch.Tensor | None = None,  # (B, N) True=pad
         adj_mask: torch.Tensor | None = None,  # (B, N, N) True=connected
     ) -> torch.Tensor:
@@ -76,20 +76,16 @@ class EvidenceBiasLayer(nn.Module):
         scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
 
         # Add evidence-based attention bias
-        bias = self.edge_bias(edge_feats)     # (B, N, N, n_heads)
-        bias = bias.permute(0, 3, 1, 2)       # (B, n_heads, N, N)
+        bias = self.edge_bias(edge_feats)  # (B, N, N, n_heads)
+        bias = bias.permute(0, 3, 1, 2)  # (B, n_heads, N, N)
         scores = scores + bias
 
         # Block attention to non-connected nodes
         if adj_mask is not None:
-            scores = scores.masked_fill(
-                ~adj_mask.unsqueeze(1), float("-inf")
-            )
+            scores = scores.masked_fill(~adj_mask.unsqueeze(1), float("-inf"))
 
         if key_padding_mask is not None:
-            scores = scores.masked_fill(
-                key_padding_mask.unsqueeze(1).unsqueeze(2), float("-inf")
-            )
+            scores = scores.masked_fill(key_padding_mask.unsqueeze(1).unsqueeze(2), float("-inf"))
 
         attn = F.softmax(scores, dim=-1)
         attn = self.attn_dropout(attn)
@@ -154,10 +150,9 @@ class EvidenceGNN(nn.Module):
         self.root_evidence_proj = nn.Linear(d_edge, d_model)
 
         # Transformer layers with evidence-biased attention
-        self.layers = nn.ModuleList([
-            EvidenceBiasLayer(d_model, n_heads, d_ff, d_edge, dropout)
-            for _ in range(n_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [EvidenceBiasLayer(d_model, n_heads, d_ff, d_edge, dropout) for _ in range(n_layers)]
+        )
         self.norm = nn.LayerNorm(d_model)
 
         # Output: parent prediction (biaffine scorer)
@@ -190,10 +185,10 @@ class EvidenceGNN(nn.Module):
 
     def forward(
         self,
-        symbol_ids: torch.Tensor,      # (B, N)
-        size_feats: torch.Tensor,       # (B, N, 2)
-        edge_features: torch.Tensor,    # (B, N, N+1, d_edge)
-        pad_mask: torch.Tensor,         # (B, N) True=pad
+        symbol_ids: torch.Tensor,  # (B, N)
+        size_feats: torch.Tensor,  # (B, N, 2)
+        edge_features: torch.Tensor,  # (B, N, N+1, d_edge)
+        pad_mask: torch.Tensor,  # (B, N) True=pad
     ) -> dict[str, torch.Tensor]:
         B, N = symbol_ids.shape
 
@@ -206,11 +201,11 @@ class EvidenceGNN(nn.Module):
             h = h + self.yoff_embed(size_feats[:, :, 1])
 
         # Add ROOT evidence as node feature
-        root_ev = edge_features[:, :, N, :]           # (B, N, d_edge)
+        root_ev = edge_features[:, :, N, :]  # (B, N, d_edge)
         h = h + self.root_evidence_proj(root_ev)
 
         # Edge features between real nodes (N×N) for attention bias
-        edge_nn = edge_features[:, :, :N, :]          # (B, N, N, d_edge)
+        edge_nn = edge_features[:, :, :N, :]  # (B, N, N, d_edge)
 
         # Adjacency mask: only attend to nodes with evidence
         adj_mask = None
@@ -233,18 +228,19 @@ class EvidenceGNN(nn.Module):
         parent_scores = self.parent_scorer(h, pad_mask)  # (B, N, N+1)
 
         # SEQ scores (biaffine) — previous sibling prediction
-        seq_scores = self.seq_scorer(h, pad_mask)        # (B, N, N+1)
+        seq_scores = self.seq_scorer(h, pad_mask)  # (B, N, N+1)
 
         # Edge type scores
-        h_child = h.unsqueeze(2).expand(-1, -1, N, -1)     # (B, N, N, D)
-        h_parent = h.unsqueeze(1).expand(-1, N, -1, -1)    # (B, N, N, D)
-        pair_feats = torch.cat([h_child, h_parent], dim=-1) # (B, N, N, 2D)
+        h_child = h.unsqueeze(2).expand(-1, -1, N, -1)  # (B, N, N, D)
+        h_parent = h.unsqueeze(1).expand(-1, N, -1, -1)  # (B, N, N, D)
+        pair_feats = torch.cat([h_child, h_parent], dim=-1)  # (B, N, N, 2D)
 
-        edge_sym = self.edge_type_mlp(pair_feats)           # (B, N, N, E)
-        edge_root = self.root_edge_mlp(h)                    # (B, N, E)
+        edge_sym = self.edge_type_mlp(pair_feats)  # (B, N, N, E)
+        edge_root = self.root_edge_mlp(h)  # (B, N, E)
 
         edge_type_scores = torch.cat(
-            [edge_sym, edge_root.unsqueeze(2)], dim=2,
+            [edge_sym, edge_root.unsqueeze(2)],
+            dim=2,
         )  # (B, N, N+1, E)
 
         return {

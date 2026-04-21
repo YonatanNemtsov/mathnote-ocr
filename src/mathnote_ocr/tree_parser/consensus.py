@@ -61,13 +61,15 @@ def find_consensus_edges(
         if agreement >= agreement_threshold:
             # Map ROOT column
             parent = best_parent if best_parent < N else -1
-            consensus.append({
-                "child": i,
-                "parent": parent,
-                "edge_type": best_edge if parent >= 0 else -1,
-                "agreement": round(agreement, 3),
-                "votes": round(best_votes, 2),
-            })
+            consensus.append(
+                {
+                    "child": i,
+                    "parent": parent,
+                    "edge_type": best_edge if parent >= 0 else -1,
+                    "agreement": round(agreement, 3),
+                    "votes": round(best_votes, 2),
+                }
+            )
 
     return consensus
 
@@ -96,7 +98,10 @@ def boost_consensus_edges(
         Modified parent_scores tensor.
     """
     consensus = find_consensus_edges(
-        evidence, n_symbols, agreement_threshold, min_votes,
+        evidence,
+        n_symbols,
+        agreement_threshold,
+        min_votes,
     )
 
     N = n_symbols

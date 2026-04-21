@@ -14,17 +14,15 @@ from collections import defaultdict
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 
-from mathnote_ocr import config
-from mathnote_ocr.grouper_gnn.model import StrokeGNN
+from mathnote_ocr.engine.checkpoint import _checkpoint_path, save_checkpoint
 from mathnote_ocr.grouper_gnn.features import (
-    compute_node_features,
-    compute_edge_features,
     compute_adjacency_mask,
+    compute_edge_features,
+    compute_node_features,
 )
-from mathnote_ocr.engine.checkpoint import save_checkpoint, _checkpoint_path
-
+from mathnote_ocr.grouper_gnn.model import StrokeGNN
 
 # ── Data loading ─────────────────────────────────────────────────────
 
@@ -48,11 +46,13 @@ def _load_train_strokes(path: Path) -> list[dict]:
                     group_ids.append(gid)
                     labels.append(sym["name"])
             if len(strokes) >= 2:  # need at least 2 strokes
-                entries.append({
-                    "strokes": strokes,
-                    "group_ids": group_ids,
-                    "labels": labels,
-                })
+                entries.append(
+                    {
+                        "strokes": strokes,
+                        "group_ids": group_ids,
+                        "labels": labels,
+                    }
+                )
     return entries
 
 
@@ -87,11 +87,13 @@ def _load_expr_mapping(mapping_path: Path, base_dir: Path) -> list[dict]:
                 labels.append(sym["name"])
 
         if len(strokes) >= 2:
-            entries.append({
-                "strokes": strokes,
-                "group_ids": group_ids,
-                "labels": labels,
-            })
+            entries.append(
+                {
+                    "strokes": strokes,
+                    "group_ids": group_ids,
+                    "labels": labels,
+                }
+            )
 
     return entries
 
@@ -132,14 +134,14 @@ class StrokeGraphDataset(Dataset):
         # Optional augmentation
         if self.augment:
             # Shuffle symbol order (reorder whole symbol groups)
-            strokes, group_ids, labels = _shuffle_symbol_order(
-                strokes, group_ids, labels)
+            strokes, group_ids, labels = _shuffle_symbol_order(strokes, group_ids, labels)
             # Spatial augmentation
             strokes = _augment_strokes(strokes)
 
         # Compute features
         renders, geo = compute_node_features(
-            strokes, stroke_width=self.stroke_width,
+            strokes,
+            stroke_width=self.stroke_width,
         )
         edge_feats = compute_edge_features(strokes)
         adj_mask = compute_adjacency_mask(strokes)
@@ -184,8 +186,7 @@ def _shuffle_symbol_order(
 
     # Swap one random adjacent pair
     swap_idx = random.randrange(len(group_keys) - 1)
-    group_keys[swap_idx], group_keys[swap_idx + 1] = \
-        group_keys[swap_idx + 1], group_keys[swap_idx]
+    group_keys[swap_idx], group_keys[swap_idx + 1] = group_keys[swap_idx + 1], group_keys[swap_idx]
 
     # Rebuild in new order
     new_strokes, new_group_ids, new_labels = [], [], []
@@ -220,10 +221,12 @@ def _augment_strokes(strokes: list[list[dict]]) -> list[list[dict]]:
     for pts in strokes:
         new_pts = []
         for p in pts:
-            new_pts.append({
-                "x": (p["x"] - cx) * sx + cx + tx,
-                "y": (p["y"] - cy) * sy + cy + ty,
-            })
+            new_pts.append(
+                {
+                    "x": (p["x"] - cx) * sx + cx + tx,
+                    "y": (p["y"] - cy) * sy + cy + ty,
+                }
+            )
         result.append(new_pts)
     return result
 
@@ -252,7 +255,15 @@ def collate_fn(batch):
         node_target_batch[i, :n] = node_target
         pad_mask[i, :n] = False
 
-    return renders_batch, geo_batch, edge_feats_batch, adj_mask_batch, edge_target_batch, node_target_batch, pad_mask
+    return (
+        renders_batch,
+        geo_batch,
+        edge_feats_batch,
+        adj_mask_batch,
+        edge_target_batch,
+        node_target_batch,
+        pad_mask,
+    )
 
 
 # ── Training ─────────────────────────────────────────────────────────
@@ -262,10 +273,12 @@ class _Tee:
     def __init__(self, stream, log_file):
         self._stream = stream
         self._log = log_file
+
     def write(self, data):
         self._stream.write(data)
         self._log.write(data)
         self._log.flush()
+
     def flush(self):
         self._stream.flush()
         self._log.flush()
@@ -327,7 +340,9 @@ def train(
                 # Weighted BCE: positive edges are rarer
                 weight = torch.where(edge_tgt == 1, pos_weight, 1.0)
                 edge_loss = nn.functional.binary_cross_entropy_with_logits(
-                    edge_pred, edge_tgt, weight=weight,
+                    edge_pred,
+                    edge_tgt,
+                    weight=weight,
                 )
             else:
                 edge_loss = torch.tensor(0.0, device=device)
@@ -364,7 +379,11 @@ def train(
                     pred_cls = node_logits[valid_nodes].argmax(dim=-1)
                     real_nodes = node_target[valid_nodes] != -100
                     if real_nodes.any():
-                        train_node_correct += (pred_cls[real_nodes] == node_target[valid_nodes][real_nodes]).sum().item()
+                        train_node_correct += (
+                            (pred_cls[real_nodes] == node_target[valid_nodes][real_nodes])
+                            .sum()
+                            .item()
+                        )
                         train_node_total += real_nodes.sum().item()
 
         scheduler.step()
@@ -380,7 +399,15 @@ def train(
         val_batches = 0
 
         with torch.no_grad():
-            for renders, geo, edge_feats, adj_mask, edge_target, node_target, pad_mask in val_loader:
+            for (
+                renders,
+                geo,
+                edge_feats,
+                adj_mask,
+                edge_target,
+                node_target,
+                pad_mask,
+            ) in val_loader:
                 renders = renders.to(device)
                 geo = geo.to(device)
                 edge_feats = edge_feats.to(device)
@@ -402,7 +429,9 @@ def train(
                     edge_tgt = edge_target[pair_valid]
                     weight = torch.where(edge_tgt == 1, pos_weight, 1.0)
                     edge_loss = nn.functional.binary_cross_entropy_with_logits(
-                        edge_pred, edge_tgt, weight=weight,
+                        edge_pred,
+                        edge_tgt,
+                        weight=weight,
                     )
                     val_edge_loss_sum += edge_loss.item()
 
@@ -422,7 +451,11 @@ def train(
                     pred_cls = node_logits[valid_nodes].argmax(dim=-1)
                     real_nodes = node_target[valid_nodes] != -100
                     if real_nodes.any():
-                        val_node_correct += (pred_cls[real_nodes] == node_target[valid_nodes][real_nodes]).sum().item()
+                        val_node_correct += (
+                            (pred_cls[real_nodes] == node_target[valid_nodes][real_nodes])
+                            .sum()
+                            .item()
+                        )
                         val_node_total += real_nodes.sum().item()
 
                 val_batches += 1
@@ -449,7 +482,9 @@ def train(
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_state = {k: v.clone() for k, v in model.state_dict().items()}
-            print(f"  -> Best (val_loss={val_loss:.4f}, edge={val_edge_acc:.1f}%, node={val_node_acc:.1f}%)")
+            print(
+                f"  -> Best (val_loss={val_loss:.4f}, edge={val_edge_acc:.1f}%, node={val_node_acc:.1f}%)"
+            )
 
     return best_val_loss, best_state
 
@@ -463,13 +498,17 @@ def main():
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--lr", type=float, default=1e-3)
-    ap.add_argument("--pos-weight", type=float, default=4.0,
-                     help="Weight for positive (same_symbol) edges in BCE loss")
+    ap.add_argument(
+        "--pos-weight",
+        type=float,
+        default=4.0,
+        help="Weight for positive (same_symbol) edges in BCE loss",
+    )
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--data-dir", type=str, default="data",
-                     help="Data dir (default: ./data)")
-    ap.add_argument("--weights-dir", type=str, default="weights",
-                     help="Weights output dir (default: ./weights)")
+    ap.add_argument("--data-dir", type=str, default="data", help="Data dir (default: ./data)")
+    ap.add_argument(
+        "--weights-dir", type=str, default="weights", help="Weights output dir (default: ./weights)"
+    )
     args = ap.parse_args()
 
     random.seed(args.seed)
@@ -530,19 +569,29 @@ def main():
 
     # Datasets
     train_dataset = StrokeGraphDataset(
-        train_entries, label_vocab, augment=True,
+        train_entries,
+        label_vocab,
+        augment=True,
     )
     val_dataset = StrokeGraphDataset(
-        val_entries, label_vocab, augment=False,
+        val_entries,
+        label_vocab,
+        augment=False,
     )
 
     train_loader = DataLoader(
-        train_dataset, batch_size=args.batch_size, shuffle=True,
-        collate_fn=collate_fn, num_workers=0,
+        train_dataset,
+        batch_size=args.batch_size,
+        shuffle=True,
+        collate_fn=collate_fn,
+        num_workers=0,
     )
     val_loader = DataLoader(
-        val_dataset, batch_size=args.batch_size, shuffle=False,
-        collate_fn=collate_fn, num_workers=0,
+        val_dataset,
+        batch_size=args.batch_size,
+        shuffle=False,
+        collate_fn=collate_fn,
+        num_workers=0,
     )
 
     # Model
@@ -552,26 +601,35 @@ def main():
 
     # Train
     best_val_loss, best_state = train(
-        model, train_loader, val_loader, device,
-        epochs=args.epochs, lr=args.lr, pos_weight=args.pos_weight,
+        model,
+        train_loader,
+        val_loader,
+        device,
+        epochs=args.epochs,
+        lr=args.lr,
+        pos_weight=args.pos_weight,
     )
 
     # Save
-    filepath = save_checkpoint("grouper_gnn", args.run, {
-        "model_state_dict": best_state,
-        "label_names": label_names,
-        "label_vocab": label_vocab,
-        "config": {
-            "num_classes": len(label_names),
-            "render_size": 32,
-            "d_render": 32,
-            "d_geo": 16,
-            "n_geo_feats": 8,
-            "d_edge": 6,
-            "n_heads": 4,
-            "n_layers": 3,
+    filepath = save_checkpoint(
+        "grouper_gnn",
+        args.run,
+        {
+            "model_state_dict": best_state,
+            "label_names": label_names,
+            "label_vocab": label_vocab,
+            "config": {
+                "num_classes": len(label_names),
+                "render_size": 32,
+                "d_render": 32,
+                "d_geo": 16,
+                "n_geo_feats": 8,
+                "d_edge": 6,
+                "n_heads": 4,
+                "n_layers": 3,
+            },
         },
-    })
+    )
     print(f"\nSaved to {filepath}")
 
     # Save config

@@ -21,20 +21,30 @@ from abc import ABC, abstractmethod
 
 import torch
 
-from mathnote_ocr.engine.grouper import DetectedSymbol
-from mathnote_ocr.engine.checkpoint import load_checkpoint
-from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
 from mathnote_ocr.bbox import BBox
-from mathnote_ocr.tree_parser.tree_v2 import Symbol, Node, Tree, Edge, ROOT_ID
-from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
+from mathnote_ocr.engine.checkpoint import load_checkpoint
+from mathnote_ocr.engine.grouper import DetectedSymbol
+from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.tree_parser.evidence import (
+    aggregate_evidence_soft,
+    evidence_to_features,
+    jitter_bboxes,
+)
 from mathnote_ocr.tree_parser.score_tree import score_tree
 from mathnote_ocr.tree_parser.subset_model import load_subset_model
-from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft, evidence_to_features
-from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets, make_neighborhood_subsets, make_xaxis_subsets, _bbox_edge_dist
-from mathnote_ocr.tree_parser.tree_builder import (
-    build_tree_from_evidence, build_tree_from_scores, find_seq_conflicts,
+from mathnote_ocr.tree_parser.subset_selection import (
+    _bbox_edge_dist,
+    make_neighborhood_subsets,
+    make_spatial_subsets,
+    make_xaxis_subsets,
 )
-from mathnote_ocr.tree_parser.evidence import jitter_bboxes
+from mathnote_ocr.tree_parser.tree_builder import (
+    build_tree_from_evidence,
+    build_tree_from_scores,
+    find_seq_conflicts,
+)
+from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
+from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Edge, Node, Symbol, Tree
 
 
 class TreeParser(ABC):
@@ -63,9 +73,7 @@ class TreeParser(ABC):
         root_discount: float = 0.2,
         weights_dir: str | None = None,
     ) -> None:
-        self.device = device or torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.weights_dir = weights_dir
         self.max_subset = max_subset
         self.radius_mult = radius_mult
@@ -85,7 +93,9 @@ class TreeParser(ABC):
         self.spatial_penalty = spatial_penalty
         self.root_discount = root_discount
 
-        subset_ckpt = load_checkpoint("tree_subset", subset_run, device=self.device, weights_dir=weights_dir)
+        subset_ckpt = load_checkpoint(
+            "tree_subset", subset_run, device=self.device, weights_dir=weights_dir
+        )
         cfg = subset_ckpt["config"]
         self.symbol_vocab: dict[str, int] = subset_ckpt["symbol_vocab"]
 
@@ -120,7 +130,11 @@ class TreeParser(ABC):
         return [Symbol(i, names[i], BBox(*bboxes[i])) for i in range(len(names))]
 
     @abstractmethod
-    def _evidence_to_tree(self, evidence: dict[str, torch.Tensor], symbols: list[Symbol],) -> Tree:
+    def _evidence_to_tree(
+        self,
+        evidence: dict[str, torch.Tensor],
+        symbols: list[Symbol],
+    ) -> Tree:
         """Convert aggregated evidence into a Tree."""
 
     # ── Shared machinery ────────────────────────────────────────────
@@ -280,9 +294,11 @@ class TreeParser(ABC):
 
             if (has_num and has_den) or (wide_bar and (has_num or has_den)):
                 symbols[mi].symbol = "frac_bar"
-                print(f"    promote: '-' (idx {mi}) → 'frac_bar' "
-                      f"(num={has_num} den={has_den} wide={wide_bar} "
-                      f"bar_w={bar_w:.0f} med_w={median_w:.0f})")
+                print(
+                    f"    promote: '-' (idx {mi}) → 'frac_bar' "
+                    f"(num={has_num} den={has_den} wide={wide_bar} "
+                    f"bar_w={bar_w:.0f} med_w={median_w:.0f})"
+                )
 
     def _promote_dot_cdot(
         self,
@@ -315,7 +331,7 @@ class TreeParser(ABC):
 
             # Find neighbors in the same vertical strip (y-range overlaps dot)
             # and pick the closest left and closest right
-            left = None   # (index, distance)
+            left = None  # (index, distance)
             right = None
             for j in range(N):
                 if j == di or names[j] in ("dot", "cdot", "prime"):
@@ -364,17 +380,23 @@ class TreeParser(ABC):
                 new_name = "cdot"
 
             if new_name != symbols[di].symbol:
-                print(f"    promote: '{symbols[di].symbol}' (idx {di}) → '{new_name}' "
-                      f"(dy={dy:.2f}, ref={[names[r] for r in ref]})")
+                print(
+                    f"    promote: '{symbols[di].symbol}' (idx {di}) → '{new_name}' "
+                    f"(dy={dy:.2f}, ref={[names[r] for r in ref]})"
+                )
                 symbols[di].symbol = new_name
 
     @torch.no_grad()
-    def parse(self, symbols: list[DetectedSymbol],) -> tuple[str, float]:
+    def parse(
+        self,
+        symbols: list[DetectedSymbol],
+    ) -> tuple[str, float]:
         """Parse detected symbols into (latex, confidence)."""
         if not symbols:
             return "", 1.0
         if len(symbols) == 1:
             from mathnote_ocr.latex_utils.glyphs import SYMBOL_TO_LATEX
+
             name = symbols[0].symbol
             return SYMBOL_TO_LATEX.get(name, name), 1.0
 
@@ -388,7 +410,11 @@ class TreeParser(ABC):
         all_partial = []
         seen_subsets: set[tuple] = set()
         for tta_i in range(self.tta_runs):
-            bb = bboxes if tta_i == 0 else jitter_bboxes(bboxes, self.tta_dx, self.tta_dy, self.tta_size)
+            bb = (
+                bboxes
+                if tta_i == 0
+                else jitter_bboxes(bboxes, self.tta_dx, self.tta_dy, self.tta_size)
+            )
             subsets = self._make_subsets(bb)
             all_partial.extend(self._run_subsets(names, bb, subsets))
             for s in subsets:
@@ -402,7 +428,8 @@ class TreeParser(ABC):
             evidence = aggregate_evidence_soft(N, all_partial)
             tree = self._evidence_to_tree(evidence, v2_syms)
             targets = find_seq_conflicts(
-                evidence, tree,
+                evidence,
+                tree,
                 seq_threshold=2.0,
                 max_subset_size=min(self.max_subset, N),
             )
@@ -421,8 +448,10 @@ class TreeParser(ABC):
         tree = self._evidence_to_tree(evidence, v2_syms)
         t_final = time.perf_counter() - t0
 
-        print(f"    parse({N}sym,{self.mode}): subsets={t_subsets*1000:.0f}ms "
-              f"resolve={t_resolve*1000:.0f}ms({n_iters}i) final={t_final*1000:.0f}ms")
+        print(
+            f"    parse({N}sym,{self.mode}): subsets={t_subsets * 1000:.0f}ms "
+            f"resolve={t_resolve * 1000:.0f}ms({n_iters}i) final={t_final * 1000:.0f}ms"
+        )
 
         confidence = score_tree(self.scoring, evidence, tree, N)
         return tree_to_latex(tree), confidence
@@ -441,9 +470,15 @@ class TreeParser(ABC):
 
         if len(symbols) == 1:
             from mathnote_ocr.latex_utils.glyphs import SYMBOL_TO_LATEX
+
             name = symbols[0].symbol
-            sym = Symbol(id=0, name=name, bbox=BBox(symbols[0].bbox.x, symbols[0].bbox.y,
-                                                     symbols[0].bbox.w, symbols[0].bbox.h))
+            sym = Symbol(
+                id=0,
+                name=name,
+                bbox=BBox(
+                    symbols[0].bbox.x, symbols[0].bbox.y, symbols[0].bbox.w, symbols[0].bbox.h
+                ),
+            )
             tree = Tree((Node(sym, ROOT_ID, -1, 0),))
             return SYMBOL_TO_LATEX.get(name, name), 1.0, tree, None
 
@@ -452,13 +487,19 @@ class TreeParser(ABC):
         bboxes = [[s.bbox.x, s.bbox.y, s.bbox.w, s.bbox.h] for s in symbols]
 
         if self.tree_strategy in ("backtrack", "backtrack_collapse"):
-            from mathnote_ocr.tree_parser.bottomup_v2 import build as build_v2, build_with_collapse
+            from mathnote_ocr.tree_parser.bottomup_v2 import build as build_v2
+            from mathnote_ocr.tree_parser.bottomup_v2 import build_with_collapse
+
             v2_syms = self._make_symbols(names, bboxes)
-            gnn_model = getattr(self, 'gnn_model', None)
-            symbol_vocab = getattr(self, 'symbol_vocab', None)
-            build_fn = build_with_collapse if self.tree_strategy == "backtrack_collapse" else build_v2
+            gnn_model = getattr(self, "gnn_model", None)
+            symbol_vocab = getattr(self, "symbol_vocab", None)
+            build_fn = (
+                build_with_collapse if self.tree_strategy == "backtrack_collapse" else build_v2
+            )
             tree = build_fn(
-                v2_syms, self._run_subsets, self._make_subsets,
+                v2_syms,
+                self._run_subsets,
+                self._make_subsets,
                 root_discount=self.root_discount,
                 tta_runs=self.tta_runs,
                 tta_dx=self.tta_dx,
@@ -474,7 +515,11 @@ class TreeParser(ABC):
         all_partial = []
         seen_subsets: set[tuple] = set()
         for tta_i in range(self.tta_runs):
-            bb = bboxes if tta_i == 0 else jitter_bboxes(bboxes, self.tta_dx, self.tta_dy, self.tta_size)
+            bb = (
+                bboxes
+                if tta_i == 0
+                else jitter_bboxes(bboxes, self.tta_dx, self.tta_dy, self.tta_size)
+            )
             subsets = self._make_subsets(bb)
             all_partial.extend(self._run_subsets(names, bb, subsets))
             for s in subsets:
@@ -484,7 +529,8 @@ class TreeParser(ABC):
             evidence = aggregate_evidence_soft(N, all_partial)
             tree = self._evidence_to_tree(evidence, v2_syms)
             targets = find_seq_conflicts(
-                evidence, tree,
+                evidence,
+                tree,
                 seq_threshold=2.0,
                 max_subset_size=min(self.max_subset, N),
             )
@@ -513,13 +559,25 @@ class TreeParser(ABC):
             {indices, symbols, pred_parent, pred_edge, pred_seq}
         """
         if not symbols:
-            return {"latex": "", "confidence": 1.0, "tree": Tree(()), "evidence": None, "subsets": []}
+            return {
+                "latex": "",
+                "confidence": 1.0,
+                "tree": Tree(()),
+                "evidence": None,
+                "subsets": [],
+            }
 
         if len(symbols) == 1:
             from mathnote_ocr.latex_utils.glyphs import SYMBOL_TO_LATEX
+
             name = symbols[0].symbol
-            sym = Symbol(id=0, name=name, bbox=BBox(symbols[0].bbox.x, symbols[0].bbox.y,
-                                                     symbols[0].bbox.w, symbols[0].bbox.h))
+            sym = Symbol(
+                id=0,
+                name=name,
+                bbox=BBox(
+                    symbols[0].bbox.x, symbols[0].bbox.y, symbols[0].bbox.w, symbols[0].bbox.h
+                ),
+            )
             tree = Tree((Node(sym, ROOT_ID, -1, 0),))
             return {
                 "latex": SYMBOL_TO_LATEX.get(name, name),
@@ -542,7 +600,8 @@ class TreeParser(ABC):
             evidence = aggregate_evidence_soft(N, all_partial)
             tree = self._evidence_to_tree(evidence, v2_syms)
             targets = find_seq_conflicts(
-                evidence, tree,
+                evidence,
+                tree,
                 seq_threshold=2.0,
                 max_subset_size=min(self.max_subset, N),
             )
@@ -587,15 +646,19 @@ class TreeParser(ABC):
 
                 parent_conf = torch.softmax(parent_scores[i], dim=0).max().item()
 
-                diag["predictions"].append({
-                    "symbol": names[subset_indices[i]],
-                    "global_idx": subset_indices[i],
-                    "pred_parent": pred_parent_global,
-                    "pred_parent_sym": names[pred_parent_global] if pred_parent_global >= 0 else "ROOT",
-                    "pred_edge": pred_edge,
-                    "parent_conf": round(parent_conf, 3),
-                    "pred_seq": pred_seq_global,
-                })
+                diag["predictions"].append(
+                    {
+                        "symbol": names[subset_indices[i]],
+                        "global_idx": subset_indices[i],
+                        "pred_parent": pred_parent_global,
+                        "pred_parent_sym": names[pred_parent_global]
+                        if pred_parent_global >= 0
+                        else "ROOT",
+                        "pred_edge": pred_edge,
+                        "parent_conf": round(parent_conf, 3),
+                        "pred_seq": pred_seq_global,
+                    }
+                )
 
             # Build mini-tree from subset predictions → LaTeX
             try:
@@ -642,7 +705,9 @@ class SubsetTreeParser(TreeParser):
 
     def _evidence_to_tree(self, evidence, symbols):
         return build_tree_from_evidence(
-            evidence, symbols, cost=self.cost,
+            evidence,
+            symbols,
+            cost=self.cost,
         )
 
 
@@ -666,7 +731,10 @@ class GNNTreeParser(TreeParser):
         self.seq_bonus = seq_bonus
 
         from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
-        gnn_ckpt = load_checkpoint("tree_gnn", gnn_run, device=self.device, weights_dir=self.weights_dir)
+
+        gnn_ckpt = load_checkpoint(
+            "tree_gnn", gnn_run, device=self.device, weights_dir=self.weights_dir
+        )
         gnn_cfg = gnn_ckpt["config"]
         self.gnn_model = EvidenceGNN(**gnn_cfg).to(self.device)
         self.gnn_model.load_state_dict(gnn_ckpt["model_state_dict"])
@@ -689,7 +757,8 @@ class GNNTreeParser(TreeParser):
 
         sym_ids = torch.tensor(
             [self._symbol_id(n) for n in names],
-            dtype=torch.long, device=self.device,
+            dtype=torch.long,
+            device=self.device,
         )
         _, size_feats = compute_features_from_bbox_list(bboxes, N)
         size_feats = size_feats.to(self.device)
@@ -705,7 +774,7 @@ class GNNTreeParser(TreeParser):
 
         from mathnote_ocr.tree_parser.costs import anchor_with_evidence, apply_seq_bonus
 
-        parent_scores = out["parent_scores"][0]        # (N, N+1)
+        parent_scores = out["parent_scores"][0]  # (N, N+1)
         edge_type_scores = out["edge_type_scores"][0]  # (N, N+1, E)
 
         if self.anchor:
@@ -717,5 +786,7 @@ class GNNTreeParser(TreeParser):
             parent_scores = apply_seq_bonus(parent_scores, seq_scores, N)
 
         return build_tree_from_scores(
-            parent_scores, edge_type_scores, symbols,
+            parent_scores,
+            edge_type_scores,
+            symbols,
         )

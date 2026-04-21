@@ -35,7 +35,7 @@ class BBox:
 
     @property
     def diagonal(self) -> float:
-        return sqrt(self.w ** 2 + self.h ** 2)
+        return sqrt(self.w**2 + self.h**2)
 
     def union(self, other: BBox) -> BBox:
         x = min(self.x, other.x)
@@ -67,19 +67,19 @@ class BBox:
         """Edge-to-edge distance (0 if overlapping)."""
         dx = max(0, max(self.x - other.x2, other.x - self.x2))
         dy = max(0, max(self.y - other.y2, other.y - self.y2))
-        return sqrt(dx ** 2 + dy ** 2)
+        return sqrt(dx**2 + dy**2)
 
     def center_distance(self, other: BBox) -> float:
         """Center-to-center distance."""
         return sqrt((self.cx - other.cx) ** 2 + (self.cy - other.cy) ** 2)
 
     def contains(self, other: BBox) -> bool:
-        return (self.x <= other.x and self.y <= other.y
-                and self.x2 >= other.x2 and self.y2 >= other.y2)
+        return (
+            self.x <= other.x and self.y <= other.y and self.x2 >= other.x2 and self.y2 >= other.y2
+        )
 
     def pad(self, amount: float) -> BBox:
-        return BBox(self.x - amount, self.y - amount,
-                    self.w + 2 * amount, self.h + 2 * amount)
+        return BBox(self.x - amount, self.y - amount, self.w + 2 * amount, self.h + 2 * amount)
 
     def to_tuple(self) -> tuple[float, float, float, float]:
         return (self.x, self.y, self.w, self.h)

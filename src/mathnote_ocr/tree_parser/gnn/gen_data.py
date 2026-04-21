@@ -23,10 +23,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 import torch
 
 from mathnote_ocr.engine.checkpoint import load_checkpoint
-from mathnote_ocr.tree_parser.gnn.dataset import _compute_evidence_for_example
-from mathnote_ocr.tree_parser.subset_model import load_subset_model
 from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
 from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
+from mathnote_ocr.tree_parser.gnn.dataset import _compute_evidence_for_example
+from mathnote_ocr.tree_parser.subset_model import load_subset_model
 
 log = logging.getLogger(__name__)
 
@@ -105,8 +105,12 @@ def generate(
     max_subset = cfg["max_symbols"]
 
     subset_model = load_subset_model(ckpt, device=device)
-    log.info("  Loaded in %.1fs — max_subset=%d, vocab=%d symbols",
-             time.time() - t0, max_subset, len(symbol_vocab))
+    log.info(
+        "  Loaded in %.1fs — max_subset=%d, vocab=%d symbols",
+        time.time() - t0,
+        max_subset,
+        len(symbol_vocab),
+    )
 
     # ── Collect raw examples ─────────────────────────────────────────
     raw = []
@@ -132,8 +136,26 @@ def generate(
         log.info("  %d examples in %.1fs", len(raw), time.time() - t0)
     else:
         log.info("Sampling from generators...")
-        from mathnote_ocr.data_gen.latex_sampling import v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16
+        from mathnote_ocr.data_gen.latex_sampling import (
+            v1,
+            v2,
+            v3,
+            v4,
+            v5,
+            v6,
+            v7,
+            v8,
+            v9,
+            v10,
+            v11,
+            v12,
+            v13,
+            v14,
+            v15,
+            v16,
+        )
         from mathnote_ocr.data_gen.latex_sampling_v2 import generator as gen
+
         versions = [v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16, gen]
 
         for ver in versions:
@@ -153,13 +175,14 @@ def generate(
                 if tree_labels is None:
                     continue
 
-                raw.append({
-                    "symbols": [{"name": g["name"], "bbox": g["bbox"]} for g in glyphs],
-                    "tree": [
-                        {"parent": p, "edge_type": e, "order": o}
-                        for p, e, o in tree_labels
-                    ],
-                })
+                raw.append(
+                    {
+                        "symbols": [{"name": g["name"], "bbox": g["bbox"]} for g in glyphs],
+                        "tree": [
+                            {"parent": p, "edge_type": e, "order": o} for p, e, o in tree_labels
+                        ],
+                    }
+                )
                 count += 1
             log.info("  %s: %d/%d (%d attempts)", ver_name, count, per_version, attempts)
 
@@ -173,8 +196,12 @@ def generate(
 
     for idx, ex in enumerate(raw):
         result = _compute_evidence_for_example(
-            ex["symbols"], ex["tree"],
-            subset_model, symbol_vocab, max_subset, device,
+            ex["symbols"],
+            ex["tree"],
+            subset_model,
+            symbol_vocab,
+            max_subset,
+            device,
             augment=augment,
         )
         if result is not None:
@@ -187,25 +214,32 @@ def generate(
             elapsed = time.time() - t0
             rate = done / elapsed
             eta = (total - done) / rate if rate > 0 else 0
-            log.info("  %6d/%d  (%5.1f%%)  %.0f ex/s  elapsed %s  eta %s",
-                     done, total, 100 * done / total, rate,
-                     _fmt_time(elapsed), _fmt_time(eta))
+            log.info(
+                "  %6d/%d  (%5.1f%%)  %.0f ex/s  elapsed %s  eta %s",
+                done,
+                total,
+                100 * done / total,
+                rate,
+                _fmt_time(elapsed),
+                _fmt_time(eta),
+            )
 
     elapsed = time.time() - t0
-    log.info("Evidence done: %d ok, %d failed in %s",
-             len(examples), failed, _fmt_time(elapsed))
+    log.info("Evidence done: %d ok, %d failed in %s", len(examples), failed, _fmt_time(elapsed))
 
     # ── Save ─────────────────────────────────────────────────────────
     log.info("Saving to %s...", out_path)
-    torch.save({
-        "examples": examples,
-        "symbol_vocab": symbol_vocab,
-        "subset_run": subset_run,
-        "per_version": per_version,
-        "max_n": max_n,
-    }, out_path)
-    log.info("  %d examples, %.1f MB", len(examples),
-             out_path.stat().st_size / 1024 / 1024)
+    torch.save(
+        {
+            "examples": examples,
+            "symbol_vocab": symbol_vocab,
+            "subset_run": subset_run,
+            "per_version": per_version,
+            "max_n": max_n,
+        },
+        out_path,
+    )
+    log.info("  %d examples, %.1f MB", len(examples), out_path.stat().st_size / 1024 / 1024)
     log.info("Log: %s", log_path)
     log.removeHandler(fh)
     fh.close()
@@ -224,10 +258,12 @@ if __name__ == "__main__":
     parser.add_argument("--name", required=True, help="Output name (e.g. train_7k)")
     parser.add_argument("--per-version", type=int, default=500)
     parser.add_argument("--max-n", type=int, default=30)
-    parser.add_argument("--jsonl", type=str, default=None,
-                        help="Load from JSONL file instead of sampling")
-    parser.add_argument("--max-examples", type=int, default=None,
-                        help="Limit examples when using --jsonl")
+    parser.add_argument(
+        "--jsonl", type=str, default=None, help="Load from JSONL file instead of sampling"
+    )
+    parser.add_argument(
+        "--max-examples", type=int, default=None, help="Limit examples when using --jsonl"
+    )
     args = parser.parse_args()
 
     generate(

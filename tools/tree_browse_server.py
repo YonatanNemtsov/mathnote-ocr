@@ -23,12 +23,19 @@ import websockets
 
 from mathnote_ocr.engine.checkpoint import load_checkpoint
 from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.tree_parser.evidence import aggregate_evidence, sample_subsets_with_coverage
 from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
 from mathnote_ocr.tree_parser.tree import (
-    SymbolNode, build_tree, tree_to_latex, ROOT,
-    NUM, DEN, SUP, SUB, SQRT_CONTENT, EDGE_NAMES, NUM_EDGE_TYPES,
+    DEN,
+    EDGE_NAMES,
+    NUM,
+    SQRT_CONTENT,
+    SUB,
+    SUP,
+    SymbolNode,
+    build_tree,
+    tree_to_latex,
 )
-from mathnote_ocr.tree_parser.evidence import sample_subsets_with_coverage, aggregate_evidence
 from mathnote_ocr.tree_parser.tree_builder import build_tree_from_scores
 
 REPO_WEIGHTS = str(Path(__file__).parent.parent / "weights")
@@ -54,7 +61,7 @@ def _dot_id(node, prefix="n"):
 def _build_dot(roots, glyph_names, prefix="n"):
     lines = [
         "digraph T {",
-        '  rankdir=TB;',
+        "  rankdir=TB;",
         '  node [shape=box, style="rounded,filled", fillcolor="#f5f5f5",'
         '        fontname="Courier", fontsize=14, margin="0.15,0.07"];',
         '  edge [fontname="Helvetica", fontsize=10];',
@@ -80,7 +87,7 @@ def _build_dot(roots, glyph_names, prefix="n"):
         prev_r = sorted_roots[i - 1]
         curr_r = sorted_roots[i]
         lines.append(
-            f'  {_dot_id(prev_r, prefix)} -> {_dot_id(curr_r, prefix)}'
+            f"  {_dot_id(prev_r, prefix)} -> {_dot_id(curr_r, prefix)}"
             f' [style=dashed, color="#AAAAAA", constraint=false,'
             f'  arrowsize=0.6, label=" seq", fontsize=8,'
             f'  fontcolor="#AAAAAA"];'
@@ -93,7 +100,7 @@ def _build_dot(roots, glyph_names, prefix="n"):
             sorted_children = sorted(children, key=lambda c: c.order)
             for c in sorted_children:
                 lines.append(
-                    f'  {_dot_id(node, prefix)} -> {_dot_id(c, prefix)}'
+                    f"  {_dot_id(node, prefix)} -> {_dot_id(c, prefix)}"
                     f' [label=" {ename}", color="{color}",'
                     f'  fontcolor="{color}"];'
                 )
@@ -101,7 +108,7 @@ def _build_dot(roots, glyph_names, prefix="n"):
                 prev_c = sorted_children[i - 1]
                 curr_c = sorted_children[i]
                 lines.append(
-                    f'  {_dot_id(prev_c, prefix)} -> {_dot_id(curr_c, prefix)}'
+                    f"  {_dot_id(prev_c, prefix)} -> {_dot_id(curr_c, prefix)}"
                     f' [style=dashed, color="#AAAAAA", constraint=false,'
                     f'  arrowsize=0.6, label=" seq", fontsize=8,'
                     f'  fontcolor="#AAAAAA"];'
@@ -114,7 +121,9 @@ def _build_dot(roots, glyph_names, prefix="n"):
 def _dot_to_svg(dot_src):
     result = subprocess.run(
         ["dot", "-Tsvg"],
-        input=dot_src, capture_output=True, text=True,
+        input=dot_src,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         return f"<pre>graphviz error: {_escape(result.stderr)}</pre>"
@@ -210,10 +219,16 @@ def predict_example(ex):
     # Ground truth
     gt_nodes = []
     for j, (s, t) in enumerate(zip(symbols, tree_labels)):
-        gt_nodes.append(SymbolNode(
-            symbol=s["name"], bbox=s["bbox"], index=j,
-            parent=t["parent"], edge_type=t["edge_type"], order=t["order"],
-        ))
+        gt_nodes.append(
+            SymbolNode(
+                symbol=s["name"],
+                bbox=s["bbox"],
+                index=j,
+                parent=t["parent"],
+                edge_type=t["edge_type"],
+                order=t["order"],
+            )
+        )
     gt_roots = build_tree(gt_nodes)
     gt_latex = tree_to_latex(gt_roots)
     gt_svg = _dot_to_svg(_build_dot(gt_roots, names, "gt"))
@@ -222,8 +237,11 @@ def predict_example(ex):
     if use_votes:
         bbox_list_all = [s["bbox"] for s in symbols]
         subsets = sample_subsets_with_coverage(
-            n, bbox_list_all, n_subsets=50,
-            min_size=3, max_size=min(max_subset, n),
+            n,
+            bbox_list_all,
+            n_subsets=50,
+            min_size=3,
+            max_size=min(max_subset, n),
         )
         partial_trees = []
         for subset_indices in subsets:
@@ -262,26 +280,36 @@ def predict_example(ex):
         geo_buckets = geo_buckets.to(device)
         size_feats = size_feats.to(device)
         pad_mask = torch.zeros(n, dtype=torch.bool, device=device)
-        out = model(sub_ids.unsqueeze(0), geo_buckets.unsqueeze(0),
-                     pad_mask.unsqueeze(0), size_feats.unsqueeze(0))
+        out = model(
+            sub_ids.unsqueeze(0),
+            geo_buckets.unsqueeze(0),
+            pad_mask.unsqueeze(0),
+            size_feats.unsqueeze(0),
+        )
         parent_scores = out["parent_scores"][0]
         edge_type_scores = out["edge_type_scores"][0]
         order_preds = out["order_preds"][0]
 
     bbox_lists = [s["bbox"] for s in symbols]
     pred_roots = build_tree_from_scores(
-        parent_scores, edge_type_scores, order_preds, names, bbox_lists,
+        parent_scores,
+        edge_type_scores,
+        order_preds,
+        names,
+        bbox_lists,
     )
     pred_latex = tree_to_latex(pred_roots)
     pred_svg = _dot_to_svg(_build_dot(pred_roots, names, "pr"))
 
     # Accuracy
     pred_flat = []
+
     def _collect(node):
         pred_flat.append(node)
         for et, children in sorted(node.children.items()):
             for c in children:
                 _collect(c)
+
     for r in pred_roots:
         _collect(r)
     pred_by_idx = {node.index: node for node in pred_flat}
@@ -316,12 +344,16 @@ async def handler(websocket):
     # Send initial info
     all_tags = sorted(set(t for ex in examples for t in _get_tags(ex["latex"])))
     apply_filter()
-    await websocket.send(json.dumps({
-        "type": "init",
-        "total": len(examples),
-        "filtered": len(filtered_indices),
-        "tags": all_tags,
-    }))
+    await websocket.send(
+        json.dumps(
+            {
+                "type": "init",
+                "total": len(examples),
+                "filtered": len(filtered_indices),
+                "tags": all_tags,
+            }
+        )
+    )
 
     async for message in websocket:
         try:
@@ -331,10 +363,14 @@ async def handler(websocket):
                 search = msg.get("search", "")
                 tags = msg.get("tags", [])
                 apply_filter(search, tags)
-                await websocket.send(json.dumps({
-                    "type": "filter_result",
-                    "filtered": len(filtered_indices),
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "filter_result",
+                            "filtered": len(filtered_indices),
+                        }
+                    )
+                )
 
             elif msg["type"] == "get_page":
                 page = msg.get("page", 0)
@@ -346,29 +382,38 @@ async def handler(websocket):
                 for idx in filtered_indices[start:end]:
                     items.append(predict_example(examples[idx]))
 
-                await websocket.send(json.dumps({
-                    "type": "page",
-                    "page": page,
-                    "per_page": per_page,
-                    "total": len(filtered_indices),
-                    "items": items,
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "page",
+                            "page": page,
+                            "per_page": per_page,
+                            "total": len(filtered_indices),
+                            "items": items,
+                        }
+                    )
+                )
 
         except Exception as e:
             import traceback
+
             traceback.print_exc()
-            await websocket.send(json.dumps({
-                "type": "error",
-                "message": str(e),
-            }))
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "error",
+                        "message": str(e),
+                    }
+                )
+            )
 
     print(f"[disconnect] {addr}")
 
 
 async def main():
-    print(f"\nTree Browser Server")
-    print(f"WebSocket: ws://localhost:8769")
-    print(f"Open tools/tree_browse.html in your browser.\n")
+    print("\nTree Browser Server")
+    print("WebSocket: ws://localhost:8769")
+    print("Open tools/tree_browse.html in your browser.\n")
 
     async with websockets.serve(handler, "localhost", 8769):
         await asyncio.Future()
@@ -376,8 +421,11 @@ async def main():
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--val", default=str(Path(__file__).parent.parent / "data" / "tree_val.jsonl"))
+    parser.add_argument(
+        "--val", default=str(Path(__file__).parent.parent / "data" / "tree_val.jsonl")
+    )
     parser.add_argument("--run", default="v4")
     parser.add_argument("--votes", action="store_true")
     args = parser.parse_args()

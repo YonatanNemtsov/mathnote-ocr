@@ -15,15 +15,14 @@ import torch
 
 from mathnote_ocr.engine.stroke import BBox
 
-
 # ── Pairwise geometry buckets (for encoder attention bias) ───────────
 
 N_GEO_BUCKETS = 8
 
 # 7 boundaries → 8 bins for each pairwise feature
-_V_BOUNDS = [-1.0, -0.5, -0.2, 0.0, 0.2, 0.5, 1.0]   # vertical offset
-_H_BOUNDS = [-1.0,  0.0,  0.5, 1.0, 2.0, 3.0, 5.0]    # horizontal offset
-_S_BOUNDS = [-1.0, -0.5, -0.2, 0.0, 0.2, 0.5, 1.0]    # log2 size ratio
+_V_BOUNDS = [-1.0, -0.5, -0.2, 0.0, 0.2, 0.5, 1.0]  # vertical offset
+_H_BOUNDS = [-1.0, 0.0, 0.5, 1.0, 2.0, 3.0, 5.0]  # horizontal offset
+_S_BOUNDS = [-1.0, -0.5, -0.2, 0.0, 0.2, 0.5, 1.0]  # log2 size ratio
 
 
 def _bucketize(value: float, bounds: list[float]) -> int:
@@ -170,7 +169,7 @@ def compute_features_from_bbox_list(
     # ── Pairwise geo buckets (vectorized) ──
     v_off = (cy.unsqueeze(0) - cy.unsqueeze(1)) / median_h  # (n, n)
     h_off = (cx.unsqueeze(0) - cx.unsqueeze(1)) / median_h
-    s_rat = (h.unsqueeze(0) / h.unsqueeze(1)).log2()        # (n, n)
+    s_rat = (h.unsqueeze(0) / h.unsqueeze(1)).log2()  # (n, n)
 
     v_bounds = torch.tensor(_V_BOUNDS, dtype=torch.float32)
     h_bounds = torch.tensor(_H_BOUNDS, dtype=torch.float32)
@@ -192,7 +191,6 @@ def compute_features_from_bbox_list(
     size[:n, 1] = torch.bucketize(rel_y, sy_bounds)
 
     return geo, size
-
 
 
 # ── Named relations (GUI visualization only) ─────────────────────────
@@ -248,17 +246,13 @@ def compute_relations_from_bboxes(
             v_overlap = _v_overlap_ratio(bi, bj)
             h_overlap = _h_overlap_ratio(bi, bj)
 
-            if (abs(v_off) < 0.5
-                    and h_off > -0.5 and h_off < 2.5
-                    and v_overlap > 0.2):
+            if abs(v_off) < 0.5 and h_off > -0.5 and h_off < 2.5 and v_overlap > 0.2:
                 matrices[RIGHT][i][j] = 1
 
-            if (v_off < -0.3
-                    and h_off > -0.5 and h_off < 1.5):
+            if v_off < -0.3 and h_off > -0.5 and h_off < 1.5:
                 matrices[SUP][i][j] = 1
 
-            if (v_off > 0.3
-                    and h_off > -0.5 and h_off < 1.5):
+            if v_off > 0.3 and h_off > -0.5 and h_off < 1.5:
                 matrices[SUB][i][j] = 1
 
             if v_off < -0.3 and h_overlap > 0.3:

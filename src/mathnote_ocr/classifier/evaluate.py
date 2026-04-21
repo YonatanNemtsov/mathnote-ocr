@@ -7,10 +7,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import random
+
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from torchvision import transforms
-import numpy as np
 
 from mathnote_ocr import config
 from mathnote_ocr.classifier.model import SymbolCNNWithPrototypes
@@ -49,7 +50,7 @@ def print_confusion_matrix(confusion, label_names):
     # Header
     max_label = max(len(n) for n in label_names)
     header = " " * (max_label + 2) + "  ".join(f"{n:>4}" for n in label_names)
-    print(f"\nConfusion Matrix (rows=true, cols=predicted):\n")
+    print("\nConfusion Matrix (rows=true, cols=predicted):\n")
     print(header)
     print(" " * (max_label + 2) + "-" * (6 * num_classes))
 
@@ -63,7 +64,7 @@ def print_confusion_matrix(confusion, label_names):
 
 def print_per_class_stats(confusion, all_distances, label_names):
     """Print per-class accuracy and prototype distances."""
-    print(f"\nPer-class statistics:\n")
+    print("\nPer-class statistics:\n")
     print(f"{'Class':<10} {'Acc':>6} {'Samples':>8} {'Avg Dist':>9} {'Max Dist':>9}")
     print("-" * 50)
 
@@ -111,10 +112,12 @@ def main():
     images, labels, _ = load_data()
     _, _, val_images, val_labels = split_data(images, labels)
 
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,)),
-    ])
+    transform = transforms.Compose(
+        [
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,), (0.5,)),
+        ]
+    )
 
     val_dataset = SymbolDataset(val_images, val_labels, transform)
     val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False)
@@ -128,6 +131,7 @@ def main():
 
 if __name__ == "__main__":
     import argparse
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", type=str, default="default", help="Classifier run name")
     args = ap.parse_args()

@@ -7,9 +7,22 @@ under one parent.
 
 import random
 
-from .symbols import (_pick_base, _shared_expr, _shared_term, _shared_sub_content,
-                       VARS, UPPER, DIGITS, GREEK, GREEK_UPPER, MISC_SYMBOLS,
-                       ARITH_OPS, RELOPS, BIGOPS, FUNCS)
+from .symbols import (
+    ARITH_OPS,
+    BIGOPS,
+    DIGITS,
+    FUNCS,
+    GREEK,
+    GREEK_UPPER,
+    MISC_SYMBOLS,
+    RELOPS,
+    UPPER,
+    VARS,
+    _pick_base,
+    _shared_expr,
+    _shared_sub_content,
+    _shared_term,
+)
 
 
 def _atom():
@@ -21,21 +34,25 @@ def _atom():
     )[0]
     return random.choice(pool)
 
+
 # ── Wide recursive builder ────────────────────────────────────────────
+
 
 def _expr(d=0):
     return _shared_expr(d, _atom, _pick_base, _struct)
 
+
 def _term(d):
     return _shared_term(d, _atom, _pick_base, _struct)
+
 
 def _slot(d):
     return _expr(d + 1)
 
+
 def _struct(d):
     kind = random.choices(
-        ["frac", "sup", "sub", "subsup", "sqrt", "func", "bigop",
-         "parens", "abs"],
+        ["frac", "sup", "sub", "subsup", "sqrt", "func", "bigop", "parens", "abs"],
         weights=[18, 14, 10, 8, 8, 7, 10, 8, 5],
     )[0]
 
@@ -46,7 +63,16 @@ def _struct(d):
     if kind == "sub":
         return _pick_base() + "_{" + _shared_sub_content(_pick_base) + "}"
     if kind == "subsup":
-        return _pick_base() + "_{" + _shared_sub_content(_pick_base) + "}" + " " + "^{" + _slot(d) + "}"
+        return (
+            _pick_base()
+            + "_{"
+            + _shared_sub_content(_pick_base)
+            + "}"
+            + " "
+            + "^{"
+            + _slot(d)
+            + "}"
+        )
     if kind == "sqrt":
         return "\\sqrt{" + _slot(d) + "}"
     if kind == "func":

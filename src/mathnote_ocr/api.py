@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from mathnote_ocr.engine.stroke import Stroke
-from mathnote_ocr.engine.grouper import group_and_classify, GrouperCache, GrouperParams
 from mathnote_ocr.classifier.inference import SymbolClassifier
+from mathnote_ocr.engine.grouper import GrouperCache, GrouperParams, group_and_classify
+from mathnote_ocr.engine.stroke import Stroke
+from mathnote_ocr.pipeline_config import get, load_config
 from mathnote_ocr.tree_parser.inference import SubsetTreeParser
-from mathnote_ocr.pipeline_config import load_config, get
 
 
 class MathOCR:
@@ -72,6 +72,7 @@ class MathOCR:
         )
         if _gnn_run:
             from mathnote_ocr.tree_parser.inference import GNNTreeParser
+
             self.tree_parser = GNNTreeParser(gnn_run=_gnn_run, **tp_kwargs)
         else:
             self.tree_parser = SubsetTreeParser(**tp_kwargs)
@@ -130,20 +131,21 @@ class MathOCR:
                 sym_conf *= s.confidence
             sym_conf = sym_conf ** (1.0 / max(len(symbols), 1))
 
-            results.append({
-                "latex": latex,
-                "confidence": round(sym_conf * parse_conf, 4),
-                "symbols": [
-                    {
-                        "symbol": s.symbol,
-                        "confidence": s.confidence,
-                        "stroke_indices": s.stroke_indices,
-                        "bbox": {"x": s.bbox.x, "y": s.bbox.y,
-                                 "w": s.bbox.w, "h": s.bbox.h},
-                    }
-                    for s in symbols
-                ],
-            })
+            results.append(
+                {
+                    "latex": latex,
+                    "confidence": round(sym_conf * parse_conf, 4),
+                    "symbols": [
+                        {
+                            "symbol": s.symbol,
+                            "confidence": s.confidence,
+                            "stroke_indices": s.stroke_indices,
+                            "bbox": {"x": s.bbox.x, "y": s.bbox.y, "w": s.bbox.w, "h": s.bbox.h},
+                        }
+                        for s in symbols
+                    ],
+                }
+            )
 
         results.sort(key=lambda r: r["confidence"], reverse=True)
         return results

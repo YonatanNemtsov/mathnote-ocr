@@ -10,19 +10,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import argparse
-import json
 import copy
-import torch
+import json
 import random
 
-from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
-from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft
-from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets
-from mathnote_ocr.tree_parser.propagation import propagate_seq, propagate_old_symmetric
-from mathnote_ocr.tree_parser.tree_builder import build_tree_from_evidence
-from mathnote_ocr.tree_parser.tree import ROOT
-from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+import torch
 
+from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft
+from mathnote_ocr.tree_parser.propagation import propagate_old_symmetric, propagate_seq
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets
+from mathnote_ocr.tree_parser.tree import ROOT
+from mathnote_ocr.tree_parser.tree_builder import build_tree_from_evidence
 
 ET_NAMES = ["NUM", "DEN", "SUP", "SUB", "SQRT", "UPPER", "LOWER"]
 
@@ -169,10 +169,12 @@ def main():
                     gt_p_name = names[gt_p] if gt_p != ROOT and 0 <= gt_p < N else "ROOT"
                     op_name = names[op] if op != ROOT and 0 <= op < N else "ROOT"
                     fp_name = names[fp] if fp != ROOT and 0 <= fp < N else "ROOT"
-                    print(f"  [{i}] {names[i]}: "
-                          f"GT=({gt_p_name},{gt_et_name}) "
-                          f"old={gt_ok_old}({op_name},{oet_name}) "
-                          f"fwd={gt_ok_fwd}({fp_name},{fet_name})")
+                    print(
+                        f"  [{i}] {names[i]}: "
+                        f"GT=({gt_p_name},{gt_et_name}) "
+                        f"old={gt_ok_old}({op_name},{oet_name}) "
+                        f"fwd={gt_ok_fwd}({fp_name},{fet_name})"
+                    )
 
 
 if __name__ == "__main__":

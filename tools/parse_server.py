@@ -13,13 +13,13 @@ import time
 
 import websockets
 
-from mathnote_ocr.engine.stroke import Stroke
-from mathnote_ocr.engine.grouper import group_and_classify, GrouperCache, GrouperParams
-from mathnote_ocr.classifier.inference import SymbolClassifier
-from mathnote_ocr.tree_parser.inference import SubsetTreeParser
-from mathnote_ocr.tree_parser.tree_v2 import Edge, ROOT_ID
-from mathnote_ocr.pipeline_config import load_config, get
 from mathnote_ocr import config  # for RENDER_STROKE_WIDTH default
+from mathnote_ocr.classifier.inference import SymbolClassifier
+from mathnote_ocr.engine.grouper import GrouperCache, GrouperParams, group_and_classify
+from mathnote_ocr.engine.stroke import Stroke
+from mathnote_ocr.pipeline_config import get, load_config
+from mathnote_ocr.tree_parser.inference import SubsetTreeParser
+from mathnote_ocr.tree_parser.tree_v2 import Edge
 
 REPO_ROOT = Path(__file__).parent.parent
 REPO_CONFIGS = REPO_ROOT / "configs"
@@ -32,14 +32,26 @@ def _resolve_config(name):
     p = REPO_CONFIGS / f"{name}.yaml"
     return str(p) if p.exists() else name
 
+
 # CLI — individual args override config values
 ap = argparse.ArgumentParser(description="Math OCR Pipeline Server")
-ap.add_argument("--config", type=str, default=None, help="Pipeline config name (loads configs/{name}.yaml)")
+ap.add_argument(
+    "--config", type=str, default=None, help="Pipeline config name (loads configs/{name}.yaml)"
+)
 ap.add_argument("--run", type=str, default=None, help="Tree subset model run name")
-ap.add_argument("--gnn-run", type=str, default=None, help="GNN model run name (enables GNN+iterative)")
-ap.add_argument("--gnn-simple", action="store_true", help="GNN without evidence anchoring or seq bonus")
+ap.add_argument(
+    "--gnn-run", type=str, default=None, help="GNN model run name (enables GNN+iterative)"
+)
+ap.add_argument(
+    "--gnn-simple", action="store_true", help="GNN without evidence anchoring or seq bonus"
+)
 ap.add_argument("--classifier-run", type=str, default=None, help="Classifier run name")
-ap.add_argument("--gnn-grouper", type=str, default=None, help="GNN grouper run (uses grouper_v2: GNN edges + CNN classify)")
+ap.add_argument(
+    "--gnn-grouper",
+    type=str,
+    default=None,
+    help="GNN grouper run (uses grouper_v2: GNN edges + CNN classify)",
+)
 ap.add_argument("--score-tree", type=str, default=None, help="Tree scoring method")
 server_args = ap.parse_args()
 
@@ -60,9 +72,12 @@ gnn_grouper = None
 use_gnn_grouper = grouper_gnn_run or grouper_type == "gnn"
 if use_gnn_grouper:
     from mathnote_ocr.engine.grouper_v2 import GNNGrouper
+
     gnn_run = grouper_gnn_run or get(cfg, "grouper.gnn_run", "v7")
     print(f"Loading GNN grouper (gnn={gnn_run}, classifier={grouper_classifier_run})...")
-    gnn_grouper = GNNGrouper(gnn_run=gnn_run, classifier_run=grouper_classifier_run, weights_dir=REPO_WEIGHTS)
+    gnn_grouper = GNNGrouper(
+        gnn_run=gnn_run, classifier_run=grouper_classifier_run, weights_dir=REPO_WEIGHTS
+    )
     classifier = gnn_grouper.classifier
     print(f"Loaded. Classes: {classifier.label_names}")
     print(f"Device: {classifier.device}")
@@ -91,16 +106,24 @@ grouper_params = GrouperParams(
 
 if tree_gnn_run:
     from mathnote_ocr.tree_parser.inference import GNNTreeParser
+
     anchor = not server_args.gnn_simple
     seq_bonus = not server_args.gnn_simple
-    print(f"Loading tree parser (run={tree_run}, gnn={tree_gnn_run}, anchor={anchor}, seq={seq_bonus})...")
-    parser = GNNTreeParser(subset_run=tree_run, gnn_run=tree_gnn_run,
-                           anchor=anchor, seq_bonus=seq_bonus, scoring=score_tree,
-                           weights_dir=REPO_WEIGHTS)
+    print(
+        f"Loading tree parser (run={tree_run}, gnn={tree_gnn_run}, anchor={anchor}, seq={seq_bonus})..."
+    )
+    parser = GNNTreeParser(
+        subset_run=tree_run,
+        gnn_run=tree_gnn_run,
+        anchor=anchor,
+        seq_bonus=seq_bonus,
+        scoring=score_tree,
+        weights_dir=REPO_WEIGHTS,
+    )
 else:
     print(f"Loading tree parser (run={tree_run}, mode=subset)...")
     parser = SubsetTreeParser(subset_run=tree_run, scoring=score_tree, weights_dir=REPO_WEIGHTS)
-print(f"Loaded.\n")
+print("Loaded.\n")
 
 
 async def handler(websocket):
@@ -120,10 +143,14 @@ async def handler(websocket):
                 raw_strokes = msg.get("strokes", [])
                 cache.update(len(raw_strokes))
                 if not raw_strokes:
-                    await websocket.send(json.dumps({
-                        "type": "error",
-                        "message": "No strokes to detect.",
-                    }))
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "message": "No strokes to detect.",
+                            }
+                        )
+                    )
                     continue
 
                 stroke_width = msg.get("stroke_width", config.RENDER_STROKE_WIDTH)
@@ -144,7 +171,8 @@ async def handler(websocket):
                     )
                 else:
                     all_partitions = group_and_classify(
-                        strokes, classifier,
+                        strokes,
+                        classifier,
                         stroke_width=stroke_width,
                         source_size=source_size,
                         top_k=top_k,
@@ -155,10 +183,14 @@ async def handler(websocket):
                 t_group = time.perf_counter() - t0
 
                 if not all_partitions:
-                    await websocket.send(json.dumps({
-                        "type": "result",
-                        "partitions": [],
-                    }))
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "result",
+                                "partitions": [],
+                            }
+                        )
+                    )
                     continue
 
                 # Parse each partition
@@ -172,19 +204,28 @@ async def handler(websocket):
                     # Check for dropped symbols
                     detected = [s.symbol for s in symbols]
                     for sym_name in detected:
-                        if sym_name not in latex and sym_name not in ('(', ')', '-', '+'):
+                        if sym_name not in latex and sym_name not in ("(", ")", "-", "+"):
                             mapped = {
-                                "times": "\\times", "dot": "\\cdot",
-                                "sqrt": "\\sqrt", "int": "\\int",
-                                "sum": "\\sum", "prod": "\\prod",
+                                "times": "\\times",
+                                "dot": "\\cdot",
+                                "sqrt": "\\sqrt",
+                                "int": "\\int",
+                                "sum": "\\sum",
+                                "prod": "\\prod",
                             }.get(sym_name, sym_name)
                             if mapped not in latex:
-                                print(f"  ⚠ DROPPED '{sym_name}' — detected: {detected} → latex: {latex}")
+                                print(
+                                    f"  ⚠ DROPPED '{sym_name}' — detected: {detected} → latex: {latex}"
+                                )
 
                     sym_confidence = 1.0
                     for s in symbols:
-                        sym_confidence *= s.confidence  # already includes proto_quality from grouper
-                    sym_confidence = sym_confidence ** (1.0 / max(len(symbols), 1))  # geometric mean
+                        sym_confidence *= (
+                            s.confidence
+                        )  # already includes proto_quality from grouper
+                    sym_confidence = sym_confidence ** (
+                        1.0 / max(len(symbols), 1)
+                    )  # geometric mean
                     combined = sym_confidence * parse_confidence
 
                     # Build relations from tree structure with probabilities
@@ -195,6 +236,7 @@ async def handler(websocket):
                         # parent_votes shape: (N, N+1, E)
                         # Softmax over all (parent × edge_type) combos
                         import torch
+
                         joint_probs = None
                         N_syms = len(symbols)
                         if parent_votes is not None:
@@ -214,64 +256,83 @@ async def handler(websocket):
                         def _walk(idx):
                             for child_id, et, _ in tree.children_of(idx):
                                 et_name = Edge(et).name.lower() if 0 <= et < len(Edge) else "root"
-                                relations.append({
-                                    "from": child_id,
-                                    "to": idx,
-                                    "type": et_name,
-                                    "prob": round(_get_prob(child_id, idx, et), 3),
-                                })
+                                relations.append(
+                                    {
+                                        "from": child_id,
+                                        "to": idx,
+                                        "type": et_name,
+                                        "prob": round(_get_prob(child_id, idx, et), 3),
+                                    }
+                                )
                                 _walk(child_id)
 
                         for root_idx in tree.root_ids():
-                            relations.append({
-                                "from": root_idx,
-                                "to": -1,
-                                "type": "root",
-                                "prob": round(_get_prob(root_idx, -1, -1), 3),
-                            })
+                            relations.append(
+                                {
+                                    "from": root_idx,
+                                    "to": -1,
+                                    "type": "root",
+                                    "prob": round(_get_prob(root_idx, -1, -1), 3),
+                                }
+                            )
                             _walk(root_idx)
 
-                    result_partitions.append({
-                        "latex": latex,
-                        "parse_confidence": round(parse_confidence, 3),
-                        "symbol_confidence": round(sym_confidence, 3),
-                        "score": round(combined, 3),
-                        "symbols": [
-                            {
-                                "symbol": s.symbol,
-                                "confidence": s.confidence,
-                                "stroke_indices": s.stroke_indices,
-                                "bbox": {
-                                    "x": s.bbox.x, "y": s.bbox.y,
-                                    "w": s.bbox.w, "h": s.bbox.h,
-                                },
-                            }
-                            for s in symbols
-                        ],
-                        "relations": relations,
-                    })
+                    result_partitions.append(
+                        {
+                            "latex": latex,
+                            "parse_confidence": round(parse_confidence, 3),
+                            "symbol_confidence": round(sym_confidence, 3),
+                            "score": round(combined, 3),
+                            "symbols": [
+                                {
+                                    "symbol": s.symbol,
+                                    "confidence": s.confidence,
+                                    "stroke_indices": s.stroke_indices,
+                                    "bbox": {
+                                        "x": s.bbox.x,
+                                        "y": s.bbox.y,
+                                        "w": s.bbox.w,
+                                        "h": s.bbox.h,
+                                    },
+                                }
+                                for s in symbols
+                            ],
+                            "relations": relations,
+                        }
+                    )
 
                 # Sort by combined score
                 result_partitions.sort(key=lambda p: p["score"], reverse=True)
 
                 t_tree = time.perf_counter() - t1
-                print(f"  {len(raw_strokes)} strokes → {len(result_partitions)} results  "
-                      f"grouper={t_group*1000:.0f}ms  tree={t_tree*1000:.0f}ms ({len(all_partitions)}p)")
+                print(
+                    f"  {len(raw_strokes)} strokes → {len(result_partitions)} results  "
+                    f"grouper={t_group * 1000:.0f}ms  tree={t_tree * 1000:.0f}ms ({len(all_partitions)}p)"
+                )
                 for j, r in enumerate(result_partitions[:3]):
                     print(f"    [{j}] {r['latex']} (score={r['score']})")
 
-                await websocket.send(json.dumps({
-                    "type": "result",
-                    "partitions": result_partitions,
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "result",
+                            "partitions": result_partitions,
+                        }
+                    )
+                )
 
         except Exception as e:
             import traceback
+
             traceback.print_exc()
-            await websocket.send(json.dumps({
-                "type": "error",
-                "message": str(e),
-            }))
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "error",
+                        "message": str(e),
+                    }
+                )
+            )
 
     print(f"[disconnect] {addr}")
 

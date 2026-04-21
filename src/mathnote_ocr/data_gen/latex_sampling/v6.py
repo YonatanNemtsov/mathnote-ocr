@@ -7,9 +7,20 @@ Good for testing the model's ability to parse deep trees.
 
 import random
 
-from .symbols import (_pick_base, _shared_expr, _shared_term, _shared_sub_content,
-                       VARS, UPPER, DIGITS, GREEK, GREEK_UPPER, MISC_SYMBOLS,
-                       BIGOPS, FUNCS)
+from .symbols import (
+    BIGOPS,
+    DIGITS,
+    FUNCS,
+    GREEK,
+    GREEK_UPPER,
+    MISC_SYMBOLS,
+    UPPER,
+    VARS,
+    _pick_base,
+    _shared_expr,
+    _shared_sub_content,
+    _shared_term,
+)
 
 ARITH_OPS = ["+", "-"]  # v6-specific: simpler ops for max nesting
 
@@ -23,19 +34,22 @@ def _atom():
     )[0]
     return random.choice(pool)
 
+
 def _expr(d=0):
     return _shared_expr(d, _atom, _pick_base, _struct)
+
 
 def _term(d):
     return _shared_term(d, _atom, _pick_base, _struct)
 
+
 def _slot(d):
     return _expr(d + 1)
 
+
 def _struct(d):
     kind = random.choices(
-        ["frac", "sup", "sub", "subsup", "sqrt", "func", "bigop",
-         "parens", "binom", "abs"],
+        ["frac", "sup", "sub", "subsup", "sqrt", "func", "bigop", "parens", "binom", "abs"],
         weights=[20, 14, 10, 8, 12, 7, 10, 6, 5, 5],
     )[0]
 

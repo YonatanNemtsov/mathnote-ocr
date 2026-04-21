@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import random
 
-
 EXPR_NAME = "expression"
 
 
@@ -92,9 +91,9 @@ def collapse_subtrees(
 
         # Find kept siblings in the same (parent, edge_type) group
         kept_siblings = [
-            i for i in range(n)
-            if tree[i]["parent"] == p and tree[i]["edge_type"] == et
-            and i not in all_nodes
+            i
+            for i in range(n)
+            if tree[i]["parent"] == p and tree[i]["edge_type"] == et and i not in all_nodes
         ]
 
         expr_order = tree[members_to_collapse[0]]["order"]
@@ -114,11 +113,13 @@ def collapse_subtrees(
         t = tree[old_i]
         old_parent = t["parent"]
         new_parent = old2new.get(old_parent, -1) if old_parent >= 0 else old_parent
-        new_tree.append({
-            "parent": new_parent,
-            "edge_type": t["edge_type"],
-            "order": t["order"],
-        })
+        new_tree.append(
+            {
+                "parent": new_parent,
+                "edge_type": t["edge_type"],
+                "order": t["order"],
+            }
+        )
 
     # Add expression nodes
     for p, et, all_nodes, expr_order, kept_siblings in insert:
@@ -130,11 +131,13 @@ def collapse_subtrees(
 
         expr_idx = len(new_symbols)
         new_symbols.append({"name": EXPR_NAME, "bbox": [x, y, max(rs) - x, max(bs) - y]})
-        new_tree.append({
-            "parent": old2new.get(p, -1) if p >= 0 else p,
-            "edge_type": et,
-            "order": expr_order,
-        })
+        new_tree.append(
+            {
+                "parent": old2new.get(p, -1) if p >= 0 else p,
+                "edge_type": et,
+                "order": expr_order,
+            }
+        )
 
         # Renumber sibling orders to be contiguous (0, 1, 2, ...)
         sibs = []
@@ -163,11 +166,13 @@ def collapse_subtrees(
                 if ni not in [e["new_idx"] for e in expr_info]:
                     expr_idx = ni
                     break
-        expr_info.append({
-            "new_idx": expr_idx,
-            "old_indices": sorted(all_nodes),
-            "collapsed_members": members,
-        })
+        expr_info.append(
+            {
+                "new_idx": expr_idx,
+                "old_indices": sorted(all_nodes),
+                "collapsed_members": members,
+            }
+        )
 
     mapping = {
         "old2new": old2new,
@@ -231,7 +236,7 @@ def random_collapse(
             run_len = 1
             while run_len < max_run and random.random() < 0.5:
                 run_len += 1
-            run = members[i:i + run_len]
+            run = members[i : i + run_len]
             total = sum(_count_descendants(m) for m in run)
             if total >= min_total:
                 collapse_indices.update(run)

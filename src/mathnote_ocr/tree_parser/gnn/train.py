@@ -23,9 +23,9 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from mathnote_ocr.engine.checkpoint import save_checkpoint, _checkpoint_path
-from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
+from mathnote_ocr.engine.checkpoint import _checkpoint_path, save_checkpoint
 from mathnote_ocr.tree_parser.gnn.dataset import GNNDataset, collate_fn
+from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
 
 log = logging.getLogger(__name__)
 
@@ -37,18 +37,18 @@ DATA_DIR = Path(__file__).parent.parent.parent / "data" / "runs" / "gnn"
 
 def compute_loss(
     out: dict[str, torch.Tensor],
-    gt_parent: torch.Tensor,       # (B, N)
-    gt_edge_type: torch.Tensor,    # (B, N)
-    gt_seq: torch.Tensor,          # (B, N)
-    pad_mask: torch.Tensor,        # (B, N)
+    gt_parent: torch.Tensor,  # (B, N)
+    gt_edge_type: torch.Tensor,  # (B, N)
+    gt_seq: torch.Tensor,  # (B, N)
+    pad_mask: torch.Tensor,  # (B, N)
 ) -> tuple[torch.Tensor, dict[str, float]]:
     """Compute parent + edge type + seq loss."""
     B, N = gt_parent.shape
     device = gt_parent.device
 
-    parent_scores = out["parent_scores"]       # (B, N, N+1)
-    edge_type_scores = out["edge_type_scores"] # (B, N, N+1, E)
-    seq_scores = out["seq_scores"]             # (B, N, N+1)
+    parent_scores = out["parent_scores"]  # (B, N, N+1)
+    edge_type_scores = out["edge_type_scores"]  # (B, N, N+1, E)
+    seq_scores = out["seq_scores"]  # (B, N, N+1)
 
     # Parent loss: CE over N+1 classes
     parent_loss = nn.functional.cross_entropy(
@@ -195,12 +195,20 @@ def train(
     log.info("  vocab=%d symbols", num_symbols)
 
     train_loader = DataLoader(
-        train_ds, batch_size=batch_size, shuffle=True,
-        num_workers=0, pin_memory=True, collate_fn=collate_fn,
+        train_ds,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=0,
+        pin_memory=True,
+        collate_fn=collate_fn,
     )
     val_loader = DataLoader(
-        val_ds, batch_size=batch_size, shuffle=False,
-        num_workers=0, pin_memory=True, collate_fn=collate_fn,
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=True,
+        collate_fn=collate_fn,
     )
 
     # GNN model
@@ -243,7 +251,9 @@ def train(
     # Optimizer
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=epochs, eta_min=1e-5,
+        optimizer,
+        T_max=epochs,
+        eta_min=1e-5,
     )
 
     use_amp = device.type == "cuda"
@@ -276,9 +286,17 @@ def train(
         t0 = time.time()
         # ── Train ──
         model.train()
-        epoch_metrics = {k: 0.0 for k in [
-            "parent_loss", "edge_loss", "seq_loss", "parent_acc", "edge_acc", "seq_acc",
-        ]}
+        epoch_metrics = {
+            k: 0.0
+            for k in [
+                "parent_loss",
+                "edge_loss",
+                "seq_loss",
+                "parent_acc",
+                "edge_acc",
+                "seq_acc",
+            ]
+        }
         n_batches = 0
 
         for batch in train_loader:
@@ -348,14 +366,16 @@ def train(
         log.info(
             "Epoch %3d/%d  t_par=%.1f%%  t_edge=%.1f%%  t_seq=%.1f%%  "
             "v_par=%.1f%%  v_edge=%.1f%%  v_seq=%.1f%%  v_loss=%.4f  lr=%.2e  (%ds)",
-            epoch, start_epoch + epochs - 1,
+            epoch,
+            start_epoch + epochs - 1,
             100 * epoch_metrics["parent_acc"],
             100 * epoch_metrics["edge_acc"],
             100 * epoch_metrics["seq_acc"],
             100 * val_metrics["parent_acc"],
             100 * val_metrics["edge_acc"],
             100 * val_metrics["seq_acc"],
-            val_loss, cur_lr,
+            val_loss,
+            cur_lr,
             int(time.time() - t0),
         )
 
@@ -418,12 +438,11 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Train EvidenceGNN")
 
-    parser.add_argument("--subset-run", required=True,
-                        help="Subset model run (subdir under data/runs/gnn/)")
-    parser.add_argument("--train-data", required=True,
-                        help="Name of train .pt file")
-    parser.add_argument("--val-data", required=True,
-                        help="Name of val .pt file")
+    parser.add_argument(
+        "--subset-run", required=True, help="Subset model run (subdir under data/runs/gnn/)"
+    )
+    parser.add_argument("--train-data", required=True, help="Name of train .pt file")
+    parser.add_argument("--val-data", required=True, help="Name of val .pt file")
     parser.add_argument("--run", default="v1")
     parser.add_argument("--resume", action="store_true")
 
@@ -440,8 +459,9 @@ if __name__ == "__main__":
     parser.add_argument("--d-ff", type=int, default=128)
     parser.add_argument("--d-edge", type=int, default=11)
     parser.add_argument("--d-arc", type=int, default=32)
-    parser.add_argument("--sparse-attention", action="store_true",
-                        help="Only attend to nodes with evidence votes")
+    parser.add_argument(
+        "--sparse-attention", action="store_true", help="Only attend to nodes with evidence votes"
+    )
 
     args = parser.parse_args()
 

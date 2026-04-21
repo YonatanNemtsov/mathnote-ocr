@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import random
 
-from mathnote_ocr.tree_parser.tree_v2 import Tree, Node, Symbol, Edge, ROOT_ID
-from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
 from mathnote_ocr.bbox import BBox
+from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
+from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Edge, Node, Symbol, Tree
 
 # ── Symbol pools ────────────────────────────────────────────────────
 
@@ -23,26 +23,67 @@ LOWER = list("abcdefghijklmnopqrstuvwxyz")
 UPPER = [f"{c}_cap" for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
 DIGITS = list("0123456789")
 GREEK = [
-    "alpha", "beta", "gamma", "delta", "epsilon",
-    "theta", "lambda", "mu", "pi", "sigma",
-    "phi", "psi", "omega",
+    "alpha",
+    "beta",
+    "gamma",
+    "delta",
+    "epsilon",
+    "theta",
+    "lambda",
+    "mu",
+    "pi",
+    "sigma",
+    "phi",
+    "psi",
+    "omega",
 ]
-GREEK_UPPER = ["Gamma_cap", "Delta_cap", "Sigma_up", "Pi_up",
-               "Phi_up", "Psi_up", "Omega_up"]
+GREEK_UPPER = ["Gamma_cap", "Delta_cap", "Sigma_up", "Pi_up", "Phi_up", "Psi_up", "Omega_up"]
 
 OPERATORS = ["+", "-", "times", "cdot", "pm", "div"]
-RELATIONS = ["=", "leq", "geq", "neq", "<", ">",
-             "cup", "cap", "in", "subset",
-             "rightarrow", "leftarrow"]
+RELATIONS = [
+    "=",
+    "leq",
+    "geq",
+    "neq",
+    "<",
+    ">",
+    "cup",
+    "cap",
+    "in",
+    "subset",
+    "rightarrow",
+    "leftarrow",
+]
 CALCULUS = ["infty", "partial", "nabla"]
 MISC = CALCULUS + ["ldots"]
 BIG_OPS = ["int", "sum", "prod"]
 BASE_SYMBOLS = LOWER + UPPER + DIGITS + GREEK + GREEK_UPPER + CALCULUS
-ALL_SYMBOLS = (LOWER + UPPER + DIGITS + GREEK + GREEK_UPPER +
-               OPERATORS + RELATIONS + CALCULUS +
-               ["rightarrow", "leftarrow", "ldots",
-                "dot", ",", ";", "colon", "!", "slash", "|",
-                "[", "]", "lbrace", "rbrace"])
+ALL_SYMBOLS = (
+    LOWER
+    + UPPER
+    + DIGITS
+    + GREEK
+    + GREEK_UPPER
+    + OPERATORS
+    + RELATIONS
+    + CALCULUS
+    + [
+        "rightarrow",
+        "leftarrow",
+        "ldots",
+        "dot",
+        ",",
+        ";",
+        "colon",
+        "!",
+        "slash",
+        "|",
+        "[",
+        "]",
+        "lbrace",
+        "rbrace",
+    ]
+)
 
 # ── Node ID counter ─────────────────────────────────────────────────
 
@@ -65,12 +106,14 @@ def _node(name: str, parent_id: int, edge: int, order: int = 0) -> Node:
 
 class T:
     """Base template."""
+
     def sample(self, parent_id: int, edge: int, order: int = 0) -> list[Node]:
         raise NotImplementedError
 
 
 class Pool(T):
     """Pick one symbol from a pool."""
+
     def __init__(self, pool: list[str]):
         self.pool = pool
 
@@ -80,6 +123,7 @@ class Pool(T):
 
 class OneOf(T):
     """Weighted choice between templates."""
+
     def __init__(self, *templates: T, weights: list[int | float]):
         self.templates = templates
         self.weights = weights
@@ -91,6 +135,7 @@ class OneOf(T):
 
 class Seq(T):
     """Sequence of templates as siblings."""
+
     def __init__(self, *templates: T):
         self.templates = templates
 
@@ -103,6 +148,7 @@ class Seq(T):
 
 class Repeat(T):
     """Repeat a template n times (n chosen by weighted random)."""
+
     def __init__(self, template: T, counts: list[int], weights: list[int | float]):
         self.template = template
         self.counts = counts
@@ -115,6 +161,7 @@ class Repeat(T):
 
 class Sup(T):
     """base^{exp}"""
+
     def __init__(self, base: T, exp: T):
         self.base = base
         self.exp = exp
@@ -128,6 +175,7 @@ class Sup(T):
 
 class Sub(T):
     """base_{sub}"""
+
     def __init__(self, base: T, sub: T):
         self.base = base
         self.sub = sub
@@ -141,6 +189,7 @@ class Sub(T):
 
 class SupSub(T):
     """base_{sub}^{exp}"""
+
     def __init__(self, base: T, sub: T, exp: T):
         self.base = base
         self.sub = sub
@@ -156,6 +205,7 @@ class SupSub(T):
 
 class Frac(T):
     """\\frac{num}{den}"""
+
     def __init__(self, num: T, den: T):
         self.num = num
         self.den = den
@@ -169,6 +219,7 @@ class Frac(T):
 
 class Sqrt(T):
     """\\sqrt{content}"""
+
     def __init__(self, content: T):
         self.content = content
 
@@ -180,6 +231,7 @@ class Sqrt(T):
 
 class BigOpBare(T):
     """\\int (no limits)"""
+
     def __init__(self, op: T | None = None):
         self.op = op or Pool(BIG_OPS)
 
@@ -189,6 +241,7 @@ class BigOpBare(T):
 
 class BigOpLow(T):
     """\\int_{lo}"""
+
     def __init__(self, op: T, lo: T):
         self.op = op
         self.lo = lo
@@ -202,6 +255,7 @@ class BigOpLow(T):
 
 class BigOpHigh(T):
     """\\int^{hi}"""
+
     def __init__(self, op: T, hi: T):
         self.op = op
         self.hi = hi
@@ -215,6 +269,7 @@ class BigOpHigh(T):
 
 class BigOpLowHigh(T):
     """\\int_{lo}^{hi}"""
+
     def __init__(self, op: T, lo: T, hi: T):
         self.op = op
         self.lo = lo
@@ -230,6 +285,7 @@ class BigOpLowHigh(T):
 
 class Lim(T):
     """\\lim_{lo} — expands to l, i, m with LOWER on m."""
+
     def __init__(self, lo: T):
         self.lo = lo
 
@@ -243,8 +299,8 @@ class Lim(T):
 
 class Func(T):
     """\\sin etc. — expands to individual letters, sup/sub on last."""
-    def __init__(self, letters: tuple[str, ...], arg: T | None = None,
-                 sup: T | None = None):
+
+    def __init__(self, letters: tuple[str, ...], arg: T | None = None, sup: T | None = None):
         self.letters = letters
         self.arg = arg
         self.sup = sup
@@ -264,8 +320,8 @@ class Func(T):
 
 class Prime(T):
     """base^{\\prime ...}"""
-    def __init__(self, base: T, counts: list[int] = [1, 2, 3],
-                 weights: list[int] = [6, 2, 1]):
+
+    def __init__(self, base: T, counts: list[int] = [1, 2, 3], weights: list[int] = [6, 2, 1]):
         self.base = base
         self.counts = counts
         self.weights = weights
@@ -280,6 +336,7 @@ class Prime(T):
 
 class Parens(T):
     """( content ) as siblings, with optional sup/sub on close paren."""
+
     def __init__(self, content: T, sup: T | None = None, sub: T | None = None):
         self.content = content
         self.sup = sup
@@ -300,6 +357,7 @@ class Parens(T):
 
 class Binom(T):
     """\\binom{top}{bot}"""
+
     def __init__(self, top: T, bot: T):
         self.top = top
         self.bot = bot
@@ -320,8 +378,12 @@ _RelOp = Pool(RELATIONS)
 _BigOp = Pool(BIG_OPS)
 
 Atom1 = OneOf(
-    Pool(LOWER), Pool(UPPER), Pool(DIGITS),
-    Pool(GREEK), Pool(GREEK_UPPER), Pool(MISC),
+    Pool(LOWER),
+    Pool(UPPER),
+    Pool(DIGITS),
+    Pool(GREEK),
+    Pool(GREEK_UPPER),
+    Pool(MISC),
     weights=[26, 26, 10, 13, 7, 4],
 )
 
@@ -339,7 +401,13 @@ _SimpleParensContent = OneOf(
 )
 _SimpleParens = Parens(_SimpleParensContent)
 LimitPiece = OneOf(
-    Atom1, _Op, _LimitSup, _SimpleFrac, _SimpleSqrt, _RelOp, _SimpleParens,
+    Atom1,
+    _Op,
+    _LimitSup,
+    _SimpleFrac,
+    _SimpleSqrt,
+    _RelOp,
+    _SimpleParens,
     weights=[12, 3, 3, 2, 1, 2, 1],
 )
 LimitContent = Repeat(LimitPiece, counts=[1, 2, 3], weights=[6, 2, 1])
@@ -357,9 +425,16 @@ _SupFrac = Frac(LimitContent, LimitContent)
 _NegSupFrac = Seq(_Op, _SupFrac)
 
 SupAtom1 = OneOf(
-    Pool(LOWER), Pool(UPPER), Pool(DIGITS),
-    Pool(GREEK), Pool(GREEK_UPPER), Pool(MISC),
-    BigOpBare(_BigOp), _BigOpWithLimits, _SupFrac, _NegSupFrac,
+    Pool(LOWER),
+    Pool(UPPER),
+    Pool(DIGITS),
+    Pool(GREEK),
+    Pool(GREEK_UPPER),
+    Pool(MISC),
+    BigOpBare(_BigOp),
+    _BigOpWithLimits,
+    _SupFrac,
+    _NegSupFrac,
     _SimpleParens,
     weights=[26, 26, 10, 13, 7, 4, 2, 2, 2, 2, 1],
 )
@@ -373,10 +448,10 @@ FracContentInner = Repeat(FracPieceInner, counts=[1, 2, 3], weights=[4, 4, 2])
 # Frac content (outer — can nest one level)
 _NestedFrac = Frac(FracContentInner, FracContentInner)
 _ParensOuter = Parens(FracContentInner)  # placeholder, updated below
-FracPiece = OneOf(Atom1, _Op, _NestedFrac, _SupAtom, _RelOp, _ParensOuter,
-                  weights=[6, 1, 1, 2, 1, 1])
-FracContent = Repeat(FracPiece, counts=[1, 2, 3, 4, 5, 6, 7],
-                     weights=[7, 4, 4, 3, 2, 1, 1])
+FracPiece = OneOf(
+    Atom1, _Op, _NestedFrac, _SupAtom, _RelOp, _ParensOuter, weights=[6, 1, 1, 2, 1, 1]
+)
+FracContent = Repeat(FracPiece, counts=[1, 2, 3, 4, 5, 6, 7], weights=[7, 4, 4, 3, 2, 1, 1])
 
 # Now update parens to use full FracContent (with nested fracs)
 _ParensOuter.content = FracContent
@@ -412,16 +487,15 @@ def _gen_frac(budget, depth, parent_id, edge, order):
 
 def _gen_sqrt(budget, depth, parent_id, edge, order):
     sq = _node("sqrt", parent_id, edge, order)
-    inner, n = random_expr(min(budget - 1, 4), depth + 1,
-                           parent_id=sq.symbol.id, edge=Edge.SQRT)
+    inner, n = random_expr(min(budget - 1, 4), depth + 1, parent_id=sq.symbol.id, edge=Edge.SQRT)
     return [sq] + inner, 1 + n
 
 
 def _gen_parens(budget, depth, parent_id, edge, order):
     open_p = _node("(", parent_id, edge, order)
-    inner, n = random_expr(min(budget - 2, 8), depth + 1,
-                           parent_id=parent_id, edge=edge,
-                           order_start=order + 1)
+    inner, n = random_expr(
+        min(budget - 2, 8), depth + 1, parent_id=parent_id, edge=edge, order_start=order + 1
+    )
     sibling_count = sum(1 for nd in inner if nd.parent_id == parent_id)
     close_p = _node(")", parent_id, edge, order + 1 + sibling_count)
     nodes = [open_p] + inner + [close_p]
@@ -450,8 +524,7 @@ def _gen_big_op_high(budget, depth, parent_id, edge, order):
 
 
 def _gen_big_op_low_high(budget, depth, parent_id, edge, order):
-    return BigOpLowHigh(_BigOp, LimitContent, LimitContent).sample(
-        parent_id, edge, order), 3
+    return BigOpLowHigh(_BigOp, LimitContent, LimitContent).sample(parent_id, edge, order), 3
 
 
 def _gen_lim(budget, depth, parent_id, edge, order):
@@ -460,12 +533,16 @@ def _gen_lim(budget, depth, parent_id, edge, order):
 
 def _gen_binom(budget, depth, parent_id, edge, order):
     open_p = _node("(", parent_id, edge, order)
-    top, tn = random_expr(max(2, budget - 1), depth + 1,
-                          parent_id=open_p.symbol.id, edge=Edge.NUM,
-                          exclude={"binom"})
-    bot, bn = random_expr(max(2, budget - 1 - tn), depth + 1,
-                          parent_id=open_p.symbol.id, edge=Edge.DEN,
-                          exclude={"binom"})
+    top, tn = random_expr(
+        max(2, budget - 1), depth + 1, parent_id=open_p.symbol.id, edge=Edge.NUM, exclude={"binom"}
+    )
+    bot, bn = random_expr(
+        max(2, budget - 1 - tn),
+        depth + 1,
+        parent_id=open_p.symbol.id,
+        edge=Edge.DEN,
+        exclude={"binom"},
+    )
     close_p = _node(")", open_p.symbol.id, Edge.MATCH, 0)
     return [open_p] + top + bot + [close_p], tn + bn
 
@@ -478,35 +555,36 @@ def _gen_prime(budget, depth, parent_id, edge, order):
 
 # (name, fn, min_budget, weight, max_depth)
 STRUCTURES = [
-    ("atom",            _gen_atom,            1, 11, 4),
-    ("sup",             _gen_sup,             2,  2, 1),
-    ("sub",             _gen_sub,             2,  2, 1),
-    ("sup_sub",         _gen_sup_sub,         3,  1, 1),
-    ("frac",            _gen_frac,            3,  4, 2),
-    ("sqrt",            _gen_sqrt,            2,  1, 2),
-    ("big_op",          _gen_big_op,          1,  1, 2),
-    ("big_op_low",      _gen_big_op_low,      2,  1, 2),
-    ("big_op_high",     _gen_big_op_high,     2,  1, 2),
-    ("big_op_low_high", _gen_big_op_low_high, 3,  1, 2),
-    ("parens",          _gen_parens,          3,  1, 2),
-    ("lim",             _gen_lim,             2,  1, 2),
-    ("binom",           _gen_binom,           3,  2, 1),
-    ("prime",           _gen_prime,           2,  1, 2),
+    ("atom", _gen_atom, 1, 11, 4),
+    ("sup", _gen_sup, 2, 2, 1),
+    ("sub", _gen_sub, 2, 2, 1),
+    ("sup_sub", _gen_sup_sub, 3, 1, 1),
+    ("frac", _gen_frac, 3, 4, 2),
+    ("sqrt", _gen_sqrt, 2, 1, 2),
+    ("big_op", _gen_big_op, 1, 1, 2),
+    ("big_op_low", _gen_big_op_low, 2, 1, 2),
+    ("big_op_high", _gen_big_op_high, 2, 1, 2),
+    ("big_op_low_high", _gen_big_op_low_high, 3, 1, 2),
+    ("parens", _gen_parens, 3, 1, 2),
+    ("lim", _gen_lim, 2, 1, 2),
+    ("binom", _gen_binom, 3, 2, 1),
+    ("prime", _gen_prime, 2, 1, 2),
 ]
 
 
 # ── Main generator ────────────────────���─────────────────────────────
 
 
-def random_term(budget, depth, parent_id, edge, order,
-                exclude=None):
+def random_term(budget, depth, parent_id, edge, order, exclude=None):
     """Pick a random structure and generate one term. Returns (nodes, n_counted)."""
     if budget <= 0:
         return _gen_atom(budget, depth, parent_id, edge, order)
 
-    opts = [(name, fn, w) for name, fn, min_b, w, max_d in STRUCTURES
-            if budget >= min_b and depth <= max_d
-            and (exclude is None or name not in exclude)]
+    opts = [
+        (name, fn, w)
+        for name, fn, min_b, w, max_d in STRUCTURES
+        if budget >= min_b and depth <= max_d and (exclude is None or name not in exclude)
+    ]
     if not opts:
         return _gen_atom(budget, depth, parent_id, edge, order)
 
@@ -515,8 +593,7 @@ def random_term(budget, depth, parent_id, edge, order,
     return fn(budget, depth, parent_id, edge, order)
 
 
-def random_expr(budget, depth, parent_id=ROOT_ID, edge=Edge.ROOT,
-                order_start=0, exclude=None):
+def random_expr(budget, depth, parent_id=ROOT_ID, edge=Edge.ROOT, order_start=0, exclude=None):
     """Generate 1+ juxtaposed terms within the budget. Returns (nodes, n_counted)."""
     if budget <= 0:
         return _gen_atom(0, depth, parent_id, edge, order_start)
@@ -527,8 +604,7 @@ def random_expr(budget, depth, parent_id=ROOT_ID, edge=Edge.ROOT,
     order = order_start
 
     while used < budget and (order - order_start) < max_terms:
-        nodes, n = random_term(budget - used, depth, parent_id, edge, order,
-                               exclude)
+        nodes, n = random_term(budget - used, depth, parent_id, edge, order, exclude)
         if n == 0:
             break
         all_nodes.extend(nodes)

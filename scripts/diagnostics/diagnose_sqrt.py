@@ -13,9 +13,21 @@ from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
 from mathnote_ocr.tree_parser.hw_bbox_augment import augment_bboxes
 
 COLORS = [
-    "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7",
-    "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E9",
-    "#F0B27A", "#82E0AA", "#F1948A", "#AED6F1", "#D7BDE2",
+    "#FF6B6B",
+    "#4ECDC4",
+    "#45B7D1",
+    "#96CEB4",
+    "#FFEAA7",
+    "#DDA0DD",
+    "#98D8C8",
+    "#F7DC6F",
+    "#BB8FCE",
+    "#85C1E9",
+    "#F0B27A",
+    "#82E0AA",
+    "#F1948A",
+    "#AED6F1",
+    "#D7BDE2",
 ]
 
 
@@ -75,9 +87,11 @@ def main():
     for i in range(n):
         p, e, o = tree_labels[i]
         b = glyphs[i]["bbox"]
-        print(f"{i:3d} {glyphs[i]['name']:>10} {p:6d} {e:5d} {o:5d}  "
-              f"x={b[0]:.4f} y={b[1]:.4f} w={b[2]:.4f} h={b[3]:.4f}  "
-              f"right={b[0]+b[2]:.4f}")
+        print(
+            f"{i:3d} {glyphs[i]['name']:>10} {p:6d} {e:5d} {o:5d}  "
+            f"x={b[0]:.4f} y={b[1]:.4f} w={b[2]:.4f} h={b[3]:.4f}  "
+            f"right={b[0] + b[2]:.4f}"
+        )
 
     # Augment
     aug = augment_bboxes(symbols, tree)
@@ -89,9 +103,11 @@ def main():
     print("-" * 65)
     for i in range(n):
         b = aug[i]["bbox"]
-        print(f"{i:3d} {aug[i]['name']:>10}  "
-              f"x={b[0]:.4f} y={b[1]:.4f} w={b[2]:.4f} h={b[3]:.4f}  "
-              f"right={b[0]+b[2]:.4f}")
+        print(
+            f"{i:3d} {aug[i]['name']:>10}  "
+            f"x={b[0]:.4f} y={b[1]:.4f} w={b[2]:.4f} h={b[3]:.4f}  "
+            f"right={b[0] + b[2]:.4f}"
+        )
 
     # Find the sqrt symbols and their right extents vs neq left
     print("\n--- Key comparisons ---")
@@ -102,7 +118,7 @@ def main():
     for si in sqrt_indices:
         fb = glyphs[si]["bbox"]
         ab = aug[si]["bbox"]
-        print(f"sqrt[{si}]: font right={fb[0]+fb[2]:.4f}, aug right={ab[0]+ab[2]:.4f}")
+        print(f"sqrt[{si}]: font right={fb[0] + fb[2]:.4f}, aug right={ab[0] + ab[2]:.4f}")
 
     for ni in neq_indices:
         fb = glyphs[ni]["bbox"]

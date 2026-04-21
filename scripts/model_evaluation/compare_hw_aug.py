@@ -12,14 +12,25 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from PIL import Image, ImageDraw, ImageFont
 
 from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
-from mathnote_ocr.tree_parser.hw_bbox_augment import augment_bboxes
 from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
-
+from mathnote_ocr.tree_parser.hw_bbox_augment import augment_bboxes
 
 COLORS = [
-    "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7",
-    "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E9",
-    "#F0B27A", "#82E0AA", "#F1948A", "#AED6F1", "#D7BDE2",
+    "#FF6B6B",
+    "#4ECDC4",
+    "#45B7D1",
+    "#96CEB4",
+    "#FFEAA7",
+    "#DDA0DD",
+    "#98D8C8",
+    "#F7DC6F",
+    "#BB8FCE",
+    "#85C1E9",
+    "#F0B27A",
+    "#82E0AA",
+    "#F1948A",
+    "#AED6F1",
+    "#D7BDE2",
 ]
 
 
@@ -148,8 +159,7 @@ def main():
         xmax, ymax = max(all_x2), max(all_y2)
         ref = max(xmax - xmin, ymax - ymin, 1e-6)
         hw_norm = [
-            [(b[0] - xmin) / ref, (b[1] - ymin) / ref, b[2] / ref, b[3] / ref]
-            for b in hw_bboxes
+            [(b[0] - xmin) / ref, (b[1] - ymin) / ref, b[2] / ref, b[3] / ref] for b in hw_bboxes
         ]
 
         # Get font glyphs and tree labels
@@ -162,15 +172,12 @@ def main():
             continue
 
         # Match font glyphs to HW order using tree isomorphism
-        font_bboxes_hw_order = _match_glyphs_to_hw(
-            glyphs, tree_labels, hw_symbols, hw_tree
-        )
+        font_bboxes_hw_order = _match_glyphs_to_hw(glyphs, tree_labels, hw_symbols, hw_tree)
         if font_bboxes_hw_order is None:
             continue
 
         # Augment using HW tree directly — output is in HW order
-        aug_symbols = [{"name": names[i], "bbox": font_bboxes_hw_order[i]}
-                       for i in range(n)]
+        aug_symbols = [{"name": names[i], "bbox": font_bboxes_hw_order[i]} for i in range(n)]
         aug = augment_bboxes(aug_symbols, hw_tree)
         if aug is None:
             continue
@@ -180,13 +187,15 @@ def main():
         if aug_names != names:
             continue
 
-        pairs.append({
-            "latex": latex,
-            "hw_bboxes": hw_norm,
-            "hw_names": names,
-            "aug_bboxes": aug_bboxes,
-            "aug_names": aug_names,
-        })
+        pairs.append(
+            {
+                "latex": latex,
+                "hw_bboxes": hw_norm,
+                "hw_names": names,
+                "aug_bboxes": aug_bboxes,
+                "aug_names": aug_names,
+            }
+        )
 
     print(f"Matched {len(pairs)} / {len(hw_data)} expressions")
 
@@ -214,7 +223,9 @@ def main():
         max_chars = (cell * 2) // 6
         draw.text((ox_hw + 2, oy + 1), latex[:max_chars], fill="#888", font=font)
         if len(latex) > max_chars:
-            draw.text((ox_hw + 2, oy + 12), latex[max_chars:max_chars*2], fill="#888", font=font)
+            draw.text(
+                (ox_hw + 2, oy + 12), latex[max_chars : max_chars * 2], fill="#888", font=font
+            )
 
         boy = oy + label_h
         # HW label

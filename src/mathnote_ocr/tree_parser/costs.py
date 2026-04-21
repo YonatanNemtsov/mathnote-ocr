@@ -55,12 +55,12 @@ def cost_seq_blend(
     if seq_votes is None or N <= 1:
         return scores
 
-    seq_sym = seq_votes[:N, :N]                         # (N, N)
-    sibling = seq_sym + seq_sym.t()                     # symmetric
+    seq_sym = seq_votes[:N, :N]  # (N, N)
+    sibling = seq_sym + seq_sym.t()  # symmetric
     sib_total = sibling.sum(dim=1, keepdim=True).clamp(min=1e-6)
-    sib_probs = sibling / sib_total                     # (N, N)
-    parent_probs = torch.softmax(scores, dim=-1)        # (N, N+1)
-    sib_parent_probs = sib_probs @ parent_probs         # (N, N+1)
+    sib_probs = sibling / sib_total  # (N, N)
+    parent_probs = torch.softmax(scores, dim=-1)  # (N, N+1)
+    sib_parent_probs = sib_probs @ parent_probs  # (N, N+1)
     blended = (1 - alpha) * parent_probs + alpha * sib_parent_probs
     return torch.log(blended.clamp(min=1e-10))
 
@@ -78,13 +78,13 @@ def cost_propagate(
     Each iteration: parent_votes += T @ parent_votes, where T[i,j] is
     the normalized probability that j is the previous sibling of i.
     """
-    parent_votes = evidence["parent_votes"]     # (N, N+1, E)
-    seq_votes = evidence.get("seq_votes")       # (N, N+1) or None
+    parent_votes = evidence["parent_votes"]  # (N, N+1, E)
+    seq_votes = evidence.get("seq_votes")  # (N, N+1) or None
 
     if seq_votes is not None and N > 1:
         seq_sym = seq_votes[:N, :N]
         total_seq = seq_votes[:N].sum(dim=1, keepdim=True).clamp(min=1e-6)
-        T = seq_sym / total_seq                 # (N, N) row-normalized
+        T = seq_sym / total_seq  # (N, N) row-normalized
 
         for _ in range(n_iters):
             propagated = torch.einsum("ik,kje->ije", T, parent_votes[:N])
@@ -108,7 +108,7 @@ def cost_propagate_normalized(
     parent-child relationships competitive with ROOT.
     """
     # Propagate first (enriches evidence)
-    parent_votes = evidence["parent_votes"]     # (N, N+1, E)
+    parent_votes = evidence["parent_votes"]  # (N, N+1, E)
     seq_votes = evidence.get("seq_votes")
 
     if seq_votes is not None and N > 1:

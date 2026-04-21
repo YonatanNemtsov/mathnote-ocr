@@ -1,7 +1,6 @@
 """Stroke and bounding box data structures."""
 
 from dataclasses import dataclass, field
-from typing import List
 
 from mathnote_ocr.bbox import BBox
 
@@ -15,15 +14,13 @@ class StrokePoint:
 
 @dataclass
 class Stroke:
-    points: List[StrokePoint] = field(default_factory=list)
+    points: list[StrokePoint] = field(default_factory=list)
     bbox: BBox = field(default_factory=lambda: BBox(0, 0, 0, 0))
 
     @staticmethod
     def from_dicts(points: list[dict]) -> "Stroke":
         """Create a Stroke from a list of {x, y, t?} dicts."""
-        stroke_points = [
-            StrokePoint(p["x"], p["y"], p.get("t", 0.0)) for p in points
-        ]
+        stroke_points = [StrokePoint(p["x"], p["y"], p.get("t", 0.0)) for p in points]
         return Stroke.from_points(stroke_points)
 
     @staticmethod

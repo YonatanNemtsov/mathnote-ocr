@@ -10,9 +10,8 @@ from __future__ import annotations
 import torch
 
 from mathnote_ocr.bbox import BBox
-from mathnote_ocr.tree_parser.tree_v2 import Symbol, Node, Tree, Edge, ROOT_ID
 from mathnote_ocr.tree_parser.tree_ops import reorder_siblings
-
+from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Edge, Node, Symbol, Tree
 
 # ── Edmonds' algorithm ───────────────────────────────────────────────
 
@@ -174,7 +173,7 @@ def build_tree_from_scores(
     k_neighbors: int | None = None,
 ) -> Tree:
     """Build tree using Edmonds' algorithm on parent scores."""
-    scores = parent_scores[:len(symbols), :].detach().cpu()
+    scores = parent_scores[: len(symbols), :].detach().cpu()
     if k_neighbors is not None and k_neighbors < len(symbols) - 1:
         scores = _mask_k_nearest(scores, symbols, k_neighbors)
     return _scores_to_tree(scores, edge_type_scores, symbols)
@@ -190,15 +189,17 @@ def build_tree_from_evidence(
     consensus_boost: float = 5.0,
 ) -> Tree:
     """Build tree using Edmonds' algorithm on aggregated evidence."""
-    from mathnote_ocr.tree_parser.costs import COST_STRATEGIES
     from mathnote_ocr.tree_parser.consensus import boost_consensus_edges
+    from mathnote_ocr.tree_parser.costs import COST_STRATEGIES
 
     N = len(symbols)
     parent_scores = COST_STRATEGIES[cost](evidence, N)
 
     if use_consensus:
         parent_scores = boost_consensus_edges(
-            parent_scores, evidence, N,
+            parent_scores,
+            evidence,
+            N,
             agreement_threshold=consensus_threshold,
             boost=consensus_boost,
         )
@@ -272,7 +273,7 @@ def find_seq_conflicts(
                 (k for k in range(N) if k not in core and k in tree.nodes),
                 key=lambda k: tree[k].symbol.bbox.center_distance(mid),
             )
-            subset = sorted(core | set(others[:max_subset_size - len(core)]))
+            subset = sorted(core | set(others[: max_subset_size - len(core)]))
 
             key = tuple(subset)
             if key not in seen:

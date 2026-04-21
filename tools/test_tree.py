@@ -16,18 +16,21 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 import argparse
 import base64
 import json
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import parse_qs, unquote
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs
 
 import torch
 import ziamath as zm
 
 from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
-from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
 from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
-from mathnote_ocr.tree_parser.tree import tree_to_latex, NUM_EDGE_TYPES, EDGE_NAMES
-from scripts.diagnostics.visualize_predictions import predict_tree_exhaustive, predict_tree_iterative, predict_tree_gnn
-
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.tree import EDGE_NAMES, tree_to_latex
+from scripts.diagnostics.visualize_predictions import (
+    predict_tree_exhaustive,
+    predict_tree_gnn,
+    predict_tree_iterative,
+)
 
 # ── Globals (set in main) ────────────────────────────────────────────
 
@@ -53,14 +56,16 @@ def _tree_info(roots, names):
     for node in _flatten_nodes(roots):
         et = EDGE_NAMES[node.edge_type] if 0 <= node.edge_type < len(EDGE_NAMES) else "root"
         par = names[node.parent] if node.parent >= 0 else "ROOT"
-        sym_info.append({
-            "idx": node.index,
-            "name": node.symbol,
-            "parent": par,
-            "parent_idx": node.parent,
-            "edge": et,
-            "order": node.order,
-        })
+        sym_info.append(
+            {
+                "idx": node.index,
+                "name": node.symbol,
+                "parent": par,
+                "parent_idx": node.parent,
+                "edge": et,
+                "order": node.order,
+            }
+        )
     sym_info.sort(key=lambda x: x["idx"])
     return sym_info
 
@@ -77,7 +82,10 @@ def run_model(latex: str) -> dict:
     # Exhaustive (baseline)
     try:
         roots_ex, _ = predict_tree_exhaustive(
-            MODEL, SYMBOL_VOCAB, symbols, DEVICE,
+            MODEL,
+            SYMBOL_VOCAB,
+            symbols,
+            DEVICE,
         )
         pred_ex = tree_to_latex(roots_ex)
     except Exception as e:
@@ -88,7 +96,10 @@ def run_model(latex: str) -> dict:
     roots_iter = None
     try:
         roots_iter, _ = predict_tree_iterative(
-            MODEL, SYMBOL_VOCAB, symbols, DEVICE,
+            MODEL,
+            SYMBOL_VOCAB,
+            symbols,
+            DEVICE,
         )
         pred_iter = tree_to_latex(roots_iter)
     except Exception as e:
@@ -101,7 +112,11 @@ def run_model(latex: str) -> dict:
     if GNN_MODEL is not None:
         try:
             roots_gnn, _ = predict_tree_gnn(
-                GNN_MODEL, MODEL, SYMBOL_VOCAB, symbols, DEVICE,
+                GNN_MODEL,
+                MODEL,
+                SYMBOL_VOCAB,
+                symbols,
+                DEVICE,
             )
             pred_gnn = tree_to_latex(roots_gnn)
         except Exception as e:
@@ -125,11 +140,13 @@ def run_model(latex: str) -> dict:
 def _flatten_nodes(roots):
     """Collect all nodes from tree."""
     result = []
+
     def walk(node):
         result.append(node)
         for children in node.children.values():
             for c in children:
                 walk(c)
+
     for r in roots:
         walk(r)
     return result

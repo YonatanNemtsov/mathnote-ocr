@@ -23,9 +23,9 @@ import torch
 
 from mathnote_ocr.engine.checkpoint import load_checkpoint
 from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.tree_parser.evidence import _bbox_edge_dist
 from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
 from mathnote_ocr.tree_parser.tree import ROOT
-from mathnote_ocr.tree_parser.evidence import _bbox_edge_dist
 
 
 def _spatial_subsets(symbols, max_subset, radius_mult=4.0):
@@ -57,7 +57,7 @@ def _spatial_subsets(symbols, max_subset, radius_mult=4.0):
             all_dists.sort(key=lambda x: x[1])
             neighbors = [d[0] for d in all_dists[:2]]
         elif len(neighbors) > max_subset - 1:
-            neighbors = neighbors[:max_subset - 1]
+            neighbors = neighbors[: max_subset - 1]
 
         subsets.append(sorted([seed] + neighbors))
     return subsets
@@ -102,8 +102,9 @@ def _check_subset(pred_parents, pred_edges, subset_indices, tree, S):
 
 
 @torch.no_grad()
-def run_all_subsets(model, symbol_vocab, examples, device, max_subset,
-                    batch_size=512, radius_mult=4.0):
+def run_all_subsets(
+    model, symbol_vocab, examples, device, max_subset, batch_size=512, radius_mult=4.0
+):
     """Run subset model on spatial subsets of all examples.
 
     Returns list of (example, n_subsets, n_subset_fails, per_symbol_fails)
@@ -183,11 +184,15 @@ def run_all_subsets(model, symbol_vocab, examples, device, max_subset,
                     pred_edges.append(et)
 
                 parent_ok, edge_ok, _ = _check_subset(
-                    pred_parents, pred_edges, subset_indices, tree, S,
+                    pred_parents,
+                    pred_edges,
+                    subset_indices,
+                    tree,
+                    S,
                 )
                 if parent_ok < n_sub:
                     n_subset_fails += 1
-                    total_parent_wrong += (n_sub - parent_ok)
+                    total_parent_wrong += n_sub - parent_ok
                     # Track which global symbols failed
                     g2l = {g: l for l, g in enumerate(subset_indices)}
                     for i, gi in enumerate(subset_indices):
@@ -204,6 +209,7 @@ def run_all_subsets(model, symbol_vocab, examples, device, max_subset,
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--run", default="dg_all")
     parser.add_argument("--out", default="data/shared/tree/failures/subset_fails.jsonl")
@@ -241,8 +247,9 @@ def main():
     if args.versions:
         version_dirs = [data_root / v for v in args.versions]
     else:
-        version_dirs = sorted(d for d in data_root.iterdir()
-                              if d.is_dir() and d.name.startswith("v"))
+        version_dirs = sorted(
+            d for d in data_root.iterdir() if d.is_dir() and d.name.startswith("v")
+        )
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -270,8 +277,13 @@ def main():
                         examples.append(ex)
 
             results = run_all_subsets(
-                model, symbol_vocab, examples, device,
-                max_subset, args.batch_size, args.radius,
+                model,
+                symbol_vocab,
+                examples,
+                device,
+                max_subset,
+                args.batch_size,
+                args.radius,
             )
 
             v_total = len(results)
@@ -296,16 +308,22 @@ def main():
                     record["_per_symbol_wrong"] = per_sym
                     fout.write(json.dumps(record) + "\n")
 
-            print(f"{vdir.name}: {v_with_fails}/{v_total} examples with fails, "
-                  f"{v_sub_fails}/{v_subsets} subsets wrong "
-                  f"({v_sub_fails/max(v_subsets,1):.1%})")
+            print(
+                f"{vdir.name}: {v_with_fails}/{v_total} examples with fails, "
+                f"{v_sub_fails}/{v_subsets} subsets wrong "
+                f"({v_sub_fails / max(v_subsets, 1):.1%})"
+            )
 
     elapsed = time.time() - t0
     print(f"\nDone in {elapsed:.0f}s")
-    print(f"Examples: {total_with_fails}/{total_examples} have at least one failing subset "
-          f"({total_with_fails/max(total_examples,1):.1%})")
-    print(f"Subsets: {total_subset_fails}/{total_subsets} wrong "
-          f"({total_subset_fails/max(total_subsets,1):.1%})")
+    print(
+        f"Examples: {total_with_fails}/{total_examples} have at least one failing subset "
+        f"({total_with_fails / max(total_examples, 1):.1%})"
+    )
+    print(
+        f"Subsets: {total_subset_fails}/{total_subsets} wrong "
+        f"({total_subset_fails / max(total_subsets, 1):.1%})"
+    )
     print(f"Saved to {out_path}")
 
 

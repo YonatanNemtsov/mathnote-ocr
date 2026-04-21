@@ -22,10 +22,10 @@ import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader, RandomSampler
 
-from mathnote_ocr.engine.checkpoint import save_checkpoint, _checkpoint_path
-from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.engine.checkpoint import _checkpoint_path, save_checkpoint
 from mathnote_ocr.tree_parser.subset_dataset import TreeSubsetDataset, build_symbol_vocab
 from mathnote_ocr.tree_parser.subset_loss import compute_loss
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
 
 log = logging.getLogger(__name__)
 
@@ -130,35 +130,45 @@ def train(
     # Datasets
     log.info("Loading datasets...")
     train_ds = TreeSubsetDataset(
-        train_path, symbol_vocab,
+        train_path,
+        symbol_vocab,
         max_subset=max_subset,
         subsets_per_example=subsets_per_example,
         max_examples=max_examples,
         augment=True,
     )
     val_ds = TreeSubsetDataset(
-        val_path, symbol_vocab,
+        val_path,
+        symbol_vocab,
         max_subset=max_subset,
         subsets_per_example=1,
         max_examples=max_examples // 5 if max_examples else None,
     )
 
     if epoch_size and epoch_size < len(train_ds):
-        train_sampler = RandomSampler(train_ds, replacement=False,
-                                       num_samples=epoch_size)
+        train_sampler = RandomSampler(train_ds, replacement=False, num_samples=epoch_size)
         train_loader = DataLoader(
-            train_ds, batch_size=batch_size, sampler=train_sampler,
-            num_workers=2, pin_memory=True,
+            train_ds,
+            batch_size=batch_size,
+            sampler=train_sampler,
+            num_workers=2,
+            pin_memory=True,
         )
         log.info("Subsampling %d/%d subsets per epoch", epoch_size, len(train_ds))
     else:
         train_loader = DataLoader(
-            train_ds, batch_size=batch_size, shuffle=True,
-            num_workers=2, pin_memory=True,
+            train_ds,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=2,
+            pin_memory=True,
         )
     val_loader = DataLoader(
-        val_ds, batch_size=batch_size, shuffle=False,
-        num_workers=2, pin_memory=True,
+        val_ds,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=2,
+        pin_memory=True,
     )
 
     # Model — use checkpoint config when resuming
@@ -183,7 +193,10 @@ def train(
     # Optimizer
     optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=5,
+        optimizer,
+        mode="min",
+        factor=0.5,
+        patience=5,
     )
 
     use_amp = device.type == "cuda"
@@ -226,10 +239,19 @@ def train(
         _epoch_t0 = time.time()
         # ── Train ──
         model.train()
-        epoch_metrics = {k: 0.0 for k in [
-            "parent_loss", "edge_loss", "order_loss", "seq_loss",
-            "parent_acc", "edge_acc", "seq_acc", "order_mae",
-        ]}
+        epoch_metrics = {
+            k: 0.0
+            for k in [
+                "parent_loss",
+                "edge_loss",
+                "order_loss",
+                "seq_loss",
+                "parent_acc",
+                "edge_acc",
+                "seq_acc",
+                "order_mae",
+            ]
+        }
         n_batches = 0
 
         for batch in train_loader:
@@ -303,7 +325,8 @@ def train(
             "Epoch %3d/%d  t_par=%.1f%%  t_edge=%.1f%%  t_seq=%.1f%%  "
             "v_par=%.1f%%  v_edge=%.1f%%  v_seq=%.1f%%  v_ord=%.2f  "
             "lr=%.2e  (%ds)",
-            epoch, start_epoch + epochs - 1,
+            epoch,
+            start_epoch + epochs - 1,
             100 * epoch_metrics["parent_acc"],
             100 * epoch_metrics["edge_acc"],
             100 * epoch_metrics["seq_acc"],
@@ -380,8 +403,11 @@ if __name__ == "__main__":
     parser.add_argument("--val", default=str(data_dir / "tree_val.jsonl"))
     parser.add_argument("--run", default="default")
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--reset-val", action="store_true",
-                        help="Reset best val loss when resuming (use with new data)")
+    parser.add_argument(
+        "--reset-val",
+        action="store_true",
+        help="Reset best val loss when resuming (use with new data)",
+    )
 
     # Training
     parser.add_argument("--epochs", type=int, default=50)
@@ -399,10 +425,15 @@ if __name__ == "__main__":
     # Subset
     parser.add_argument("--max-subset", type=int, default=8)
     parser.add_argument("--subsets-per-example", type=int, default=3)
-    parser.add_argument("--max-examples", type=int, default=None,
-                        help="Limit training examples (None=all)")
-    parser.add_argument("--epoch-size", type=int, default=None,
-                        help="Subsample this many subsets per epoch (None=all)")
+    parser.add_argument(
+        "--max-examples", type=int, default=None, help="Limit training examples (None=all)"
+    )
+    parser.add_argument(
+        "--epoch-size",
+        type=int,
+        default=None,
+        help="Subsample this many subsets per epoch (None=all)",
+    )
 
     args = parser.parse_args()
 

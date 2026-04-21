@@ -9,9 +9,22 @@ Approach: recursive expr builder with proper separation of concerns:
 
 import random
 
-from .symbols import (_pick_base, _shared_expr, _shared_term, _shared_sub_content,
-                       VARS, UPPER, DIGITS, GREEK, GREEK_UPPER, MISC_SYMBOLS,
-                       ARITH_OPS, RELOPS, BIGOPS, FUNCS)
+from .symbols import (
+    ARITH_OPS,
+    BIGOPS,
+    DIGITS,
+    FUNCS,
+    GREEK,
+    GREEK_UPPER,
+    MISC_SYMBOLS,
+    RELOPS,
+    UPPER,
+    VARS,
+    _pick_base,
+    _shared_expr,
+    _shared_sub_content,
+    _shared_term,
+)
 
 
 def _atom():
@@ -23,6 +36,7 @@ def _atom():
         weights=[10, 3, 8, 4, 1, 2],
     )[0]
     return random.choice(pool)
+
 
 # ── Recursive builder ─────────────────────────────────────────────────
 
@@ -38,11 +52,11 @@ def _term(d):
 def _slot(d):
     return _expr(d + 1)
 
+
 def _struct(d):
     """Pick a structure. All types represented but weighted by commonality."""
     kind = random.choices(
-        ["frac", "sup", "sub", "subsup", "sqrt", "func", "bigop",
-         "parens", "binom", "abs"],
+        ["frac", "sup", "sub", "subsup", "sqrt", "func", "bigop", "parens", "binom", "abs"],
         weights=[20, 15, 10, 8, 10, 8, 12, 8, 4, 5],
     )[0]
 

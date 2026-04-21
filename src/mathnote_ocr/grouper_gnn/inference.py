@@ -10,18 +10,18 @@ import math
 
 import torch
 
-from mathnote_ocr.engine.stroke import Stroke, compute_bbox
-from mathnote_ocr.engine.renderer import render_strokes
-from mathnote_ocr.engine.checkpoint import load_checkpoint
-from mathnote_ocr.classifier.inference import SymbolClassifier
-from mathnote_ocr.grouper_gnn.model import StrokeGNN
-from mathnote_ocr.grouper_gnn.features import (
-    compute_node_features,
-    compute_edge_features,
-    compute_adjacency_mask,
-)
-from mathnote_ocr.engine.grouper import DetectedSymbol, _postprocess, _DEFAULTS
 from mathnote_ocr import config
+from mathnote_ocr.classifier.inference import SymbolClassifier
+from mathnote_ocr.engine.checkpoint import load_checkpoint
+from mathnote_ocr.engine.grouper import _DEFAULTS, DetectedSymbol, _postprocess
+from mathnote_ocr.engine.renderer import render_strokes
+from mathnote_ocr.engine.stroke import Stroke, compute_bbox
+from mathnote_ocr.grouper_gnn.features import (
+    compute_adjacency_mask,
+    compute_edge_features,
+    compute_node_features,
+)
+from mathnote_ocr.grouper_gnn.model import StrokeGNN
 
 
 class GNNGrouper:
@@ -52,7 +52,9 @@ class GNNGrouper:
         self.gnn.eval()
 
         # Load CNN classifier
-        self.classifier = SymbolClassifier(run=classifier_run, device=self.device, weights_dir=weights_dir)
+        self.classifier = SymbolClassifier(
+            run=classifier_run, device=self.device, weights_dir=weights_dir
+        )
 
     @torch.no_grad()
     def group_and_classify(
@@ -71,10 +73,7 @@ class GNNGrouper:
             return [[]]
 
         # 1. GNN edge prediction
-        stroke_dicts = [
-            [{"x": p.x, "y": p.y} for p in s.points]
-            for s in strokes
-        ]
+        stroke_dicts = [[{"x": p.x, "y": p.y} for p in s.points] for s in strokes]
 
         renders, geo = compute_node_features(stroke_dicts, stroke_width=stroke_width)
         edge_feats = compute_edge_features(stroke_dicts)
@@ -89,16 +88,20 @@ class GNNGrouper:
         edge_scores = edge_scores[0]  # (N, N)
 
         # 2. Dense agglomerative grouping
-        groups = self._dense_agglomerative(edge_scores, len(strokes),
-                                           threshold=edge_threshold, max_size=4)
+        groups = self._dense_agglomerative(
+            edge_scores, len(strokes), threshold=edge_threshold, max_size=4
+        )
 
         if debug:
             print(f"[grouper_v2] {len(strokes)} strokes → {len(groups)} groups")
             for g in groups:
                 scores_str = ""
                 if len(g) > 1:
-                    pairs = [(edge_scores[i, j].item(), i, j)
-                             for idx_a, i in enumerate(g) for j in g[idx_a+1:]]
+                    pairs = [
+                        (edge_scores[i, j].item(), i, j)
+                        for idx_a, i in enumerate(g)
+                        for j in g[idx_a + 1 :]
+                    ]
                     scores_str = " edges=" + ",".join(f"{s:.1f}" for s, _, _ in pairs)
                 print(f"  group {g}{scores_str}")
 
@@ -107,12 +110,14 @@ class GNNGrouper:
         size_feats = []
         for group_indices in groups:
             group_strokes = [strokes[i] for i in group_indices]
-            images.append(render_strokes(
-                group_strokes,
-                canvas_size=self.classifier.canvas_size,
-                stroke_width=stroke_width,
-                source_size=source_size,
-            ))
+            images.append(
+                render_strokes(
+                    group_strokes,
+                    canvas_size=self.classifier.canvas_size,
+                    stroke_width=stroke_width,
+                    source_size=source_size,
+                )
+            )
             if self.classifier.use_size_feat:
                 all_x = [p.x for s in group_strokes for p in s.points]
                 all_y = [p.y for s in group_strokes for p in s.points]
@@ -138,18 +143,22 @@ class GNNGrouper:
             sym_name = result.symbol or "?"
             sym_name = _DEFAULTS.get(sym_name, sym_name)
 
-            symbols.append(DetectedSymbol(
-                stroke_indices=sorted(group_indices),
-                bbox=bbox,
-                symbol=sym_name,
-                confidence=result.confidence,
-                prototype_distance=result.prototype_distance,
-                alternatives=result.alternatives,
-            ))
+            symbols.append(
+                DetectedSymbol(
+                    stroke_indices=sorted(group_indices),
+                    bbox=bbox,
+                    symbol=sym_name,
+                    confidence=result.confidence,
+                    prototype_distance=result.prototype_distance,
+                    alternatives=result.alternatives,
+                )
+            )
 
             if debug:
-                print(f"  {sorted(group_indices)} → '{sym_name}' "
-                      f"conf={result.confidence:.3f} dist={result.prototype_distance:.1f}")
+                print(
+                    f"  {sorted(group_indices)} → '{sym_name}' "
+                    f"conf={result.confidence:.3f} dist={result.prototype_distance:.1f}"
+                )
 
         # 5. Post-process (merge composite symbols like =, div, etc.)
         symbols = _postprocess(symbols)

@@ -10,10 +10,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import random
-from PIL import Image, ImageFilter, ImageTransform
-import math
 
-from mathnote_ocr import config
+from PIL import Image, ImageFilter
 
 
 def augment_image(
@@ -115,13 +113,19 @@ def augment_dataset(
 
 if __name__ == "__main__":
     import argparse
+
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source-dir", default="data/shared/symbols",
-                    help="Source symbols dir (default: ./data/shared/symbols)")
-    ap.add_argument("--output-dir", default="data/shared/classifier_augmented",
-                    help="Output dir for augmented copies (default: ./data/shared/classifier_augmented)")
-    ap.add_argument("--copies", type=int, default=3,
-                    help="Augmented copies per image (default: 3)")
+    ap.add_argument(
+        "--source-dir",
+        default="data/shared/symbols",
+        help="Source symbols dir (default: ./data/shared/symbols)",
+    )
+    ap.add_argument(
+        "--output-dir",
+        default="data/shared/classifier_augmented",
+        help="Output dir for augmented copies (default: ./data/shared/classifier_augmented)",
+    )
+    ap.add_argument("--copies", type=int, default=3, help="Augmented copies per image (default: 3)")
     args = ap.parse_args()
 
     print("Generating augmented training data...\n")

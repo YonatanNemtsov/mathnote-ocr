@@ -17,18 +17,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
 import uvicorn
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
-from mathnote_ocr.engine.stroke import Stroke
-from mathnote_ocr.engine.grouper import group_and_classify, GrouperCache, GrouperParams
-from mathnote_ocr.classifier.inference import SymbolClassifier
-from mathnote_ocr.tree_parser.inference import SubsetTreeParser
-from mathnote_ocr.tree_parser.tree_v2 import Edge, ROOT_ID
-from mathnote_ocr.pipeline_config import load_config, get
 import mathnote_ocr.config as app_config
+from mathnote_ocr.classifier.inference import SymbolClassifier
+from mathnote_ocr.engine.grouper import GrouperCache, GrouperParams, group_and_classify
+from mathnote_ocr.engine.stroke import Stroke
+from mathnote_ocr.pipeline_config import get, load_config
+from mathnote_ocr.tree_parser.inference import SubsetTreeParser
+from mathnote_ocr.tree_parser.tree_v2 import Edge
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +50,7 @@ def _resolve_config(name: str | None) -> str | None:
 
 
 # ── Pipeline state ───────────────────────────────────────────────────
+
 
 class Pipeline:
     """Holds loaded models and config. Can be reloaded."""
@@ -110,12 +111,16 @@ class Pipeline:
 
         if tree_gnn_run:
             from mathnote_ocr.tree_parser.inference import GNNTreeParser
-            log.info("Loading tree parser (run=%s, gnn=%s, strategy=%s)...",
-                     tree_run, tree_gnn_run, subset_strategy)
+
+            log.info(
+                "Loading tree parser (run=%s, gnn=%s, strategy=%s)...",
+                tree_run,
+                tree_gnn_run,
+                subset_strategy,
+            )
             self.parser = GNNTreeParser(gnn_run=tree_gnn_run, **tree_kwargs)
         else:
-            log.info("Loading tree parser (run=%s, strategy=%s)...",
-                     tree_run, subset_strategy)
+            log.info("Loading tree parser (run=%s, strategy=%s)...", tree_run, subset_strategy)
             self.parser = SubsetTreeParser(**tree_kwargs)
 
         log.info("Pipeline loaded.")
@@ -143,6 +148,7 @@ class Pipeline:
 
 
 # ── App setup ────────────────────────────────────────────────────────
+
 
 def create_app(config_name: str | None = "default") -> FastAPI:
     app = FastAPI(title="Math OCR")
@@ -179,7 +185,11 @@ def create_app(config_name: str | None = "default") -> FastAPI:
         runs = {}
         for model_dir in WEIGHTS_DIR.iterdir():
             if model_dir.is_dir():
-                model_runs = [d.name for d in model_dir.iterdir() if d.is_dir() and (d / "checkpoint.pth").exists()]
+                model_runs = [
+                    d.name
+                    for d in model_dir.iterdir()
+                    if d.is_dir() and (d / "checkpoint.pth").exists()
+                ]
                 if model_runs:
                     runs[model_dir.name] = sorted(model_runs)
         return JSONResponse(runs)
@@ -219,7 +229,8 @@ def create_app(config_name: str | None = "default") -> FastAPI:
 
                     t0 = time.perf_counter()
                     all_partitions = group_and_classify(
-                        strokes, pipeline.classifier,
+                        strokes,
+                        pipeline.classifier,
                         stroke_width=stroke_width,
                         source_size=source_size,
                         top_k=pipeline.top_k,
@@ -235,39 +246,50 @@ def create_app(config_name: str | None = "default") -> FastAPI:
 
                     # Dump detected symbols for debugging
                     if msg.get("debug"):
-                        best_partition = max(all_partitions, key=lambda p: sum(s.confidence for s in p))
+                        best_partition = max(
+                            all_partitions, key=lambda p: sum(s.confidence for s in p)
+                        )
                         symbols_dump = [
-                            {"symbol": s.symbol, "bbox": [s.bbox.x, s.bbox.y, s.bbox.w, s.bbox.h],
-                             "confidence": round(s.confidence, 3)}
+                            {
+                                "symbol": s.symbol,
+                                "bbox": [s.bbox.x, s.bbox.y, s.bbox.w, s.bbox.h],
+                                "confidence": round(s.confidence, 3),
+                            }
                             for s in sorted(best_partition, key=lambda s: s.bbox.x)
                         ]
                         import json as _json
+
                         log.info("SYMBOLS: %s", _json.dumps(symbols_dump))
 
                     t1 = time.perf_counter()
                     debug_mode = msg.get("debug", False)
                     result_partitions = _build_results(
-                        all_partitions, pipeline.parser,
+                        all_partitions,
+                        pipeline.parser,
                         diagnostics=debug_mode,
                     )
                     t_tree = time.perf_counter() - t1
 
                     log.info(
                         "%d strokes -> %d results  grouper=%dms  tree=%dms",
-                        len(raw_strokes), len(result_partitions),
-                        int(t_group * 1000), int(t_tree * 1000),
+                        len(raw_strokes),
+                        len(result_partitions),
+                        int(t_group * 1000),
+                        int(t_tree * 1000),
                     )
                     for j, r in enumerate(result_partitions[:3]):
                         log.info("  [%d] %s (score=%s)", j, r["latex"], r["score"])
 
-                    await websocket.send_json({
-                        "type": "result",
-                        "partitions": result_partitions,
-                        "timing": {
-                            "grouper_ms": round(t_group * 1000),
-                            "tree_ms": round(t_tree * 1000),
-                        },
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "result",
+                            "partitions": result_partitions,
+                            "timing": {
+                                "grouper_ms": round(t_group * 1000),
+                                "tree_ms": round(t_tree * 1000),
+                            },
+                        }
+                    )
 
         except WebSocketDisconnect:
             log.info("WebSocket disconnected")
@@ -291,7 +313,7 @@ def _build_results(all_partitions, parser, diagnostics: bool = False) -> list[di
         symbols = parser.promote_symbols(symbols)
 
         subset_diags = None
-        if diagnostics and hasattr(parser, 'parse_with_diagnostics'):
+        if diagnostics and hasattr(parser, "parse_with_diagnostics"):
             diag = parser.parse_with_diagnostics(symbols)
             latex = diag["latex"]
             parse_confidence = diag["confidence"]
@@ -329,21 +351,25 @@ def _build_results(all_partitions, parser, diagnostics: bool = False) -> list[di
             def _walk(idx):
                 for child_id, et, _ in tree.children_of(idx):
                     et_name = Edge(et).name.lower() if 0 <= et < len(Edge) else "root"
-                    relations.append({
-                        "from": child_id,
-                        "to": idx,
-                        "type": et_name,
-                        "prob": round(_get_prob(child_id, idx, et), 3),
-                    })
+                    relations.append(
+                        {
+                            "from": child_id,
+                            "to": idx,
+                            "type": et_name,
+                            "prob": round(_get_prob(child_id, idx, et), 3),
+                        }
+                    )
                     _walk(child_id)
 
             for root_idx in tree.root_ids():
-                relations.append({
-                    "from": root_idx,
-                    "to": -1,
-                    "type": "root",
-                    "prob": round(_get_prob(root_idx, -1, -1), 3),
-                })
+                relations.append(
+                    {
+                        "from": root_idx,
+                        "to": -1,
+                        "type": "root",
+                        "prob": round(_get_prob(root_idx, -1, -1), 3),
+                    }
+                )
                 _walk(root_idx)
 
         entry = {

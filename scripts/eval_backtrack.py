@@ -2,21 +2,18 @@
 
 import json
 import os
-import sys
 import random
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-import torch
 
-from mathnote_ocr.tree_parser.inference import SubsetTreeParser
-from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
-from mathnote_ocr.tree_parser.tree_v2 import Tree, Node, Symbol, Edge, ROOT_ID
-from mathnote_ocr.tree_parser.tree_v2 import tree_from_arrays
 from mathnote_ocr.bbox import BBox
 from mathnote_ocr.engine.grouper import DetectedSymbol
-from mathnote_ocr.engine.stroke import Stroke
+from mathnote_ocr.tree_parser.inference import SubsetTreeParser
+from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
+from mathnote_ocr.tree_parser.tree_v2 import Tree, tree_from_arrays
 
 
 def load_val(path, n_max=500):
@@ -96,15 +93,20 @@ REPO_WEIGHTS = REPO_ROOT / "weights"
 
 def main():
     import argparse
+
     parser_arg = argparse.ArgumentParser()
-    parser_arg.add_argument("--config", default="mixed_v9_backtrack",
-                            help="Config name (looked up in repo configs/) or explicit path")
+    parser_arg.add_argument(
+        "--config",
+        default="mixed_v9_backtrack",
+        help="Config name (looked up in repo configs/) or explicit path",
+    )
     parser_arg.add_argument("--n", type=int, default=100)
     parser_arg.add_argument("--val", default=None, help="Path to val.jsonl (default: mixed_v7)")
     args = parser_arg.parse_args()
 
     # Resolve config: bundled name, repo config name, or path
     from mathnote_ocr.pipeline_config import load_config
+
     cfg_arg = args.config
     if "/" not in cfg_arg and not cfg_arg.endswith((".yaml", ".yml")):
         repo_config = REPO_CONFIGS / f"{cfg_arg}.yaml"
@@ -134,7 +136,10 @@ def main():
     if gnn_run:
         from mathnote_ocr.engine.checkpoint import load_checkpoint
         from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
-        gnn_ckpt = load_checkpoint("tree_gnn", gnn_run, device=tree_parser.device, weights_dir=str(REPO_WEIGHTS))
+
+        gnn_ckpt = load_checkpoint(
+            "tree_gnn", gnn_run, device=tree_parser.device, weights_dir=str(REPO_WEIGHTS)
+        )
         gnn_cfg = gnn_ckpt["config"]
         gnn_model = EvidenceGNN(
             num_symbols=gnn_cfg["num_symbols"],
@@ -154,8 +159,9 @@ def main():
     if args.val:
         val_path = args.val
     else:
-        val_path = os.path.join(os.path.dirname(__file__), "..",
-                                "data", "runs", "tree_subset", "mixed_v7", "val.jsonl")
+        val_path = os.path.join(
+            os.path.dirname(__file__), "..", "data", "runs", "tree_subset", "mixed_v7", "val.jsonl"
+        )
     examples = load_val(val_path, args.n)
     print(f"Evaluating {len(examples)} examples with config={args.config}")
 
@@ -175,7 +181,9 @@ def main():
         elif i < 20 or (i % 50 == 0):
             print(f"  [{i}] WRONG: pred={tree_to_latex(pred_tree)}  gt={tree_to_latex(gt_tree)}")
 
-    print(f"\nTree accuracy: {correct}/{len(examples)} = {correct/len(examples)*100:.1f}% (errors: {errors})")
+    print(
+        f"\nTree accuracy: {correct}/{len(examples)} = {correct / len(examples) * 100:.1f}% (errors: {errors})"
+    )
 
 
 if __name__ == "__main__":

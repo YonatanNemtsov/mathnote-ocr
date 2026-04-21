@@ -7,16 +7,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import asyncio
-import websockets
-import json
 import base64
 import io
+import json
 
-from mathnote_ocr.engine.stroke import Stroke
-from mathnote_ocr.engine.renderer import render_strokes
-from mathnote_ocr.classifier.inference import SymbolClassifier
-from mathnote_ocr.pipeline_config import load_config, get
+import websockets
+
 from mathnote_ocr import config
+from mathnote_ocr.classifier.inference import SymbolClassifier
+from mathnote_ocr.engine.renderer import render_strokes
+from mathnote_ocr.engine.stroke import Stroke
+from mathnote_ocr.pipeline_config import get, load_config
 
 REPO_ROOT = Path(__file__).parent.parent
 REPO_CONFIGS = REPO_ROOT / "configs"
@@ -31,6 +32,7 @@ def _resolve_config(name):
 
 
 import argparse
+
 ap = argparse.ArgumentParser()
 ap.add_argument("--config", type=str, default=None, help="Pipeline config name")
 ap.add_argument("--run", default=None, help="Classifier run name")
@@ -57,10 +59,14 @@ async def handler(websocket):
             if msg["type"] == "predict":
                 raw_strokes = msg.get("strokes", [])
                 if not raw_strokes:
-                    await websocket.send(json.dumps({
-                        "type": "error",
-                        "message": "No strokes to classify.",
-                    }))
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "message": "No strokes to classify.",
+                            }
+                        )
+                    )
                     continue
 
                 stroke_width = msg.get("stroke_width", config.RENDER_STROKE_WIDTH)
@@ -81,31 +87,41 @@ async def handler(websocket):
                 # The raw predicted symbol (even if OOD-rejected)
                 raw_symbol = all_predictions[0]["symbol"] if all_predictions else None
 
-                print(f"  predict: {result.symbol} (conf={result.confidence:.3f}, ood={result.is_ood})")
+                print(
+                    f"  predict: {result.symbol} (conf={result.confidence:.3f}, ood={result.is_ood})"
+                )
 
-                await websocket.send(json.dumps({
-                    "type": "prediction",
-                    "symbol": result.symbol,
-                    "raw_symbol": raw_symbol,
-                    "confidence": result.confidence,
-                    "prototype_distance": result.prototype_distance,
-                    "is_ood": result.is_ood,
-                    "rendered_image": f"data:image/png;base64,{rendered_b64}",
-                    "all_predictions": all_predictions,
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "prediction",
+                            "symbol": result.symbol,
+                            "raw_symbol": raw_symbol,
+                            "confidence": result.confidence,
+                            "prototype_distance": result.prototype_distance,
+                            "is_ood": result.is_ood,
+                            "rendered_image": f"data:image/png;base64,{rendered_b64}",
+                            "all_predictions": all_predictions,
+                        }
+                    )
+                )
 
         except Exception as e:
-            await websocket.send(json.dumps({
-                "type": "error",
-                "message": str(e),
-            }))
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "error",
+                        "message": str(e),
+                    }
+                )
+            )
 
     print(f"[disconnect] {addr}")
 
 
 async def main():
     print("Symbol Test Server")
-    print(f"WebSocket: ws://localhost:8766\n")
+    print("WebSocket: ws://localhost:8766\n")
     print("Open tools/test.html in your browser.\n")
 
     async with websockets.serve(handler, "localhost", 8766):

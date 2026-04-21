@@ -12,25 +12,25 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import argparse
-import json
 import copy
-import torch
+import json
 import random
 
-from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
-from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft
-from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets
-from mathnote_ocr.tree_parser.propagation import (
-    propagate_none,
-    propagate_seq,
-    propagate_old_symmetric,
-    propagate_bidir,
-    normalize_scores,
-)
-from mathnote_ocr.tree_parser.tree_builder import build_tree_from_evidence
-from mathnote_ocr.tree_parser.tree import ROOT
-from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+import torch
 
+from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft
+from mathnote_ocr.tree_parser.propagation import (
+    normalize_scores,
+    propagate_bidir,
+    propagate_none,
+    propagate_old_symmetric,
+    propagate_seq,
+)
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets
+from mathnote_ocr.tree_parser.tree import ROOT
+from mathnote_ocr.tree_parser.tree_builder import build_tree_from_evidence
 
 # ── Evaluation ───────────────────────────────────────────────────────
 
@@ -73,6 +73,7 @@ def run_model_on_example(model, vocab, example, device="cpu"):
 
 def evaluate_tree(predicted_nodes, ground_truth, N):
     """Compare predicted tree against ground truth. Returns (correct, total)."""
+
     def collect_all(roots):
         result = {}
         for n in roots:

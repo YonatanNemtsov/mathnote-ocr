@@ -8,13 +8,18 @@ Targets implicit multiplication after superscripts:
 
 import random
 
-from .symbols import _pick_base, MISC_SYMBOLS, RELOPS
+from .symbols import MISC_SYMBOLS, RELOPS
 
 VARS = list("xyzabcnmkpqr")
 DIGITS = list("0123456789")
 COMMON_VARS = list("xyz")
 GREEK = [
-    "\\alpha", "\\beta", "\\gamma", "\\theta", "\\pi", "\\sigma",
+    "\\alpha",
+    "\\beta",
+    "\\gamma",
+    "\\theta",
+    "\\pi",
+    "\\sigma",
 ]
 ARITH_OPS = ["+", "-"]
 

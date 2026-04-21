@@ -6,8 +6,9 @@ Usage:
     python3.10 tools/eval_handwritten.py --subset-run dg_all_v4 --gnn-run v6
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import argparse
@@ -18,22 +19,25 @@ import torch
 
 from mathnote_ocr.engine.checkpoint import load_checkpoint
 from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
-from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
-from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
 from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft, evidence_to_features
-from mathnote_ocr.tree_parser.propagation import propagate_seq
-from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets
-from mathnote_ocr.tree_parser.tree_builder import build_tree_from_evidence, build_tree_from_scores, find_seq_conflicts
 from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
+from mathnote_ocr.tree_parser.propagation import propagate_seq
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets
+from mathnote_ocr.tree_parser.tree_builder import (
+    build_tree_from_evidence,
+    build_tree_from_scores,
+    find_seq_conflicts,
+)
+from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
 
 
 def _normalize_latex(s: str) -> str:
     """Normalize LaTeX for comparison — handle equivalent forms."""
     s = s.replace(r"{\prod}", r"{\Pi}")
     s = s.replace(r"{\sum}", r"{\Sigma}")
-    s = re.sub(r'(\\(?:sin|cos|tan|log|ln|lim))\{([^{}])\}', r'\1\2', s)
-    s = re.sub(r'\{(\\(?:sin|cos|tan|log|ln|lim))\}\{([^{}])\}',
-               r'{\1}\2', s)
+    s = re.sub(r"(\\(?:sin|cos|tan|log|ln|lim))\{([^{}])\}", r"\1\2", s)
+    s = re.sub(r"\{(\\(?:sin|cos|tan|log|ln|lim))\}\{([^{}])\}", r"{\1}\2", s)
     return s
 
 
@@ -57,8 +61,10 @@ def _run_subsets(subset_model, symbol_vocab, symbols, device, subsets, max_subse
         sub_pad[:n_sub] = False
 
         out = subset_model.forward(
-            sub_ids.unsqueeze(0), geo_buckets.unsqueeze(0),
-            sub_pad.unsqueeze(0), size_feats.unsqueeze(0),
+            sub_ids.unsqueeze(0),
+            geo_buckets.unsqueeze(0),
+            sub_pad.unsqueeze(0),
+            size_feats.unsqueeze(0),
         )
         out_cpu = {k: v[0].cpu() for k, v in out.items()}
         partial_outputs.append((subset_indices, out_cpu, n_sub))
@@ -66,8 +72,9 @@ def _run_subsets(subset_model, symbol_vocab, symbols, device, subsets, max_subse
 
 
 @torch.no_grad()
-def predict_iterative(subset_model, symbol_vocab, symbols, device,
-                      max_subset=8, radius_mult=4.0, max_iters=3):
+def predict_iterative(
+    subset_model, symbol_vocab, symbols, device, max_subset=8, radius_mult=4.0, max_iters=3
+):
     N = len(symbols)
     bbox_lists = [s["bbox"] for s in symbols]
     names = [s["name"] for s in symbols]
@@ -80,8 +87,11 @@ def predict_iterative(subset_model, symbol_vocab, symbols, device,
         propagate_seq(evidence)
         roots = build_tree_from_evidence(evidence, names, bbox_lists)
         targets = find_seq_conflicts(
-            evidence, roots, bbox_lists,
-            seq_threshold=2.0, max_subset_size=min(max_subset, N),
+            evidence,
+            roots,
+            bbox_lists,
+            seq_threshold=2.0,
+            max_subset_size=min(max_subset, N),
         )
         if not targets:
             break
@@ -95,8 +105,9 @@ def predict_iterative(subset_model, symbol_vocab, symbols, device,
 
 
 @torch.no_grad()
-def predict_gnn(gnn_model, subset_model, symbol_vocab, symbols, device,
-                max_subset=8, radius_mult=4.0):
+def predict_gnn(
+    gnn_model, subset_model, symbol_vocab, symbols, device, max_subset=8, radius_mult=4.0
+):
     N = len(symbols)
     bbox_lists = [s["bbox"] for s in symbols]
     names = [s["name"] for s in symbols]
@@ -109,7 +120,8 @@ def predict_gnn(gnn_model, subset_model, symbol_vocab, symbols, device,
     unk_id = symbol_vocab.get("<unk>", 1)
     sym_ids = torch.tensor(
         [symbol_vocab.get(names[i], unk_id) for i in range(N)],
-        dtype=torch.long, device=device,
+        dtype=torch.long,
+        device=device,
     )
     _, size_feats = compute_features_from_bbox_list(bbox_lists, N)
     size_feats = size_feats.to(device)
@@ -128,8 +140,11 @@ def predict_gnn(gnn_model, subset_model, symbol_vocab, symbols, device,
     order_preds = torch.zeros(N, N + 1)
 
     roots = build_tree_from_scores(
-        parent_scores, edge_type_scores, order_preds,
-        names, bbox_lists,
+        parent_scores,
+        edge_type_scores,
+        order_preds,
+        names,
+        bbox_lists,
     )
     return roots, names
 
@@ -195,10 +210,8 @@ def main():
 
     # Evaluate both methods
     methods = {
-        "Iterative": lambda syms: predict_iterative(
-            subset_model, symbol_vocab, syms, args.device),
-        "GNN": lambda syms: predict_gnn(
-            gnn_model, subset_model, symbol_vocab, syms, args.device),
+        "Iterative": lambda syms: predict_iterative(subset_model, symbol_vocab, syms, args.device),
+        "GNN": lambda syms: predict_gnn(gnn_model, subset_model, symbol_vocab, syms, args.device),
     }
 
     results = {}
@@ -211,15 +224,17 @@ def main():
     print("─" * 52)
     for name, (exact, normalized, misses) in results.items():
         real_err = total - normalized
-        print(f"{name:<12} {exact:>3}/{total} {exact/total:>5.1%}"
-              f"   {normalized:>3}/{total} {normalized/total:>5.1%}"
-              f"   {real_err:>5}")
+        print(
+            f"{name:<12} {exact:>3}/{total} {exact / total:>5.1%}"
+            f"   {normalized:>3}/{total} {normalized / total:>5.1%}"
+            f"   {real_err:>5}"
+        )
 
     if args.verbose:
         for name, (exact, normalized, misses) in results.items():
             real = [m for m in misses if not m[3]]
             if real:
-                print(f"\n{'─'*60}")
+                print(f"\n{'─' * 60}")
                 print(f"{name} — structural mismatches ({len(real)}):")
                 for idx, gt, pred, _ in real:
                     print(f"  [{idx}] GT:   {gt}")

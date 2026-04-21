@@ -3,13 +3,13 @@
 Runs collapse many times on each expression, checks that orders are
 always contiguous and seq_prev targets are always findable.
 """
-import random
+
 import sys
 from collections import defaultdict
 
 sys.path.insert(0, ".")
 
-from mathnote_ocr.latex_utils.collapse import random_collapse, EXPR_NAME
+from mathnote_ocr.latex_utils.collapse import EXPR_NAME, random_collapse
 
 
 def make_expr(names, tree_dicts):
@@ -39,9 +39,11 @@ def check_seq_targets(symbols, tree):
             if order == 0:
                 continue
             if order - 1 not in order_map:
-                return False, (f"{symbols[idx]['name']} (order={order}) "
-                               f"can't find prev sibling (order {order-1}), "
-                               f"available: {sorted(order_map.keys())}")
+                return False, (
+                    f"{symbols[idx]['name']} (order={order}) "
+                    f"can't find prev sibling (order {order - 1}), "
+                    f"available: {sorted(order_map.keys())}"
+                )
     return True, ""
 
 
@@ -51,9 +53,7 @@ def run_stress(name, names, tree, n_iters=1000):
     symbols, tree = make_expr(names, tree)
     n_collapsed = 0
     for _ in range(n_iters):
-        s2, t2 = random_collapse(
-            list(symbols), [dict(t) for t in tree], collapse_prob=1.0
-        )
+        s2, t2 = random_collapse(list(symbols), [dict(t) for t in tree], collapse_prob=1.0)
         has_expr = any(s["name"] == EXPR_NAME for s in s2)
         if not has_expr:
             continue
@@ -83,37 +83,48 @@ def main():
     all_ok = True
 
     # e^{abcd}: 4 siblings under superscript
-    all_ok &= run_stress("e^{abcd}", ["e", "a", "b", "c", "d"], [
-        {"parent": -1, "edge_type": 0, "order": 0},
-        {"parent": 0, "edge_type": 1, "order": 0},
-        {"parent": 0, "edge_type": 1, "order": 1},
-        {"parent": 0, "edge_type": 1, "order": 2},
-        {"parent": 0, "edge_type": 1, "order": 3},
-    ])
+    all_ok &= run_stress(
+        "e^{abcd}",
+        ["e", "a", "b", "c", "d"],
+        [
+            {"parent": -1, "edge_type": 0, "order": 0},
+            {"parent": 0, "edge_type": 1, "order": 0},
+            {"parent": 0, "edge_type": 1, "order": 1},
+            {"parent": 0, "edge_type": 1, "order": 2},
+            {"parent": 0, "edge_type": 1, "order": 3},
+        ],
+    )
 
     # frac{a+b}{c}: siblings in numerator
-    all_ok &= run_stress("frac{a+b}{c}", ["frac", "a", "+", "b", "c"], [
-        {"parent": -1, "edge_type": 0, "order": 0},
-        {"parent": 0, "edge_type": 1, "order": 0},
-        {"parent": 0, "edge_type": 1, "order": 1},
-        {"parent": 0, "edge_type": 1, "order": 2},
-        {"parent": 0, "edge_type": 2, "order": 0},
-    ])
+    all_ok &= run_stress(
+        "frac{a+b}{c}",
+        ["frac", "a", "+", "b", "c"],
+        [
+            {"parent": -1, "edge_type": 0, "order": 0},
+            {"parent": 0, "edge_type": 1, "order": 0},
+            {"parent": 0, "edge_type": 1, "order": 1},
+            {"parent": 0, "edge_type": 1, "order": 2},
+            {"parent": 0, "edge_type": 2, "order": 0},
+        ],
+    )
 
     # 5 root siblings
-    all_ok &= run_stress("a+b+c+d+e (5 root sibs)",
+    all_ok &= run_stress(
+        "a+b+c+d+e (5 root sibs)",
         ["a", "+", "b", "+", "c"],
         [{"parent": -1, "edge_type": 0, "order": i} for i in range(5)],
     )
 
     # 3 root siblings (can fully collapse)
-    all_ok &= run_stress("abc (3 root sibs)",
+    all_ok &= run_stress(
+        "abc (3 root sibs)",
         ["a", "b", "c"],
         [{"parent": -1, "edge_type": 0, "order": i} for i in range(3)],
     )
 
     # Nested: x + frac{a}{b} with 2 root siblings
-    all_ok &= run_stress("x + frac{a}{b}",
+    all_ok &= run_stress(
+        "x + frac{a}{b}",
         ["x", "+", "frac", "a", "b"],
         [
             {"parent": -1, "edge_type": 0, "order": 0},

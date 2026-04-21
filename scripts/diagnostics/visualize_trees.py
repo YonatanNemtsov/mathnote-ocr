@@ -1,18 +1,25 @@
 """Generate an HTML page showing LaTeX expressions alongside their tree structures."""
 
-import subprocess
-import base64
-import random
-import sys
 import os
+import subprocess
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
 from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
 from mathnote_ocr.tree_parser.tree import (
-    SymbolNode, build_tree, tree_to_latex, ROOT,
-    NUM, DEN, SUP, SUB, SQRT_CONTENT, UPPER, LOWER, EDGE_NAMES,
+    DEN,
+    EDGE_NAMES,
+    LOWER,
+    NUM,
+    SQRT_CONTENT,
+    SUB,
+    SUP,
+    UPPER,
+    SymbolNode,
+    build_tree,
+    tree_to_latex,
 )
 
 EDGE_COLORS = {
@@ -55,7 +62,7 @@ def _build_dot(roots: list[SymbolNode], glyph_names: list[str]) -> str:
     """Build a graphviz DOT string for the tree."""
     lines = [
         "digraph T {",
-        '  rankdir=TB;',
+        "  rankdir=TB;",
         '  node [shape=box, style="rounded,filled", fillcolor="#f5f5f5",'
         '        fontname="Courier", fontsize=14, margin="0.15,0.07"];',
         '  edge [fontname="Helvetica", fontsize=10];',
@@ -85,7 +92,7 @@ def _build_dot(roots: list[SymbolNode], glyph_names: list[str]) -> str:
             ename = EDGE_NAMES[et]
             for c in children:
                 lines.append(
-                    f'  {_dot_id(node)} -> {_dot_id(c)}'
+                    f"  {_dot_id(node)} -> {_dot_id(c)}"
                     f' [label=" {ename}", color="{color}",'
                     f'  fontcolor="{color}"];'
                 )
@@ -97,16 +104,16 @@ def _build_dot(roots: list[SymbolNode], glyph_names: list[str]) -> str:
                 prev = children[i - 1]
                 curr = children[i]
                 lines.append(
-                    f'  {_dot_id(prev)} -> {_dot_id(curr)}'
+                    f"  {_dot_id(prev)} -> {_dot_id(curr)}"
                     f' [label=" seq", color="#999999", fontcolor="#999999",'
-                    f'  style=dashed, constraint=false];'
+                    f"  style=dashed, constraint=false];"
                 )
     # Also seq edges among roots
     for i in range(1, len(roots)):
         lines.append(
-            f'  {_dot_id(roots[i-1])} -> {_dot_id(roots[i])}'
+            f"  {_dot_id(roots[i - 1])} -> {_dot_id(roots[i])}"
             f' [label=" seq", color="#999999", fontcolor="#999999",'
-            f'  style=dashed, constraint=false];'
+            f"  style=dashed, constraint=false];"
         )
 
     lines.append("}")
@@ -117,7 +124,9 @@ def _dot_to_svg(dot_src: str) -> str:
     """Render DOT to SVG via graphviz."""
     result = subprocess.run(
         ["dot", "-Tsvg"],
-        input=dot_src, capture_output=True, text=True,
+        input=dot_src,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         return f"<pre>graphviz error: {_escape(result.stderr)}</pre>"
@@ -142,10 +151,16 @@ def process_example(latex: str) -> dict | None:
 
     nodes = []
     for j, (name, (par, edge, order)) in enumerate(zip(glyph_names, result)):
-        nodes.append(SymbolNode(
-            symbol=name, bbox=[0, 0, 1, 1], index=j,
-            parent=par, edge_type=edge, order=order,
-        ))
+        nodes.append(
+            SymbolNode(
+                symbol=name,
+                bbox=[0, 0, 1, 1],
+                index=j,
+                parent=par,
+                edge_type=edge,
+                order=order,
+            )
+        )
 
     roots = build_tree(nodes)
     reconstructed = tree_to_latex(roots)
@@ -167,7 +182,9 @@ def generate_html(examples: list[str], out_path: str):
     for latex in examples:
         info = process_example(latex)
         if info is None:
-            cards.append(f'<div class="card"><p>Failed to process: <code>{_escape(latex)}</code></p></div>')
+            cards.append(
+                f'<div class="card"><p>Failed to process: <code>{_escape(latex)}</code></p></div>'
+            )
             continue
 
         match_icon = "&#10003;" if info["match"] else "&#10007;"
@@ -179,7 +196,7 @@ def generate_html(examples: list[str], out_path: str):
             <div class="section-label">LaTeX</div>
             <div class="rendered">$${_escape(info["latex"])}$$</div>
             <div class="code"><code>{_escape(info["latex"])}</code></div>
-            <div class="glyphs">Glyphs: {', '.join(info['glyphs'])}</div>
+            <div class="glyphs">Glyphs: {", ".join(info["glyphs"])}</div>
             <div class="roundtrip {match_class}">
               <span>{match_icon}</span>
               <code>{_escape(info["reconstructed"])}</code>

@@ -6,7 +6,6 @@ import numpy as np
 import torch
 from PIL import Image, ImageDraw
 
-
 _SUPERSAMPLE = 2  # 2x supersample for mini-renders
 
 
@@ -50,9 +49,7 @@ def render_stroke_mini(
     draw = ImageDraw.Draw(img)
 
     pts = [
-        ((p["x"] - min_x) * scale + offset_x,
-         (p["y"] - min_y) * scale + offset_y)
-        for p in points
+        ((p["x"] - min_x) * scale + offset_x, (p["y"] - min_y) * scale + offset_y) for p in points
     ]
 
     if len(pts) == 1:
@@ -153,13 +150,13 @@ def compute_node_features(
         # Geometric features (all normalized to ~[0, 1] or [-1, 1])
         geo[i, 0] = (s_min_x - expr_min_x) / expr_w  # x position
         geo[i, 1] = (s_min_y - expr_min_y) / expr_h  # y position
-        geo[i, 2] = max(s_w, 1.0) / expr_w            # width
-        geo[i, 3] = max(s_h, 1.0) / expr_h            # height
-        geo[i, 4] = max(s_w, 1.0) / max(s_h, 1.0)     # aspect ratio (clamped)
-        geo[i, 4] = min(geo[i, 4], 10.0) / 10.0       # normalize to [0, 1]
+        geo[i, 2] = max(s_w, 1.0) / expr_w  # width
+        geo[i, 3] = max(s_h, 1.0) / expr_h  # height
+        geo[i, 4] = max(s_w, 1.0) / max(s_h, 1.0)  # aspect ratio (clamped)
+        geo[i, 4] = min(geo[i, 4], 10.0) / 10.0  # normalize to [0, 1]
         geo[i, 5] = arc_lengths[i] / max_arc if max_arc > 0 else 0.0  # arc length
         geo[i, 6] = point_counts[i] / max_pts if max_pts > 0 else 0.0  # point count
-        geo[i, 7] = _stroke_direction(pts)             # direction [-1, 1]
+        geo[i, 7] = _stroke_direction(pts)  # direction [-1, 1]
 
     return torch.from_numpy(renders), torch.from_numpy(geo)
 
@@ -288,7 +285,7 @@ def compute_adjacency_mask(
     mask = np.eye(N, dtype=bool)  # self-connections
     for i in range(N):
         if k_actual > 0:
-            neighbours = np.argpartition(dists[i], k_actual)[:k_actual + 1]
+            neighbours = np.argpartition(dists[i], k_actual)[: k_actual + 1]
             mask[i, neighbours] = True
             mask[neighbours, i] = True  # symmetric
 

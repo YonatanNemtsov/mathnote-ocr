@@ -6,10 +6,10 @@ Usage:
 """
 
 import json
+import os
 import random
 import subprocess
 import sys
-import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -17,15 +17,26 @@ import torch
 
 from mathnote_ocr.engine.checkpoint import load_checkpoint
 from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
-from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
-from mathnote_ocr.tree_parser.tree import (
-    SymbolNode, build_tree, tree_to_latex, ROOT,
-    NUM, DEN, SUP, SUB, SQRT_CONTENT, EDGE_NAMES, NUM_EDGE_TYPES,
-)
 from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft, evidence_to_features
 from mathnote_ocr.tree_parser.propagation import propagate_seq
-from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets, _bbox_edge_dist
-from mathnote_ocr.tree_parser.tree_builder import build_tree_from_evidence, build_tree_from_scores, find_seq_conflicts
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets
+from mathnote_ocr.tree_parser.tree import (
+    DEN,
+    EDGE_NAMES,
+    NUM,
+    SQRT_CONTENT,
+    SUB,
+    SUP,
+    SymbolNode,
+    build_tree,
+    tree_to_latex,
+)
+from mathnote_ocr.tree_parser.tree_builder import (
+    build_tree_from_evidence,
+    build_tree_from_scores,
+    find_seq_conflicts,
+)
 
 EDGE_COLORS = {
     -1: "#666666",
@@ -48,7 +59,7 @@ def _dot_id(node: SymbolNode, prefix: str = "n") -> str:
 def _build_dot(roots: list[SymbolNode], glyph_names: list[str], prefix: str = "n") -> str:
     lines = [
         "digraph T {",
-        '  rankdir=TB;',
+        "  rankdir=TB;",
         '  node [shape=box, style="rounded,filled", fillcolor="#f5f5f5",'
         '        fontname="Courier", fontsize=14, margin="0.15,0.07"];',
         '  edge [fontname="Helvetica", fontsize=10];',
@@ -75,7 +86,7 @@ def _build_dot(roots: list[SymbolNode], glyph_names: list[str], prefix: str = "n
         prev_r = sorted_roots[i - 1]
         curr_r = sorted_roots[i]
         lines.append(
-            f'  {_dot_id(prev_r, prefix)} -> {_dot_id(curr_r, prefix)}'
+            f"  {_dot_id(prev_r, prefix)} -> {_dot_id(curr_r, prefix)}"
             f' [style=dashed, color="#AAAAAA", constraint=false,'
             f'  arrowsize=0.6, label=" seq", fontsize=8,'
             f'  fontcolor="#AAAAAA"];'
@@ -88,7 +99,7 @@ def _build_dot(roots: list[SymbolNode], glyph_names: list[str], prefix: str = "n
             sorted_children = sorted(children, key=lambda c: c.order)
             for c in sorted_children:
                 lines.append(
-                    f'  {_dot_id(node, prefix)} -> {_dot_id(c, prefix)}'
+                    f"  {_dot_id(node, prefix)} -> {_dot_id(c, prefix)}"
                     f' [label=" {ename}", color="{color}",'
                     f'  fontcolor="{color}"];'
                 )
@@ -97,7 +108,7 @@ def _build_dot(roots: list[SymbolNode], glyph_names: list[str], prefix: str = "n
                 prev_c = sorted_children[i - 1]
                 curr_c = sorted_children[i]
                 lines.append(
-                    f'  {_dot_id(prev_c, prefix)} -> {_dot_id(curr_c, prefix)}'
+                    f"  {_dot_id(prev_c, prefix)} -> {_dot_id(curr_c, prefix)}"
                     f' [style=dashed, color="#AAAAAA", constraint=false,'
                     f'  arrowsize=0.6, label=" seq", fontsize=8,'
                     f'  fontcolor="#AAAAAA"];'
@@ -110,7 +121,9 @@ def _build_dot(roots: list[SymbolNode], glyph_names: list[str], prefix: str = "n
 def _dot_to_svg(dot_src: str) -> str:
     result = subprocess.run(
         ["dot", "-Tsvg"],
-        input=dot_src, capture_output=True, text=True,
+        input=dot_src,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         return f"<pre>graphviz error: {_escape(result.stderr)}</pre>"
@@ -124,21 +137,24 @@ def _build_trees(symbols, tree_labels) -> tuple[list[SymbolNode], list[str]]:
     names = [s["name"] for s in symbols]
     nodes = []
     for j, (s, t) in enumerate(zip(symbols, tree_labels)):
-        nodes.append(SymbolNode(
-            symbol=s["name"],
-            bbox=s["bbox"],
-            index=j,
-            parent=t["parent"],
-            edge_type=t["edge_type"],
-            order=t["order"],
-        ))
+        nodes.append(
+            SymbolNode(
+                symbol=s["name"],
+                bbox=s["bbox"],
+                index=j,
+                parent=t["parent"],
+                edge_type=t["edge_type"],
+                order=t["order"],
+            )
+        )
     roots = build_tree(nodes)
     return roots, names
 
 
 @torch.no_grad()
-def predict_tree_exhaustive(subset_model, symbol_vocab, symbols, device,
-                            max_subset=8, radius_mult=4.0):
+def predict_tree_exhaustive(
+    subset_model, symbol_vocab, symbols, device, max_subset=8, radius_mult=4.0
+):
     """Deterministic: for each symbol, take all neighbors within a radius.
 
     Uses bbox edge-to-edge distance via _spatial_subsets.
@@ -185,8 +201,10 @@ def _run_subsets(subset_model, symbol_vocab, symbols, device, subsets, max_subse
         sub_pad[:n_sub] = False
 
         out = subset_model.forward(
-            sub_ids.unsqueeze(0), geo_buckets.unsqueeze(0),
-            sub_pad.unsqueeze(0), size_feats.unsqueeze(0),
+            sub_ids.unsqueeze(0),
+            geo_buckets.unsqueeze(0),
+            sub_pad.unsqueeze(0),
+            size_feats.unsqueeze(0),
         )
         out_cpu = {k: v[0].cpu() for k, v in out.items()}
         partial_outputs.append((subset_indices, out_cpu, n_sub))
@@ -194,8 +212,9 @@ def _run_subsets(subset_model, symbol_vocab, symbols, device, subsets, max_subse
 
 
 @torch.no_grad()
-def predict_tree_iterative(subset_model, symbol_vocab, symbols, device,
-                           max_subset=8, radius_mult=4.0, max_iters=3):
+def predict_tree_iterative(
+    subset_model, symbol_vocab, symbols, device, max_subset=8, radius_mult=4.0, max_iters=3
+):
     """Build tree using iterative SEQ-conflict targeted subset sampling.
 
     1. Spatial subsets → evidence → Edmonds tree
@@ -215,8 +234,11 @@ def predict_tree_iterative(subset_model, symbol_vocab, symbols, device,
         propagate_seq(evidence)
         roots = build_tree_from_evidence(evidence, names, bbox_lists)
         targets = find_seq_conflicts(
-            evidence, roots, bbox_lists,
-            seq_threshold=2.0, max_subset_size=min(max_subset, N),
+            evidence,
+            roots,
+            bbox_lists,
+            seq_threshold=2.0,
+            max_subset_size=min(max_subset, N),
         )
         if not targets:
             break
@@ -230,8 +252,9 @@ def predict_tree_iterative(subset_model, symbol_vocab, symbols, device,
 
 
 @torch.no_grad()
-def predict_tree_gnn(gnn_model, subset_model, symbol_vocab, symbols, device,
-                     max_subset=8, radius_mult=4.0):
+def predict_tree_gnn(
+    gnn_model, subset_model, symbol_vocab, symbols, device, max_subset=8, radius_mult=4.0
+):
     """Build tree using GNN refinement of evidence.
 
     subsets → evidence → GNN → Edmonds → tree
@@ -250,7 +273,8 @@ def predict_tree_gnn(gnn_model, subset_model, symbol_vocab, symbols, device,
     unk_id = symbol_vocab.get("<unk>", 1)
     sym_ids = torch.tensor(
         [symbol_vocab.get(names[i], unk_id) for i in range(N)],
-        dtype=torch.long, device=device,
+        dtype=torch.long,
+        device=device,
     )
     _, size_feats = compute_features_from_bbox_list(bbox_lists, N)
     size_feats = size_feats.to(device)
@@ -265,13 +289,16 @@ def predict_tree_gnn(gnn_model, subset_model, symbol_vocab, symbols, device,
         pad_mask.unsqueeze(0),
     )
 
-    parent_scores = out["parent_scores"][0]          # (N, N+1)
-    edge_type_scores = out["edge_type_scores"][0]    # (N, N+1, E)
-    order_preds = torch.zeros(N, N + 1)              # unused, spatial sort handles order
+    parent_scores = out["parent_scores"][0]  # (N, N+1)
+    edge_type_scores = out["edge_type_scores"][0]  # (N, N+1, E)
+    order_preds = torch.zeros(N, N + 1)  # unused, spatial sort handles order
 
     roots = build_tree_from_scores(
-        parent_scores, edge_type_scores, order_preds,
-        names, bbox_lists,
+        parent_scores,
+        edge_type_scores,
+        order_preds,
+        names,
+        bbox_lists,
     )
     return roots, names
 
@@ -284,7 +311,8 @@ def _run_gnn(gnn_model, evidence, names, bboxes, symbol_vocab, device):
     unk_id = symbol_vocab.get("<unk>", 1)
     sym_ids = torch.tensor(
         [symbol_vocab.get(names[i], unk_id) for i in range(N)],
-        dtype=torch.long, device=device,
+        dtype=torch.long,
+        device=device,
     )
     _, size_feats = compute_features_from_bbox_list(bboxes, N)
     size_feats = size_feats.to(device)
@@ -303,14 +331,25 @@ def _run_gnn(gnn_model, evidence, names, bboxes, symbol_vocab, device):
     order_preds = torch.zeros(N, N + 1)
 
     return build_tree_from_scores(
-        parent_scores, edge_type_scores, order_preds,
-        names, bboxes,
+        parent_scores,
+        edge_type_scores,
+        order_preds,
+        names,
+        bboxes,
     )
 
 
 @torch.no_grad()
-def predict_tree_gnn_iterative(gnn_model, subset_model, symbol_vocab, symbols, device,
-                                max_subset=8, radius_mult=4.0, max_iters=3):
+def predict_tree_gnn_iterative(
+    gnn_model,
+    subset_model,
+    symbol_vocab,
+    symbols,
+    device,
+    max_subset=8,
+    radius_mult=4.0,
+    max_iters=3,
+):
     """GNN + iterative SEQ-conflict resolution.
 
     1. Spatial subsets → evidence → GNN → tree
@@ -328,8 +367,11 @@ def predict_tree_gnn_iterative(gnn_model, subset_model, symbol_vocab, symbols, d
         evidence = aggregate_evidence_soft(N, all_partial)
         roots = _run_gnn(gnn_model, evidence, names, bbox_lists, symbol_vocab, device)
         targets = find_seq_conflicts(
-            evidence, roots, bbox_lists,
-            seq_threshold=2.0, max_subset_size=min(max_subset, N),
+            evidence,
+            roots,
+            bbox_lists,
+            seq_threshold=2.0,
+            max_subset_size=min(max_subset, N),
         )
         if not targets:
             break
@@ -341,8 +383,9 @@ def predict_tree_gnn_iterative(gnn_model, subset_model, symbol_vocab, symbols, d
     return roots, names
 
 
-def generate_html(val_path, run_name, out_path, n_examples=15, seed=42,
-                  filter_latex=None, exhaustive=False):
+def generate_html(
+    val_path, run_name, out_path, n_examples=15, seed=42, filter_latex=None, exhaustive=False
+):
     random.seed(seed)
 
     # Load subset model
@@ -403,12 +446,18 @@ def generate_html(val_path, run_name, out_path, n_examples=15, seed=42,
         # Predicted tree
         if exhaustive:
             pred_roots, _ = predict_tree_exhaustive(
-                model, symbol_vocab, symbols, device,
+                model,
+                symbol_vocab,
+                symbols,
+                device,
                 max_subset=max_subset,
             )
         else:
             pred_roots, _ = predict_tree_iterative(
-                model, symbol_vocab, symbols, device,
+                model,
+                symbol_vocab,
+                symbols,
+                device,
                 max_subset=max_subset,
             )
         pred_latex = tree_to_latex(pred_roots)
@@ -531,15 +580,31 @@ def generate_html(val_path, run_name, out_path, n_examples=15, seed=42,
 
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser()
-    parser.add_argument("--val", default=os.path.join(os.path.dirname(__file__), "..", "data", "tree_val.jsonl"))
+    parser.add_argument(
+        "--val", default=os.path.join(os.path.dirname(__file__), "..", "data", "tree_val.jsonl")
+    )
     parser.add_argument("--run", default="v3")
     parser.add_argument("--n", type=int, default=15)
-    parser.add_argument("--filter", default=None, help="Only show examples whose LaTeX contains this string")
-    parser.add_argument("--exhaustive", action="store_true", help="Exhaustive mode (spatial subsets, no conflict resolution)")
+    parser.add_argument(
+        "--filter", default=None, help="Only show examples whose LaTeX contains this string"
+    )
+    parser.add_argument(
+        "--exhaustive",
+        action="store_true",
+        help="Exhaustive mode (spatial subsets, no conflict resolution)",
+    )
     parser.add_argument("--seed", type=int, default=42, help="Random seed for example selection")
     args = parser.parse_args()
 
     out = os.path.join(os.path.dirname(__file__), "..", "tree_predictions.html")
-    generate_html(args.val, args.run, out, n_examples=args.n, seed=args.seed,
-                  filter_latex=args.filter, exhaustive=args.exhaustive)
+    generate_html(
+        args.val,
+        args.run,
+        out,
+        n_examples=args.n,
+        seed=args.seed,
+        filter_latex=args.filter,
+        exhaustive=args.exhaustive,
+    )

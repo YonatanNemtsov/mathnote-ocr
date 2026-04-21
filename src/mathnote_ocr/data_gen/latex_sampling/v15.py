@@ -1,24 +1,29 @@
 """V15: Complex numerators/denominators with integrals, cdot, and inline fractions.
 
 Target pattern: expressions like
-    \frac{{\int}\frac{1+x}{2-3}{\cdot}\frac{11}{x}}{x}
+    \frac{{\\int}\frac{1+x}{2-3}{\\cdot}\frac{11}{x}}{x}
 
 Key features:
-- Bare \int (no bounds) or bounded \int as a sibling among fractions
-- \cdot and \times joining fractions/terms within num/den
+- Bare \\int (no bounds) or bounded \\int as a sibling among fractions
+- \\cdot and \times joining fractions/terms within num/den
 - Multiple fractions chained by operators in a single num or den
 - Integrals multiplied by fractions
 """
 
 import random
 
-from .symbols import _pick_base, MISC_SYMBOLS, ARITH_OPS
+from .symbols import ARITH_OPS, MISC_SYMBOLS, _pick_base
 
 VARS = list("xyzabcnmkpqr")
 DIGITS = list("0123456789")
 COMMON_VARS = list("xyz")
 GREEK = [
-    "\\alpha", "\\beta", "\\gamma", "\\theta", "\\pi", "\\sigma",
+    "\\alpha",
+    "\\beta",
+    "\\gamma",
+    "\\theta",
+    "\\pi",
+    "\\sigma",
 ]
 MUL_OPS = ["\\cdot", "\\times"]
 ADD_OPS = ["+", "-"]
@@ -46,7 +51,8 @@ def _atom():
 
 def _small_frac():
     """Frac with structured content."""
-    from .symbols import _shared_short_content, _pick_base
+    from .symbols import _shared_short_content
+
     num = _shared_short_content(1, _atom, _pick_base)
     den = _shared_short_content(1, _atom, _pick_base)
     return "\\frac{" + num + "}{" + den + "}"
@@ -57,12 +63,12 @@ def _mul_op():
 
 
 def _int_bare():
-    """\int with no bounds."""
+    r"""\int with no bounds."""
     return "\\int"
 
 
 def _int_bounded():
-    """\int_{a}^{b}."""
+    r"""\int_{a}^{b}."""
     lo = random.choice(["0", "1", _atom()])
     hi = random.choice(["1", _atom(), "\\infty"])
     return "\\int_{" + lo + "}^{" + hi + "}}"
@@ -89,7 +95,11 @@ def _int_cdot_fracs_over_simple():
         parts.append(_mul_op())
         parts.append(_small_frac())
     num = " ".join(parts)
-    den = _atom() if random.random() < 0.5 else (_atom() + " " + random.choice(ADD_OPS) + " " + _atom())
+    den = (
+        _atom()
+        if random.random() < 0.5
+        else (_atom() + " " + random.choice(ADD_OPS) + " " + _atom())
+    )
     return "\\frac{" + num + "}{" + den + "}"
 
 
@@ -119,7 +129,11 @@ def _fracs_chained_by_cdot():
         parts.append(_mul_op())
         parts.append(_small_frac())
     num = " ".join(parts)
-    den = _atom() if random.random() < 0.6 else (_atom() + " " + random.choice(ADD_OPS) + " " + _atom())
+    den = (
+        _atom()
+        if random.random() < 0.6
+        else (_atom() + " " + random.choice(ADD_OPS) + " " + _atom())
+    )
     return "\\frac{" + num + "}{" + den + "}"
 
 
@@ -142,7 +156,11 @@ def _cdot_fracs_in_den():
 
     Chain of fracs in denominator instead of numerator.
     """
-    num = _atom() if random.random() < 0.4 else (_atom() + " " + random.choice(ADD_OPS) + " " + _atom())
+    num = (
+        _atom()
+        if random.random() < 0.4
+        else (_atom() + " " + random.choice(ADD_OPS) + " " + _atom())
+    )
     n_fracs = random.randint(2, 3)
     parts = [_small_frac()]
     for _ in range(n_fracs - 1):
@@ -187,7 +205,11 @@ def _int_over_simple_cdot_frac():
 
     Fraction containing integral, then cdot another fraction.
     """
-    int_content = _atom() if random.random() < 0.5 else (_atom() + " " + random.choice(ADD_OPS) + " " + _atom())
+    int_content = (
+        _atom()
+        if random.random() < 0.5
+        else (_atom() + " " + random.choice(ADD_OPS) + " " + _atom())
+    )
     frac1 = "\\frac{" + _int_any() + " " + int_content + "}{" + _atom() + "}"
     frac2 = _small_frac()
     return frac1 + " " + _mul_op() + " " + frac2
@@ -211,7 +233,11 @@ def _sum_cdot_fracs():
         parts.append(_mul_op())
         parts.append(_small_frac())
     num = head + " " + " ".join(parts)
-    den = _atom() if random.random() < 0.5 else (_atom() + " " + random.choice(ADD_OPS) + " " + _atom())
+    den = (
+        _atom()
+        if random.random() < 0.5
+        else (_atom() + " " + random.choice(ADD_OPS) + " " + _atom())
+    )
     return "\\frac{" + num + "}{" + den + "}"
 
 
@@ -233,7 +259,11 @@ def _nested_frac_cdot():
         num = inner + " " + _mul_op() + " " + _small_frac()
     else:
         num = inner + " " + random.choice(ADD_OPS) + " " + _atom()
-    den = (_atom() + " " + random.choice(ADD_OPS) + " " + _atom()) if random.random() < 0.5 else _atom()
+    den = (
+        (_atom() + " " + random.choice(ADD_OPS) + " " + _atom())
+        if random.random() < 0.5
+        else _atom()
+    )
     return "\\frac{" + num + "}{" + den + "}"
 
 

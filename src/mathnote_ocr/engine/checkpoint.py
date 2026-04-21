@@ -19,7 +19,9 @@ def _checkpoint_path(model: str, run: str, weights_dir: Path | str | None = None
 
 
 def save_checkpoint(
-    model: str, run: str, state_dict: dict,
+    model: str,
+    run: str,
+    state_dict: dict,
     weights_dir: Path | str | None = None,
 ) -> Path:
     path = _checkpoint_path(model, run, weights_dir)
@@ -29,7 +31,8 @@ def save_checkpoint(
 
 
 def load_checkpoint(
-    model: str, run: str,
+    model: str,
+    run: str,
     device: torch.device | str = "cpu",
     weights_dir: Path | str | None = None,
 ) -> dict:

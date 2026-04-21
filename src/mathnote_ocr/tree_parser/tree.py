@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from mathnote_ocr.tree_parser.tree_v2 import Edge, ROOT_ID as ROOT
+from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID as ROOT
+from mathnote_ocr.tree_parser.tree_v2 import Edge
 
 NUM = Edge.NUM
 DEN = Edge.DEN
@@ -30,6 +31,7 @@ EDGE_NAMES = tuple(e.name.lower() for e in Edge if e >= 0)
 @dataclass
 class SymbolNode:
     """Mutable node for diagnostic scripts. Do not use in production."""
+
     symbol: str
     bbox: list[float]
     index: int
@@ -65,9 +67,9 @@ def build_tree(nodes: list[SymbolNode]) -> list[SymbolNode]:
 
 def tree_to_latex(roots: list[SymbolNode]) -> str:
     """Convert SymbolNode tree to LaTeX via tree_v2."""
-    from mathnote_ocr.tree_parser.tree_v2 import Symbol, Node, Tree, ROOT_ID
-    from mathnote_ocr.tree_parser.tree_latex import tree_to_latex as _v2_to_latex
     from mathnote_ocr.bbox import BBox
+    from mathnote_ocr.tree_parser.tree_latex import tree_to_latex as _v2_to_latex
+    from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Node, Symbol, Tree
 
     nodes: list[Node] = []
 

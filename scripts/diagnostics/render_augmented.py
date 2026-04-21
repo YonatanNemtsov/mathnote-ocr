@@ -6,8 +6,8 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from mathnote_ocr.tree_parser.hw_bbox_augment import augment_bboxes
 from mathnote_ocr.tree_parser.gen_data import _process_batch, _worker_init
+from mathnote_ocr.tree_parser.hw_bbox_augment import augment_bboxes
 
 
 def get_stroke_loader(hw_dir: Path):
@@ -66,7 +66,7 @@ def render_grid(
         # LaTeX label (word-wrapped)
         latex = t.get("latex", "")
         max_chars = cell // 6  # ~6px per char at font size 9
-        lines = [latex[i:i+max_chars] for i in range(0, len(latex), max_chars)]
+        lines = [latex[i : i + max_chars] for i in range(0, len(latex), max_chars)]
         for li, line in enumerate(lines[:3]):  # max 3 lines
             draw.text((ox + 2, oy + 1 + li * 12), line, fill="#888", font=font)
 

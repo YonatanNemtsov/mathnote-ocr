@@ -127,26 +127,39 @@ class Tree:
         to_remove = self._descendants(sym_id) | {sym_id}
         return Tree(tuple(n for n in self._nodes if n.symbol.id not in to_remove), self.root)
 
-    def move_node(self, sym_id: SymbolId, new_parent_id: SymbolId, edge_type: EdgeType, order: SiblingOrder = 0) -> Tree:
-        return Tree(tuple(
-            Node(n.symbol, new_parent_id, edge_type, order) if n.symbol.id == sym_id else n
-            for n in self._nodes
-        ), self.root)
+    def move_node(
+        self,
+        sym_id: SymbolId,
+        new_parent_id: SymbolId,
+        edge_type: EdgeType,
+        order: SiblingOrder = 0,
+    ) -> Tree:
+        return Tree(
+            tuple(
+                Node(n.symbol, new_parent_id, edge_type, order) if n.symbol.id == sym_id else n
+                for n in self._nodes
+            ),
+            self.root,
+        )
 
     def rename_node(self, sym_id: SymbolId, new_name: str) -> Tree:
-        return Tree(tuple(
-            Node(Symbol(n.symbol.id, new_name, n.symbol.bbox), n.parent_id, n.edge_type, n.order)
-            if n.symbol.id == sym_id else n
-            for n in self._nodes
-        ), self.root)
+        return Tree(
+            tuple(
+                Node(
+                    Symbol(n.symbol.id, new_name, n.symbol.bbox), n.parent_id, n.edge_type, n.order
+                )
+                if n.symbol.id == sym_id
+                else n
+                for n in self._nodes
+            ),
+            self.root,
+        )
 
     # ── Traversal ────────────────────────────────────────────────────
 
     def walk(self, sym_id: SymbolId) -> tuple[SymbolId, ...]:
         """All ids in subtree (depth-first)."""
-        return (sym_id,) + sum(
-            (self.walk(cid) for cid, _, _ in self.children_of(sym_id)), ()
-        )
+        return (sym_id,) + sum((self.walk(cid) for cid, _, _ in self.children_of(sym_id)), ())
 
     def path(self, sym_id: SymbolId) -> tuple[tuple[SymbolId, EdgeType, SiblingOrder], ...]:
         """Path from root to symbol: ((id, edge_type, order), ...). Root itself returns ()."""
@@ -173,10 +186,13 @@ class Tree:
         return True
 
     def __hash__(self) -> int:
-        return hash(frozenset(
-            (n.symbol.id, n.symbol.name, n.parent_id, n.edge_type, n.order)
-            for n in self._nodes if n.symbol.id != self.root
-        ))
+        return hash(
+            frozenset(
+                (n.symbol.id, n.symbol.name, n.parent_id, n.edge_type, n.order)
+                for n in self._nodes
+                if n.symbol.id != self.root
+            )
+        )
 
     def __repr__(self) -> str:
         return f"Tree({len(self)} symbols)"

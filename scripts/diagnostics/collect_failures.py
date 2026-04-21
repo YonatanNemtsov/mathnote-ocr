@@ -19,19 +19,22 @@ import torch
 
 from mathnote_ocr.engine.checkpoint import load_checkpoint
 from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft, propagate_seq
 from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
 from mathnote_ocr.tree_parser.tree import (
-    SymbolNode, build_tree, tree_to_latex, ROOT,
+    tree_to_latex,
 )
-from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft, propagate_seq
 from mathnote_ocr.tree_parser.tree_builder import build_tree_from_evidence
 from scripts.diagnostics.visualize_predictions import (
-    _spatial_subsets, _build_trees,
+    _build_trees,
+    _spatial_subsets,
 )
 
 
 @torch.no_grad()
-def run_subsets_batched(model, symbol_vocab, symbols_list, subsets_list, device, max_subset, batch_size=128):
+def run_subsets_batched(
+    model, symbol_vocab, symbols_list, subsets_list, device, max_subset, batch_size=128
+):
     """Run subset model on many (example, subset) pairs in large batches.
 
     Args:
@@ -49,7 +52,7 @@ def run_subsets_batched(model, symbol_vocab, symbols_list, subsets_list, device,
     all_results = [[] for _ in range(len(symbols_list))]
 
     for batch_start in range(0, len(flat_jobs), batch_size):
-        batch_jobs = flat_jobs[batch_start:batch_start + batch_size]
+        batch_jobs = flat_jobs[batch_start : batch_start + batch_size]
         B = len(batch_jobs)
         S = max_subset
 
@@ -74,10 +77,10 @@ def run_subsets_batched(model, symbol_vocab, symbols_list, subsets_list, device,
             all_pad[b, :n_sub] = False
 
         out = model(all_ids, all_geo, all_pad, all_size)
-        parent_scores = out["parent_scores"]      # (B, S, S+1)
-        edge_scores = out["edge_type_scores"]      # (B, S, S+1, E)
-        order_preds = out["order_preds"]           # (B, S, S+1)
-        seq_scores = out["seq_scores"]             # (B, S, S+1)
+        parent_scores = out["parent_scores"]  # (B, S, S+1)
+        edge_scores = out["edge_type_scores"]  # (B, S, S+1, E)
+        order_preds = out["order_preds"]  # (B, S, S+1)
+        seq_scores = out["seq_scores"]  # (B, S, S+1)
 
         for b, (ex_idx, symbols, subset_indices) in enumerate(batch_jobs):
             n_sub = n_reals[b]
@@ -121,12 +124,12 @@ def check_batch(model, symbol_vocab, examples, device, max_subset):
 
 def main():
     import argparse
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--run", default="dg_all")
     parser.add_argument("--out", default="data/shared/tree/failures/train.jsonl")
     parser.add_argument("--max-symbols", type=int, default=20)
-    parser.add_argument("--batch-size", type=int, default=64,
-                        help="Examples to process at once")
+    parser.add_argument("--batch-size", type=int, default=64, help="Examples to process at once")
     parser.add_argument("--versions", nargs="*", default=None)
     args = parser.parse_args()
 
@@ -209,8 +212,10 @@ def main():
                         if total % 1000 == 0:
                             elapsed = time.time() - t0
                             rate = total / elapsed
-                            print(f"  {total:>6d} processed | {failures} failures "
-                                  f"({failures/total:.1%}) | {rate:.0f} ex/s")
+                            print(
+                                f"  {total:>6d} processed | {failures} failures "
+                                f"({failures / total:.1%}) | {rate:.0f} ex/s"
+                            )
 
             # Remaining
             if batch:
@@ -223,13 +228,14 @@ def main():
                         failures += 1
                         v_fail += 1
 
-            print(f"{vdir.name}: {v_fail}/{v_total} failures "
-                  f"({v_fail/max(v_total,1):.1%})")
+            print(f"{vdir.name}: {v_fail}/{v_total} failures ({v_fail / max(v_total, 1):.1%})")
 
     elapsed = time.time() - t0
     print(f"\nDone in {elapsed:.0f}s")
-    print(f"Total: {total} processed, {skipped} skipped, "
-          f"{failures} failures ({failures/max(total,1):.1%})")
+    print(
+        f"Total: {total} processed, {skipped} skipped, "
+        f"{failures} failures ({failures / max(total, 1):.1%})"
+    )
     print(f"Saved to {out_path}")
 
 

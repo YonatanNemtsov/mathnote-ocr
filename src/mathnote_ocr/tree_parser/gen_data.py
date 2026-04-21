@@ -22,17 +22,25 @@ import os
 import random
 
 from mathnote_ocr.latex_utils.expr_aug import (
-    LNode,
-    parse_latex,
     _FUNC_GLYPH_COUNTS,
+    LNode,
     _n_char_glyphs,
     _n_frac_bars,
+    parse_latex,
 )
 from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
-from mathnote_ocr.latex_utils.sampling import sample_expression, _set_sampler
-from mathnote_ocr.tree_parser.tree import NUM, DEN, SUP, SUB, SQRT_CONTENT, UPPER, LOWER, MATCH, ROOT
-from mathnote_ocr import config
-
+from mathnote_ocr.latex_utils.sampling import _set_sampler, sample_expression
+from mathnote_ocr.tree_parser.tree import (
+    DEN,
+    LOWER,
+    MATCH,
+    NUM,
+    ROOT,
+    SQRT_CONTENT,
+    SUB,
+    SUP,
+    UPPER,
+)
 
 # Big operator commands — these render with display-style limits (above/below)
 # when unbraced. ziamath renders their glyph order differently: sup before sub.
@@ -263,7 +271,9 @@ def _assign_labels(
 
         # Content children → parent is sqrt, edge=SQRT_CONTENT
         if node.children:
-            _assign_labels(node.children[0], sqrt_idx, SQRT_CONTENT, 0, char_c, bar_c, n_chars, labels)
+            _assign_labels(
+                node.children[0], sqrt_idx, SQRT_CONTENT, 0, char_c, bar_c, n_chars, labels
+            )
         return
 
     if node.kind == "sup":
@@ -290,9 +300,13 @@ def _assign_labels(
             # parent_idx == ROOT means the big op is at top level.
             if _is_bigop(innerbase) and parent_idx == ROOT:
                 _assign_labels(exp, innerbase_tail, hi_et, 0, char_c, bar_c, n_chars, labels)
-                _assign_labels(sub_content, innerbase_tail, lo_et, 0, char_c, bar_c, n_chars, labels)
+                _assign_labels(
+                    sub_content, innerbase_tail, lo_et, 0, char_c, bar_c, n_chars, labels
+                )
             else:
-                _assign_labels(sub_content, innerbase_tail, lo_et, 0, char_c, bar_c, n_chars, labels)
+                _assign_labels(
+                    sub_content, innerbase_tail, lo_et, 0, char_c, bar_c, n_chars, labels
+                )
                 _assign_labels(exp, innerbase_tail, hi_et, 0, char_c, bar_c, n_chars, labels)
             return
 
@@ -337,9 +351,13 @@ def _assign_labels(
     if node.kind == "func":
         # func has [func_name_node, arg_node]
         # Both inherit the same parent — function is just symbols in sequence
-        _assign_labels(node.children[0], parent_idx, edge_type, order, char_c, bar_c, n_chars, labels)
+        _assign_labels(
+            node.children[0], parent_idx, edge_type, order, char_c, bar_c, n_chars, labels
+        )
         if len(node.children) > 1:
-            _assign_labels(node.children[1], parent_idx, edge_type, order + 1, char_c, bar_c, n_chars, labels)
+            _assign_labels(
+                node.children[1], parent_idx, edge_type, order + 1, char_c, bar_c, n_chars, labels
+            )
         return
 
     # Fallback: treat unknown kinds like seq
@@ -390,7 +408,7 @@ def _fix_upper_lower(glyphs, labels):
     """Fix UPPER/LOWER edge types by checking spatial positions.
 
     ziamath renders big op limits in different glyph order depending on
-    context (standalone \sum vs nested inside ^{} or \\frac{}{}), so
+    context (standalone \\sum vs nested inside ^{} or \\frac{}{}), so
     _assign_labels can assign UPPER to a glyph that's spatially below
     its parent (or vice versa). This fixes it by swapping UPPER<->LOWER
     when the spatial position contradicts the edge type.
@@ -437,14 +455,13 @@ def _process_batch(args: tuple) -> list[dict]:
         # match the glyph order. Fix by checking spatial positions.
         tree_labels = _fix_upper_lower(glyphs, tree_labels)
 
-        results.append({
-            "latex": latex,
-            "symbols": [{"name": g["name"], "bbox": g["bbox"]} for g in glyphs],
-            "tree": [
-                {"parent": p, "edge_type": e, "order": o}
-                for p, e, o in tree_labels
-            ],
-        })
+        results.append(
+            {
+                "latex": latex,
+                "symbols": [{"name": g["name"], "bbox": g["bbox"]} for g in glyphs],
+                "tree": [{"parent": p, "edge_type": e, "order": o} for p, e, o in tree_labels],
+            }
+        )
 
     return results
 
@@ -466,10 +483,10 @@ def generate_dataset(
     total = 0
     attempts = 0
 
-    with open(output_path, "w") as f, \
-         mp.Pool(num_workers, initializer=_worker_init,
-                 initargs=(seed, sampler_name)) as pool:
-
+    with (
+        open(output_path, "w") as f,
+        mp.Pool(num_workers, initializer=_worker_init, initargs=(seed, sampler_name)) as pool,
+    ):
         while total < n:
             remaining = n - total
             n_batches = max(num_workers, math.ceil(remaining * 3 / BATCH_SIZE))
@@ -489,8 +506,10 @@ def generate_dataset(
                 if total % 5000 < len(results):
                     print(f"  Progress: {total}/{n}")
 
-    print(f"\nGenerated {total} examples ({attempts} attempts, "
-          f"{attempts / max(total, 1):.1f}x ratio) -> {output_path}")
+    print(
+        f"\nGenerated {total} examples ({attempts} attempts, "
+        f"{attempts / max(total, 1):.1f}x ratio) -> {output_path}"
+    )
 
 
 # ── CLI ──────────────────────────────────────────────────────────────
@@ -504,8 +523,9 @@ if __name__ == "__main__":
     parser.add_argument("--max-symbols", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--templates", type=str, default="dg_all")
-    parser.add_argument("--run", type=str, default="v1",
-                        help="Output subdirectory under data/shared/tree/")
+    parser.add_argument(
+        "--run", type=str, default="v1", help="Output subdirectory under data/shared/tree/"
+    )
     args = parser.parse_args()
 
     data_dir = Path(__file__).parent.parent / "data" / "tree" / args.run

@@ -6,6 +6,7 @@ Usage:
 """
 
 from pathlib import Path
+
 import yaml
 
 _PACKAGED_CONFIGS_DIR = Path(__file__).parent / "configs"

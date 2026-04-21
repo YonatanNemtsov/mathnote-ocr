@@ -15,9 +15,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
-from mathnote_ocr.tree_parser.hw_bbox_augment import augment_bboxes
 from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
-from mathnote_ocr.tree_parser.tree import NUM, DEN, SUP, SUB, SQRT_CONTENT, UPPER, LOWER
+from mathnote_ocr.tree_parser.hw_bbox_augment import augment_bboxes
+from mathnote_ocr.tree_parser.tree import DEN, LOWER, NUM, SQRT_CONTENT, SUB, SUP, UPPER
 from scripts.model_evaluation.compare_hw_aug import _match_glyphs_to_hw
 
 
@@ -199,8 +199,15 @@ def _compute_stats(bboxes, names, tree):
             continue
         for ci in children_of[p_i]:
             et = tree[ci]["edge_type"]
-            label = {NUM: "num", DEN: "den", SUP: "sup", SUB: "sub",
-                     SQRT_CONTENT: "sqrt_content", UPPER: "upper", LOWER: "lower"}.get(et, "other")
+            label = {
+                NUM: "num",
+                DEN: "den",
+                SUP: "sup",
+                SUB: "sub",
+                SQRT_CONTENT: "sqrt_content",
+                UPPER: "upper",
+                LOWER: "lower",
+            }.get(et, "other")
             stats[f"child_h_ratio_{label}"].append(bboxes[ci][3] / p_h)
 
     # 13. Overall expression width/height ratio
@@ -285,14 +292,11 @@ def main():
         if tree_labels is None:
             continue
 
-        font_bboxes_hw_order = _match_glyphs_to_hw(
-            glyphs, tree_labels, hw_symbols, hw_tree
-        )
+        font_bboxes_hw_order = _match_glyphs_to_hw(glyphs, tree_labels, hw_symbols, hw_tree)
         if font_bboxes_hw_order is None:
             continue
 
-        match_list = [{"name": names[i], "bbox": font_bboxes_hw_order[i]}
-                      for i in range(n)]
+        match_list = [{"name": names[i], "bbox": font_bboxes_hw_order[i]} for i in range(n)]
         aug = augment_bboxes(match_list, hw_tree)
         if aug is None:
             continue

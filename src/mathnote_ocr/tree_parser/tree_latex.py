@@ -13,37 +13,66 @@ latex_to_tree: clean LaTeX string → Tree
 
 from __future__ import annotations
 
-from mathnote_ocr.tree_parser.tree_v2 import Tree, Node, Edge, Symbol, SymbolId, ROOT_ID
 from mathnote_ocr.bbox import BBox
+from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Edge, Node, Symbol, SymbolId, Tree
 
 # ── Symbol name ↔ LaTeX command ─────────────────────────────────────
 
 # Symbol names that map to LaTeX commands (need backslash)
 _NAME_TO_CMD: dict[str, str] = {
     # Greek lowercase
-    "alpha": r"\alpha", "beta": r"\beta", "gamma": r"\gamma",
-    "delta": r"\delta", "epsilon": r"\epsilon", "theta": r"\theta",
-    "lambda": r"\lambda", "mu": r"\mu", "pi": r"\pi",
-    "sigma": r"\sigma", "phi": r"\phi", "psi": r"\psi", "omega": r"\omega",
+    "alpha": r"\alpha",
+    "beta": r"\beta",
+    "gamma": r"\gamma",
+    "delta": r"\delta",
+    "epsilon": r"\epsilon",
+    "theta": r"\theta",
+    "lambda": r"\lambda",
+    "mu": r"\mu",
+    "pi": r"\pi",
+    "sigma": r"\sigma",
+    "phi": r"\phi",
+    "psi": r"\psi",
+    "omega": r"\omega",
     # Greek uppercase
-    "Gamma_cap": r"\Gamma", "Delta_cap": r"\Delta",
-    "Sigma_up": r"\Sigma", "Pi_up": r"\Pi",
-    "Phi_up": r"\Phi", "Psi_up": r"\Psi", "Omega_up": r"\Omega",
+    "Gamma_cap": r"\Gamma",
+    "Delta_cap": r"\Delta",
+    "Sigma_up": r"\Sigma",
+    "Pi_up": r"\Pi",
+    "Phi_up": r"\Phi",
+    "Psi_up": r"\Psi",
+    "Omega_up": r"\Omega",
     # Big operators
-    "int": r"\int", "sum": r"\sum", "prod": r"\prod",
+    "int": r"\int",
+    "sum": r"\sum",
+    "prod": r"\prod",
     # Binary operators
-    "times": r"\times", "cdot": r"\cdot", "pm": r"\pm", "div": r"\div",
+    "times": r"\times",
+    "cdot": r"\cdot",
+    "pm": r"\pm",
+    "div": r"\div",
     # Relations
-    "leq": r"\leq", "geq": r"\geq", "neq": r"\neq",
+    "leq": r"\leq",
+    "geq": r"\geq",
+    "neq": r"\neq",
     # Set / logic
-    "in": r"\in", "subset": r"\subset", "cup": r"\cup", "cap": r"\cap",
-    "forall": r"\forall", "exists": r"\exists",
+    "in": r"\in",
+    "subset": r"\subset",
+    "cup": r"\cup",
+    "cap": r"\cap",
+    "forall": r"\forall",
+    "exists": r"\exists",
     # Calculus / special
-    "partial": r"\partial", "nabla": r"\nabla", "infty": r"\infty",
-    "rightarrow": r"\rightarrow", "leftarrow": r"\leftarrow",
-    "ldots": r"\ldots", "cdots": r"\cdots",
+    "partial": r"\partial",
+    "nabla": r"\nabla",
+    "infty": r"\infty",
+    "rightarrow": r"\rightarrow",
+    "leftarrow": r"\leftarrow",
+    "ldots": r"\ldots",
+    "cdots": r"\cdots",
     # Delimiters
-    "lbrace": r"\lbrace", "rbrace": r"\rbrace",
+    "lbrace": r"\lbrace",
+    "rbrace": r"\rbrace",
     # Prime
     "prime": r"\prime",
     # Capitals: A_cap → A etc.
@@ -71,9 +100,14 @@ _FUNC_SEQUENCES = {
 
 _OPEN_TO_CLOSE = {"(": ")", "[": "]", "lbrace": "rbrace"}
 _CLOSE_TO_OPEN = {v: k for k, v in _OPEN_TO_CLOSE.items()}
-_LEFT_PREFIX = {"(": r"\left(", ")": r"\right)",
-                "[": r"\left[", "]": r"\right]",
-                "lbrace": r"\left\lbrace", "rbrace": r"\right\rbrace"}
+_LEFT_PREFIX = {
+    "(": r"\left(",
+    ")": r"\right)",
+    "[": r"\left[",
+    "]": r"\right]",
+    "lbrace": r"\left\lbrace",
+    "rbrace": r"\right\rbrace",
+}
 
 
 def _sym_to_latex(name: str) -> str:
@@ -177,8 +211,12 @@ def _render_node(tree: Tree, sid: SymbolId) -> str:
     name = tree[sid].symbol.name
 
     # Binom: ( with NUM, DEN, MATCH children
-    if (name == "(" and _has_kids(tree, sid, Edge.NUM)
-            and _has_kids(tree, sid, Edge.DEN) and _has_kids(tree, sid, Edge.MATCH)):
+    if (
+        name == "("
+        and _has_kids(tree, sid, Edge.NUM)
+        and _has_kids(tree, sid, Edge.DEN)
+        and _has_kids(tree, sid, Edge.MATCH)
+    ):
         num = _render_siblings(tree, _kids(tree, sid, Edge.NUM))
         den = _render_siblings(tree, _kids(tree, sid, Edge.DEN))
         result = f"\\binom{{{num}}}{{{den}}}"
@@ -187,9 +225,19 @@ def _render_node(tree: Tree, sid: SymbolId) -> str:
         return result
 
     # Fraction bar (complete or partial)
-    if name in ("-", "frac_bar") and (_has_kids(tree, sid, Edge.NUM) or _has_kids(tree, sid, Edge.DEN)):
-        num = _render_siblings(tree, _kids(tree, sid, Edge.NUM)) if _has_kids(tree, sid, Edge.NUM) else ""
-        den = _render_siblings(tree, _kids(tree, sid, Edge.DEN)) if _has_kids(tree, sid, Edge.DEN) else ""
+    if name in ("-", "frac_bar") and (
+        _has_kids(tree, sid, Edge.NUM) or _has_kids(tree, sid, Edge.DEN)
+    ):
+        num = (
+            _render_siblings(tree, _kids(tree, sid, Edge.NUM))
+            if _has_kids(tree, sid, Edge.NUM)
+            else ""
+        )
+        den = (
+            _render_siblings(tree, _kids(tree, sid, Edge.DEN))
+            if _has_kids(tree, sid, Edge.DEN)
+            else ""
+        )
         return _render_sup_sub(tree, sid, f"\\frac{{{num}}}{{{den}}}")
 
     # Sqrt
@@ -260,18 +308,18 @@ def _tokenize(latex: str) -> list[str]:
         if c.isspace():
             i += 1
             continue
-        if c == '\\':
+        if c == "\\":
             # Read command
             j = i + 1
             if j < len(latex) and not latex[j].isalpha():
-                tokens.append(latex[i:j + 1])
+                tokens.append(latex[i : j + 1])
                 i = j + 1
             else:
                 while j < len(latex) and latex[j].isalpha():
                     j += 1
                 tokens.append(latex[i:j])
                 i = j
-        elif c in '{}_^':
+        elif c in "{}_^":
             tokens.append(c)
             i += 1
         else:
@@ -282,6 +330,7 @@ def _tokenize(latex: str) -> list[str]:
 
 class _ParseNode:
     """Intermediate parse node before converting to Tree."""
+
     __slots__ = ("name", "children")
 
     def __init__(self, name: str):
@@ -313,10 +362,10 @@ def _char_to_name(ch: str) -> str:
 
 def _parse_group(tokens: list[str], pos: int) -> tuple[list[_ParseNode], int]:
     """Parse {...} group, returns (nodes, new_pos). Expects pos at '{'."""
-    assert tokens[pos] == '{', f"Expected '{{' at pos {pos}, got '{tokens[pos]}'"
+    assert tokens[pos] == "{", f"Expected '{{' at pos {pos}, got '{tokens[pos]}'"
     pos += 1  # skip {
     nodes, pos = _parse_expr(tokens, pos)
-    if pos < len(tokens) and tokens[pos] == '}':
+    if pos < len(tokens) and tokens[pos] == "}":
         pos += 1  # skip }
     return nodes, pos
 
@@ -324,7 +373,7 @@ def _parse_group(tokens: list[str], pos: int) -> tuple[list[_ParseNode], int]:
 def _parse_expr(tokens: list[str], pos: int) -> tuple[list[_ParseNode], int]:
     """Parse a sequence of terms until } or end."""
     nodes: list[_ParseNode] = []
-    while pos < len(tokens) and tokens[pos] != '}':
+    while pos < len(tokens) and tokens[pos] != "}":
         result, pos = _parse_term(tokens, pos)
         if result is None:
             continue
@@ -337,18 +386,18 @@ def _parse_expr(tokens: list[str], pos: int) -> tuple[list[_ParseNode], int]:
 
 def _parse_term(tokens: list[str], pos: int) -> tuple[_ParseNode | None, int]:
     """Parse one term: a base with optional ^{} and _{}."""
-    if pos >= len(tokens) or tokens[pos] == '}':
+    if pos >= len(tokens) or tokens[pos] == "}":
         return None, pos
 
     tok = tokens[pos]
 
     # \left and \right — strip, parse the next token as the delimiter
-    if tok in (r'\left', r'\right'):
+    if tok in (r"\left", r"\right"):
         pos += 1
         return _parse_term(tokens, pos)
 
     # \frac{num}{den}
-    if tok == r'\frac':
+    if tok == r"\frac":
         pos += 1
         num_nodes, pos = _parse_group(tokens, pos)
         den_nodes, pos = _parse_group(tokens, pos)
@@ -361,7 +410,7 @@ def _parse_term(tokens: list[str], pos: int) -> tuple[_ParseNode | None, int]:
         return node, pos
 
     # \sqrt{content}
-    if tok == r'\sqrt':
+    if tok == r"\sqrt":
         pos += 1
         content_nodes, pos = _parse_group(tokens, pos)
         node = _ParseNode("sqrt")
@@ -371,7 +420,7 @@ def _parse_term(tokens: list[str], pos: int) -> tuple[_ParseNode | None, int]:
         return node, pos
 
     # \binom{top}{bot}
-    if tok == r'\binom':
+    if tok == r"\binom":
         pos += 1
         top_nodes, pos = _parse_group(tokens, pos)
         bot_nodes, pos = _parse_group(tokens, pos)
@@ -387,7 +436,7 @@ def _parse_term(tokens: list[str], pos: int) -> tuple[_ParseNode | None, int]:
         return node, pos
 
     # Bare { group — just parse contents inline
-    if tok == '{':
+    if tok == "{":
         inner_nodes, pos = _parse_group(tokens, pos)
         # If single node, attach sup/sub to it
         if len(inner_nodes) == 1:
@@ -402,21 +451,24 @@ def _parse_term(tokens: list[str], pos: int) -> tuple[_ParseNode | None, int]:
 
     # Function command → expand to individual letter nodes
     _FUNC_CMD_TO_LETTERS = {
-        r'\sin': list("sin"), r'\cos': list("cos"), r'\tan': list("tan"),
-        r'\log': list("log"), r'\ln': list("ln"), r'\lim': list("lim"),
+        r"\sin": list("sin"),
+        r"\cos": list("cos"),
+        r"\tan": list("tan"),
+        r"\log": list("log"),
+        r"\ln": list("ln"),
+        r"\lim": list("lim"),
     }
     # Functions that use LOWER/UPPER limits instead of SUB/SUP
-    _FUNC_WITH_LIMITS = {r'\lim'}
+    _FUNC_WITH_LIMITS = {r"\lim"}
     if tok in _FUNC_CMD_TO_LETTERS:
         letters = _FUNC_CMD_TO_LETTERS[tok]
         nodes = [_ParseNode(ch) for ch in letters]
         pos += 1
-        pos = _parse_sup_sub(tokens, pos, nodes[-1],
-                             use_limits=(tok in _FUNC_WITH_LIMITS))
+        pos = _parse_sup_sub(tokens, pos, nodes[-1], use_limits=(tok in _FUNC_WITH_LIMITS))
         return nodes, pos  # type: ignore
 
     # Command token
-    if tok.startswith('\\'):
+    if tok.startswith("\\"):
         name = _cmd_to_name(tok)
         node = _ParseNode(name)
         pos += 1
@@ -431,8 +483,7 @@ def _parse_term(tokens: list[str], pos: int) -> tuple[_ParseNode | None, int]:
     return node, pos
 
 
-def _parse_sup_sub(tokens: list[str], pos: int, node: _ParseNode,
-                   use_limits: bool = False) -> int:
+def _parse_sup_sub(tokens: list[str], pos: int, node: _ParseNode, use_limits: bool = False) -> int:
     """Parse optional ^{} and _{} after a node.
 
     If use_limits, uses UPPER/LOWER edges instead of SUP/SUB.
@@ -442,10 +493,10 @@ def _parse_sup_sub(tokens: list[str], pos: int, node: _ParseNode,
     up_edge = Edge.UPPER if use_limits else Edge.SUP
     down_edge = Edge.LOWER if use_limits else Edge.SUB
 
-    while pos < len(tokens) and tokens[pos] in ('^', '_'):
-        if tokens[pos] == '^':
+    while pos < len(tokens) and tokens[pos] in ("^", "_"):
+        if tokens[pos] == "^":
             pos += 1
-            if pos < len(tokens) and tokens[pos] == '{':
+            if pos < len(tokens) and tokens[pos] == "{":
                 children, pos = _parse_group(tokens, pos)
                 for c in children:
                     node.add_child(up_edge, c)
@@ -453,9 +504,9 @@ def _parse_sup_sub(tokens: list[str], pos: int, node: _ParseNode,
                 child, pos = _parse_term(tokens, pos)
                 if child is not None:
                     node.add_child(up_edge, child)
-        elif tokens[pos] == '_':
+        elif tokens[pos] == "_":
             pos += 1
-            if pos < len(tokens) and tokens[pos] == '{':
+            if pos < len(tokens) and tokens[pos] == "{":
                 children, pos = _parse_group(tokens, pos)
                 for c in children:
                     node.add_child(down_edge, c)

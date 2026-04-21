@@ -17,25 +17,26 @@ from __future__ import annotations
 
 import json
 import random
-import sys
 from collections import defaultdict
-from pathlib import Path
 
 import torch
-import numpy as np
 
 from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
 from mathnote_ocr.tree_parser.subset_model import load_subset_model
-from mathnote_ocr.tree_parser.tree import NUM, DEN, SUP, SUB, SQRT_CONTENT, UPPER, LOWER, MATCH
-from mathnote_ocr.tree_parser.tree import NUM_EDGE_TYPES, ROOT, EDGE_NAMES
-
+from mathnote_ocr.tree_parser.tree import (
+    DEN,
+    EDGE_NAMES,
+    NUM,
+    ROOT,
+    SUP,
+)
 
 # ── Config ──────────────────────────────────────────────────────────
 
 CHECKPOINT = "weights/tree_subset/mixed_v3/checkpoint.pth"
 DATA_PATH = "data/tree_mixed_v5_train.jsonl"
 MAX_SUBSET = 8
-SUBSETS_PER_EXAMPLE = 5   # number of random subsets per example
+SUBSETS_PER_EXAMPLE = 5  # number of random subsets per example
 SEED = 42
 
 
@@ -89,9 +90,9 @@ def find_sup_frac_relationships(ex: dict) -> list[dict]:
             "frac_bar_idx": fb_idx,
             "frac_bar_parent": base_idx,
             "frac_bar_edge": SUP,
-            "num_children": [],   # indices of NUM children of frac_bar
-            "den_children": [],   # indices of DEN children of frac_bar
-            "sup_siblings": [],   # indices of other SUP children of base (e.g. `-`)
+            "num_children": [],  # indices of NUM children of frac_bar
+            "den_children": [],  # indices of DEN children of frac_bar
+            "sup_siblings": [],  # indices of other SUP children of base (e.g. `-`)
         }
 
         # Find NUM/DEN children of frac_bar
@@ -149,8 +150,9 @@ def sample_subsets(
     # Available pool (not in must_include)
     pool = [i for i in range(n) if i not in must_set]
     # Sort pool by distance to centroid
-    pool_dists = [(i, ((centers[i][0] - mcx) ** 2 + (centers[i][1] - mcy) ** 2) ** 0.5)
-                  for i in pool]
+    pool_dists = [
+        (i, ((centers[i][0] - mcx) ** 2 + (centers[i][1] - mcy) ** 2) ** 0.5) for i in pool
+    ]
     pool_dists.sort(key=lambda x: x[1])
 
     n_extra = max_subset - n_must
@@ -165,14 +167,13 @@ def sample_subsets(
             n_near_take = max(1, int(0.6 * n_near))
             n_random_take = n_near - n_near_take
 
-            near_candidates = [p[0] for p in pool_dists[:n_near_take + 3]]
+            near_candidates = [p[0] for p in pool_dists[: n_near_take + 3]]
             random.shuffle(near_candidates)
             chosen_near = near_candidates[:n_near_take]
 
             far_candidates = [p[0] for p in pool_dists[n_near_take:]]
             if n_random_take > 0 and far_candidates:
-                chosen_far = random.sample(far_candidates,
-                                           min(n_random_take, len(far_candidates)))
+                chosen_far = random.sample(far_candidates, min(n_random_take, len(far_candidates)))
             else:
                 chosen_far = []
 
@@ -180,7 +181,7 @@ def sample_subsets(
             # If we still need more, fill from nearest
             if len(extra) < n_extra:
                 remaining = [p[0] for p in pool_dists if p[0] not in set(extra)]
-                extra += remaining[:n_extra - len(extra)]
+                extra += remaining[: n_extra - len(extra)]
 
             extra = extra[:n_extra]
             subset = sorted(list(must_set) + extra)
@@ -311,7 +312,10 @@ def main():
                 k = len(subset)
 
                 symbol_ids, geo_buckets, pad_mask, size_feats, _ = prepare_model_input(
-                    ex, subset, symbol_vocab, S,
+                    ex,
+                    subset,
+                    symbol_vocab,
+                    S,
                 )
 
                 with torch.no_grad():
@@ -322,7 +326,7 @@ def main():
                         size_feats.unsqueeze(0),
                     )
 
-                parent_scores = out["parent_scores"][0]        # (S, S+1)
+                parent_scores = out["parent_scores"][0]  # (S, S+1)
                 edge_type_scores = out["edge_type_scores"][0]  # (S, S+1, E)
 
                 # ── Check frac_bar: parent should be base with SUP edge ──
@@ -346,15 +350,17 @@ def main():
                         if pred_edge == true_edge:
                             edge_correct_given_parent[rel_type] += 1
                         elif len(errors) < MAX_ERRORS:
-                            errors.append({
-                                "type": "edge_error",
-                                "rel": rel_type,
-                                "latex": ex["latex"],
-                                "true_edge": EDGE_NAMES[true_edge],
-                                "pred_edge": EDGE_NAMES[pred_edge],
-                                "fb_name": symbols[fb_idx]["name"],
-                                "base_name": symbols[base_idx]["name"],
-                            })
+                            errors.append(
+                                {
+                                    "type": "edge_error",
+                                    "rel": rel_type,
+                                    "latex": ex["latex"],
+                                    "true_edge": EDGE_NAMES[true_edge],
+                                    "pred_edge": EDGE_NAMES[pred_edge],
+                                    "fb_name": symbols[fb_idx]["name"],
+                                    "base_name": symbols[base_idx]["name"],
+                                }
+                            )
                     else:
                         # Parent wrong — still record edge confusion
                         # What edge did it predict for the wrong parent?
@@ -368,14 +374,16 @@ def main():
                             else:
                                 pred_parent_global = subset[pred_parent]
                                 pred_parent_name = symbols[pred_parent_global]["name"]
-                            errors.append({
-                                "type": "parent_error",
-                                "rel": rel_type,
-                                "latex": ex["latex"],
-                                "true_parent": symbols[base_idx]["name"],
-                                "pred_parent": pred_parent_name,
-                                "fb_name": symbols[fb_idx]["name"],
-                            })
+                            errors.append(
+                                {
+                                    "type": "parent_error",
+                                    "rel": rel_type,
+                                    "latex": ex["latex"],
+                                    "true_parent": symbols[base_idx]["name"],
+                                    "pred_parent": pred_parent_name,
+                                    "fb_name": symbols[fb_idx]["name"],
+                                }
+                            )
 
                 # ── Check NUM children of frac_bar ──
                 for ci in group["num_children"]:
@@ -448,8 +456,10 @@ def main():
                             edge_confusion[SUP][pred_edge] += 1
 
         if (ex_i + 1) % 500 == 0:
-            print(f"  Processed {ex_i + 1}/{len(examples)} examples, "
-                  f"{total_subsets} subsets so far...")
+            print(
+                f"  Processed {ex_i + 1}/{len(examples)} examples, "
+                f"{total_subsets} subsets so far..."
+            )
 
     # ── Report ──────────────────────────────────────────────────────
 
@@ -524,7 +534,7 @@ def main():
     if errors:
         print(f"── Sample Errors (first {len(errors)}) ──")
         for i, err in enumerate(errors):
-            print(f"\n  [{i+1}] {err['type']} — {err['rel']}")
+            print(f"\n  [{i + 1}] {err['type']} — {err['rel']}")
             print(f"      LaTeX: {err['latex'][:80]}")
             if err["type"] == "parent_error":
                 print(f"      True parent: {err['true_parent']}")

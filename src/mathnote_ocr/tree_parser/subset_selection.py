@@ -21,7 +21,6 @@ from __future__ import annotations
 import math
 import random
 
-
 # ── Geometry helpers ─────────────────────────────────────────────────
 
 
@@ -82,11 +81,13 @@ def sample_subsets_spatial(
         seed = seed_idx if seed_idx is not None else random.randrange(n_symbols)
 
         # Sort all other symbols by edge-to-edge bbox distance to seed
-        dists = [(i, _bbox_edge_dist(bboxes[seed], bboxes[i])) for i in range(n_symbols) if i != seed]
+        dists = [
+            (i, _bbox_edge_dist(bboxes[seed], bboxes[i])) for i in range(n_symbols) if i != seed
+        ]
         dists.sort(key=lambda x: x[1])
 
         # Take k-1 nearest neighbors
-        subset = sorted([seed] + [d[0] for d in dists[:k - 1]])
+        subset = sorted([seed] + [d[0] for d in dists[: k - 1]])
         key = tuple(subset)
         if key not in seen:
             seen.add(key)
@@ -145,8 +146,7 @@ def sample_subsets_with_coverage(
         for j in range(i + 1, n_symbols):
             if (i, j) not in covered:
                 others = [k for k in range(n_symbols) if k != i and k != j]
-                mid = ((centers[i][0] + centers[j][0]) / 2,
-                       (centers[i][1] + centers[j][1]) / 2)
+                mid = ((centers[i][0] + centers[j][0]) / 2, (centers[i][1] + centers[j][1]) / 2)
                 others.sort(key=lambda k: _bbox_dist(centers[k], mid))
                 n_extra = min(max_size - 2, len(others))
                 extra = others[:n_extra]
@@ -233,10 +233,13 @@ def make_xaxis_subsets(
         return [list(range(N))]
 
     # Sort by x-center, tiebreak by y-center
-    order = sorted(range(N), key=lambda i: (
-        bboxes[i][0] + bboxes[i][2] / 2,
-        bboxes[i][1] + bboxes[i][3] / 2,
-    ))
+    order = sorted(
+        range(N),
+        key=lambda i: (
+            bboxes[i][0] + bboxes[i][2] / 2,
+            bboxes[i][1] + bboxes[i][3] / 2,
+        ),
+    )
 
     # Precompute x-ranges [x_left, x_right] for each symbol
     x_ranges = [(bboxes[i][0], bboxes[i][0] + bboxes[i][2]) for i in range(N)]
@@ -246,7 +249,7 @@ def make_xaxis_subsets(
 
     for size in range(min_size, min(max_size, N) + 1):
         for start in range(N - size + 1):
-            core = order[start:start + size]
+            core = order[start : start + size]
 
             # Compute the x-span of this run
             x_lo = min(x_ranges[i][0] for i in core)
@@ -316,7 +319,7 @@ def make_spatial_subsets(
             if len(neighbors) < 2:
                 neighbors = [d[0] for d in dists[:2]]
             elif len(neighbors) > max_subset - 1:
-                neighbors = neighbors[:max_subset - 1]
+                neighbors = neighbors[: max_subset - 1]
 
             subsets.append(sorted([seed] + neighbors))
 

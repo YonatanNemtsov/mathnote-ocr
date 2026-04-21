@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import torch
 
-from mathnote_ocr.tree_parser.tree_v2 import Symbol, Tree, ROOT_ID, SymbolId
-from mathnote_ocr.tree_parser.tree_ops import reorder_siblings
 from mathnote_ocr.tree_parser.evidence import get_evidence_tta
+from mathnote_ocr.tree_parser.tree_ops import reorder_siblings
+from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Symbol, SymbolId, Tree
 
 log = logging.getLogger(__name__)
 
@@ -49,9 +49,9 @@ def resolve_frac_bars(
     N = len(symbols)
 
     # Classify each minus
-    certain_frac: list[int] = []     # definitely frac_bar
-    certain_minus: list[int] = []    # definitely minus
-    ambiguous: list[int] = []        # could be either
+    certain_frac: list[int] = []  # definitely frac_bar
+    certain_minus: list[int] = []  # definitely minus
+    ambiguous: list[int] = []  # could be either
 
     for mi in minus_indices:
         num_score = 0.0
@@ -104,7 +104,9 @@ def resolve_frac_bars(
     return variants
 
 
-def find_leaves(evidence: dict[str, torch.Tensor], n_symbols: int, threshold: float = 0.3) -> list[SymbolId]:
+def find_leaves(
+    evidence: dict[str, torch.Tensor], n_symbols: int, threshold: float = 0.3
+) -> list[SymbolId]:
     """Find symbols that are most certainly leaves (nothing points to them as parent).
 
     For each symbol, checks how much evidence there is that ANY other symbol
@@ -142,13 +144,14 @@ def find_leaves(evidence: dict[str, torch.Tensor], n_symbols: int, threshold: fl
 @dataclass
 class Attachment:
     """A candidate attachment for a leaf symbol."""
-    leaf: int               # leaf position
-    parent: int             # parent position (-1 = ROOT)
-    edge_type: int          # edge type to parent
-    parent_score: float     # confidence in this parent
-    seq_prev: int           # SEQ previous sibling (-1 = none)
-    seq_score: float        # confidence in this SEQ link
-    conflict: bool          # True if SEQ and parent disagree
+
+    leaf: int  # leaf position
+    parent: int  # parent position (-1 = ROOT)
+    edge_type: int  # edge type to parent
+    parent_score: float  # confidence in this parent
+    seq_prev: int  # SEQ previous sibling (-1 = none)
+    seq_score: float  # confidence in this SEQ link
+    conflict: bool  # True if SEQ and parent disagree
 
 
 def find_attachments(
@@ -162,7 +165,7 @@ def find_attachments(
     best parent differs from X's best parent.
     """
     parent_votes = evidence["parent_votes"]  # (N, N+1, E)
-    seq_votes = evidence.get("seq_votes")     # (N, N+1) or None
+    seq_votes = evidence.get("seq_votes")  # (N, N+1) or None
     N = n_symbols
     E = parent_votes.shape[-1]
 
@@ -195,7 +198,7 @@ def find_attachments(
         seq_prev = -1
         seq_score = 0.0
         if seq_votes is not None:
-            sv = seq_votes[leaf, :N + 1]
+            sv = seq_votes[leaf, : N + 1]
             seq_total = sv.sum().item()
             if seq_total > 1e-6:
                 best_seq = sv.argmax().item()
@@ -209,15 +212,17 @@ def find_attachments(
             if seq_prev_parent != parent:
                 conflict = True
 
-        attachments.append(Attachment(
-            leaf=leaf,
-            parent=parent,
-            edge_type=edge,
-            parent_score=parent_score,
-            seq_prev=seq_prev,
-            seq_score=seq_score,
-            conflict=conflict,
-        ))
+        attachments.append(
+            Attachment(
+                leaf=leaf,
+                parent=parent,
+                edge_type=edge,
+                parent_score=parent_score,
+                seq_prev=seq_prev,
+                seq_score=seq_score,
+                conflict=conflict,
+            )
+        )
 
     # Sort: non-conflicting first, then by parent confidence
     attachments.sort(key=lambda a: (a.conflict, -a.parent_score))
@@ -227,10 +232,11 @@ def find_attachments(
 @dataclass
 class ChainAssignment:
     """A candidate assignment for a sibling chain."""
-    chain: list[int]                # symbol positions in the chain (ordered by SEQ)
-    parent: int                     # parent position (-1 = ROOT)
-    edge_type: int                  # edge type to parent
-    confidence: float               # how confident we are
+
+    chain: list[int]  # symbol positions in the chain (ordered by SEQ)
+    parent: int  # parent position (-1 = ROOT)
+    edge_type: int  # edge type to parent
+    confidence: float  # how confident we are
     alternatives: list[tuple[int, int, float]]  # [(parent, edge_type, score), ...] other candidates
 
 
@@ -330,7 +336,9 @@ def group_into_chains(
         if best_score >= confidence_threshold and not has_conflict:
             certain.append(ChainAssignment(chain, best_parent, best_edge, best_score, alternatives))
         else:
-            uncertain.append(ChainAssignment(chain, best_parent, best_edge, best_score, alternatives))
+            uncertain.append(
+                ChainAssignment(chain, best_parent, best_edge, best_score, alternatives)
+            )
 
     return certain, uncertain
 
@@ -364,9 +372,12 @@ def apply_assignments(
         # Verify this assignment with the model
         if run_subsets_fn is not None and make_subsets_fn is not None and assignment.parent >= 0:
             conf = verify_subtree(
-                assignment.parent, assignment.chain,
+                assignment.parent,
+                assignment.chain,
                 [assignment.edge_type] * len(assignment.chain),
-                symbols, run_subsets_fn, make_subsets_fn,
+                symbols,
+                run_subsets_fn,
+                make_subsets_fn,
             )
             total_score += conf
             n_verified += 1
@@ -449,9 +460,12 @@ def fork_on_uncertain(
                 fork_score = 0.0
                 if run_subsets_fn is not None and make_subsets_fn is not None and parent >= 0:
                     fork_score = verify_subtree(
-                        parent, assignment.chain,
+                        parent,
+                        assignment.chain,
                         [edge_type] * len(assignment.chain),
-                        symbols, run_subsets_fn, make_subsets_fn,
+                        symbols,
+                        run_subsets_fn,
+                        make_subsets_fn,
                     )
                 new_candidates.append((forked, prev_score + fork_score))
 
@@ -483,8 +497,12 @@ def fork_on_uncertain(
                     # Verify this piece
                     if run_subsets_fn is not None and make_subsets_fn is not None and p < n_symbols:
                         break_score += verify_subtree(
-                            p, piece, [e] * len(piece),
-                            symbols, run_subsets_fn, make_subsets_fn,
+                            p,
+                            piece,
+                            [e] * len(piece),
+                            symbols,
+                            run_subsets_fn,
+                            make_subsets_fn,
                         )
 
                 new_candidates.append((forked, prev_score + break_score))
@@ -679,7 +697,7 @@ def build(
     device=None,
 ) -> Tree:
     """Build expression tree bottom-up with beam search."""
-    from mathnote_ocr.tree_parser.tree_v2 import Node, Edge
+    from mathnote_ocr.tree_parser.tree_v2 import Edge, Node
 
     N = len(symbols)
     if N == 0:
@@ -697,12 +715,16 @@ def build(
         names = [s.name for s in variant]
         bboxes = [s.bbox.to_list() for s in variant]
         evidence = get_evidence_tta(
-            names, bboxes, run_subsets_fn, make_subsets_fn,
-            tta_runs=tta_runs, tta_dx=tta_dx, tta_dy=tta_dy, tta_size=tta_size,
+            names,
+            bboxes,
+            run_subsets_fn,
+            make_subsets_fn,
+            tta_runs=tta_runs,
+            tta_dx=tta_dx,
+            tta_dy=tta_dy,
+            tta_size=tta_size,
         )
-        initial_tree = Tree(tuple(
-            Node(s, ROOT_ID, Edge.ROOT, i) for i, s in enumerate(variant)
-        ))
+        initial_tree = Tree(tuple(Node(s, ROOT_ID, Edge.ROOT, i) for i, s in enumerate(variant)))
         beam.append((initial_tree, set(), variant, evidence, 0.0, 0))
 
     for iteration in range(max_iterations):
@@ -715,18 +737,29 @@ def build(
                 continue
 
             att = find_attachments(ready, evidence, N)
-            certain, uncertain = group_into_chains(att, evidence, N, confidence_threshold, root_discount)
+            certain, uncertain = group_into_chains(
+                att, evidence, N, confidence_threshold, root_discount
+            )
 
             tree, c_score, c_count = apply_assignments(
-                tree, certain, syms, run_subsets_fn, make_subsets_fn,
+                tree,
+                certain,
+                syms,
+                run_subsets_fn,
+                make_subsets_fn,
             )
             newly_resolved = set()
             for c in certain:
                 newly_resolved.update(c.chain)
 
             forked = fork_on_uncertain(
-                tree, uncertain, syms, evidence, N,
-                run_subsets_fn, make_subsets_fn,
+                tree,
+                uncertain,
+                syms,
+                evidence,
+                N,
+                run_subsets_fn,
+                make_subsets_fn,
             )
             for f, fork_score in forked:
                 fork_resolved = resolved | newly_resolved
@@ -734,9 +767,16 @@ def build(
                     fork_resolved.update(u.chain)
                 # fork_score is raw confidence sum, count = number of uncertain chains verified
                 fork_count = sum(1 for u in uncertain if u.parent >= 0)
-                next_beam.append((f, fork_resolved, syms, evidence,
-                                  sc_sum + c_score + fork_score,
-                                  sc_cnt + c_count + fork_count))
+                next_beam.append(
+                    (
+                        f,
+                        fork_resolved,
+                        syms,
+                        evidence,
+                        sc_sum + c_score + fork_score,
+                        sc_cnt + c_count + fork_count,
+                    )
+                )
 
         # Deduplicate and keep top beam_width by average score
         seen: set[int] = set()
@@ -756,12 +796,19 @@ def build(
 
         best = beam[0]
         avg = best[4] / best[5] if best[5] > 0 else 0.0
-        log.info("  iter %d: %d candidates, best_score=%.3f, resolved=%d",
-                 iteration, len(beam), avg, max(len(entry[1]) for entry in beam))
+        log.info(
+            "  iter %d: %d candidates, best_score=%.3f, resolved=%d",
+            iteration,
+            len(beam),
+            avg,
+            max(len(entry[1]) for entry in beam),
+        )
 
     # Final scoring: verify every subtree in each completed candidate
     if beam and len(beam) > 1:
-        best_tree = max(beam, key=lambda b: _verify_score_subset(b[0], b[2], run_subsets_fn, make_subsets_fn))[0]
+        best_tree = max(
+            beam, key=lambda b: _verify_score_subset(b[0], b[2], run_subsets_fn, make_subsets_fn)
+        )[0]
     elif beam:
         best_tree = beam[0][0]
     else:
@@ -769,22 +816,39 @@ def build(
     return reorder_siblings(best_tree)
 
 
-def _verify_score(tree: Tree, symbols: list[Symbol], run_subsets_fn, make_subsets_fn, gnn_model=None, symbol_vocab=None, device=None) -> float:
+def _verify_score(
+    tree: Tree,
+    symbols: list[Symbol],
+    run_subsets_fn,
+    make_subsets_fn,
+    gnn_model=None,
+    symbol_vocab=None,
+    device=None,
+) -> float:
     """Score a tree by model verification.
 
     If gnn_model is provided, uses GNN for full-expression verification.
     Otherwise falls back to per-group subset model verification.
     """
     if gnn_model is not None:
-        return _verify_score_gnn(tree, symbols, gnn_model, symbol_vocab, device, run_subsets_fn, make_subsets_fn)
+        return _verify_score_gnn(
+            tree, symbols, gnn_model, symbol_vocab, device, run_subsets_fn, make_subsets_fn
+        )
     return _verify_score_subset(tree, symbols, run_subsets_fn, make_subsets_fn)
 
 
-def _verify_score_gnn(tree: Tree, symbols: list[Symbol], gnn_model, symbol_vocab, device, run_subsets_fn, make_subsets_fn) -> float:
+def _verify_score_gnn(
+    tree: Tree,
+    symbols: list[Symbol],
+    gnn_model,
+    symbol_vocab,
+    device,
+    run_subsets_fn,
+    make_subsets_fn,
+) -> float:
     """Score a tree using GNN — full expression, no size limit."""
-    from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft
-    from mathnote_ocr.tree_parser.evidence import evidence_to_features
     from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+    from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft, evidence_to_features
 
     N = len(symbols)
     names = [s.name for s in symbols]
@@ -800,7 +864,8 @@ def _verify_score_gnn(tree: Tree, symbols: list[Symbol], gnn_model, symbol_vocab
 
     sym_ids = torch.tensor(
         [symbol_vocab.get(n, symbol_vocab.get("<unk>", 1)) for n in names],
-        dtype=torch.long, device=device,
+        dtype=torch.long,
+        device=device,
     )
     _, size_feats = compute_features_from_bbox_list(bboxes, N)
     size_feats = size_feats.to(device)
@@ -815,7 +880,7 @@ def _verify_score_gnn(tree: Tree, symbols: list[Symbol], gnn_model, symbol_vocab
             pad_mask.unsqueeze(0),
         )
 
-    parent_scores = out["parent_scores"][0]        # (N, N+1)
+    parent_scores = out["parent_scores"][0]  # (N, N+1)
     edge_type_scores = out["edge_type_scores"][0]  # (N, N+1, E)
 
     # Score: for each node in the tree, does the GNN agree?
@@ -838,7 +903,9 @@ def _verify_score_gnn(tree: Tree, symbols: list[Symbol], gnn_model, symbol_vocab
     return agree / total if total > 0 else 1.0
 
 
-def _verify_score_subset(tree: Tree, symbols: list[Symbol], run_subsets_fn, make_subsets_fn) -> float:
+def _verify_score_subset(
+    tree: Tree, symbols: list[Symbol], run_subsets_fn, make_subsets_fn
+) -> float:
     """Score a tree by verifying each parent+children group with the subset model."""
     parents_with_children: dict[int, list[tuple[int, int]]] = {}
     for sid, node in tree.nodes.items():
@@ -858,12 +925,16 @@ def _verify_score_subset(tree: Tree, symbols: list[Symbol], run_subsets_fn, make
         child_edges = [e for _, e in children]
 
         parent_pos = next((i for i, s in enumerate(symbols) if s.id == parent_id), None)
-        child_pos_list = [next((i for i, s in enumerate(symbols) if s.id == cid), None) for cid in child_positions]
+        child_pos_list = [
+            next((i for i, s in enumerate(symbols) if s.id == cid), None) for cid in child_positions
+        ]
 
         if parent_pos is None or any(p is None for p in child_pos_list):
             continue
 
-        conf = verify_subtree(parent_pos, child_pos_list, child_edges, symbols, run_subsets_fn, make_subsets_fn)
+        conf = verify_subtree(
+            parent_pos, child_pos_list, child_edges, symbols, run_subsets_fn, make_subsets_fn
+        )
         total_score += conf
         total += 1
 
@@ -892,10 +963,10 @@ def build_with_collapse(
     After each iteration, verified subtrees are collapsed into EXPR nodes.
     Evidence is re-run on the smaller expression for better parent predictions.
     """
-    from mathnote_ocr.tree_parser.tree_v2 import Node, Edge
-    from mathnote_ocr.tree_parser.tree_ops import expand
     from mathnote_ocr.bbox import BBox
     from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft
+    from mathnote_ocr.tree_parser.tree_ops import expand
+    from mathnote_ocr.tree_parser.tree_v2 import Edge, Node
 
     N = len(symbols)
     if N == 0:
@@ -914,8 +985,14 @@ def build_with_collapse(
         names = [s.name for s in variant]
         bboxes = [s.bbox.to_list() for s in variant]
         evidence = get_evidence_tta(
-            names, bboxes, run_subsets_fn, make_subsets_fn,
-            tta_runs=tta_runs, tta_dx=tta_dx, tta_dy=tta_dy, tta_size=tta_size,
+            names,
+            bboxes,
+            run_subsets_fn,
+            make_subsets_fn,
+            tta_runs=tta_runs,
+            tta_dx=tta_dx,
+            tta_dy=tta_dy,
+            tta_size=tta_size,
         )
         tree = Tree(tuple(Node(s, ROOT_ID, Edge.ROOT, i) for i, s in enumerate(variant)))
         beam.append((tree, set(), variant, evidence, {}))
@@ -938,15 +1015,18 @@ def build_with_collapse(
                     continue
 
             att = find_attachments(ready, evidence, cur_N)
-            certain, uncertain = group_into_chains(att, evidence, cur_N, confidence_threshold, root_discount)
+            certain, uncertain = group_into_chains(
+                att, evidence, cur_N, confidence_threshold, root_discount
+            )
 
             tree, _ = apply_assignments(tree, certain, syms, run_subsets_fn, make_subsets_fn)
             newly_resolved = set()
             for c in certain:
                 newly_resolved.update(c.chain)
 
-            forked = fork_on_uncertain(tree, uncertain, syms, evidence, cur_N,
-                                       run_subsets_fn, make_subsets_fn)
+            forked = fork_on_uncertain(
+                tree, uncertain, syms, evidence, cur_N, run_subsets_fn, make_subsets_fn
+            )
             for f, _ in forked:
                 fork_resolved = resolved | newly_resolved
                 for u in uncertain:
@@ -992,8 +1072,9 @@ def build_with_collapse(
                 if not has_unresolved and children_pos:
                     # Verify before collapsing
                     child_edges = [tree[syms[cp].id].edge_type for cp in children_pos]
-                    conf = verify_subtree(p_pos, children_pos, child_edges, syms,
-                                          run_subsets_fn, make_subsets_fn)
+                    conf = verify_subtree(
+                        p_pos, children_pos, child_edges, syms, run_subsets_fn, make_subsets_fn
+                    )
                     if conf > 0.5:
                         collapsible.append((p_pos, children_pos))
 
@@ -1019,19 +1100,27 @@ def build_with_collapse(
                     if pos == p_pos:
                         subtree_nodes.append(Node(node.symbol, ROOT_ID, Edge.ROOT, 0))
                     else:
-                        subtree_nodes.append(Node(node.symbol, node.parent_id, node.edge_type, node.order))
+                        subtree_nodes.append(
+                            Node(node.symbol, node.parent_id, node.edge_type, node.order)
+                        )
                 new_stored[next_expr_id] = Tree(tuple(subtree_nodes))
 
                 # Create EXPR symbol
                 expr_bbox = BBox.union_all([syms[pos].bbox for pos in group_positions])
                 new_expr_syms.append(Symbol(next_expr_id, "expr", expr_bbox))
 
-                log.info("    collapse iter %d: {%s} → expr_%d",
-                         iteration, ",".join(syms[p].name for p in group_positions), next_expr_id)
+                log.info(
+                    "    collapse iter %d: {%s} → expr_%d",
+                    iteration,
+                    ",".join(syms[p].name for p in group_positions),
+                    next_expr_id,
+                )
                 next_expr_id += 1
 
             # Rebuild syms and evidence
-            new_syms = [s for i, s in enumerate(syms) if i not in collapse_positions] + new_expr_syms
+            new_syms = [
+                s for i, s in enumerate(syms) if i not in collapse_positions
+            ] + new_expr_syms
             new_names = [s.name for s in new_syms]
             new_bboxes = [s.bbox.to_list() for s in new_syms]
             new_evidence = aggregate_evidence_soft(
@@ -1049,19 +1138,30 @@ def build_with_collapse(
         if all(len(entry[2]) <= 1 for entry in beam):
             break
 
-        if new_sizes == prev_sizes[:len(new_sizes)]:
+        if new_sizes == prev_sizes[: len(new_sizes)]:
             break  # no collapsing happened — stop
 
-        log.info("  iter %d: %d candidates, %d syms",
-                 iteration, len(beam), min(len(entry[2]) for entry in beam))
+        log.info(
+            "  iter %d: %d candidates, %d syms",
+            iteration,
+            len(beam),
+            min(len(entry[2]) for entry in beam),
+        )
 
     # Score and pick best
     if beam and len(beam) > 1:
-        best_entry = max(beam, key=lambda b: _verify_score(b[0], b[2], run_subsets_fn, make_subsets_fn, gnn_model, symbol_vocab, device))
+        best_entry = max(
+            beam,
+            key=lambda b: _verify_score(
+                b[0], b[2], run_subsets_fn, make_subsets_fn, gnn_model, symbol_vocab, device
+            ),
+        )
     elif beam:
         best_entry = beam[0]
     else:
-        return reorder_siblings(Tree(tuple(Node(s, ROOT_ID, Edge.ROOT, i) for i, s in enumerate(symbols))))
+        return reorder_siblings(
+            Tree(tuple(Node(s, ROOT_ID, Edge.ROOT, i) for i, s in enumerate(symbols)))
+        )
 
     tree, _, _, _, stored_subtrees = best_entry
 

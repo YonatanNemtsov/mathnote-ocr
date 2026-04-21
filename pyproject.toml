@@ -65,3 +65,35 @@ include = [
     "README.md",
     "pyproject.toml",
 ]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.11",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [
+    "data",
+    "weights",
+    ".venv",
+    "src/mathnote_ocr/weights",
+]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes (unused imports, undefined names)
+    "I",        # isort (import ordering)
+    "UP",       # pyupgrade
+    "B",        # bugbear
+]
+ignore = [
+    "E501",     # line-too-long — format handles it
+    "E741",     # ambiguous variable names (we use math conventions like `l`, `I`)
+    "B008",     # function call in default arg — common with Path()
+]
+
+[tool.ruff.format]
+quote-style = "double"

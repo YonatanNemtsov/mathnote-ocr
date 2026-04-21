@@ -12,13 +12,28 @@ VARS = list("abcdefghijklmnopqrstuvwxyz")
 UPPER = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 DIGITS = list("0123456789")
 GREEK = [
-    "\\alpha", "\\beta", "\\gamma", "\\delta", "\\epsilon",
-    "\\theta", "\\lambda", "\\mu", "\\pi", "\\sigma",
-    "\\phi", "\\psi", "\\omega",
+    "\\alpha",
+    "\\beta",
+    "\\gamma",
+    "\\delta",
+    "\\epsilon",
+    "\\theta",
+    "\\lambda",
+    "\\mu",
+    "\\pi",
+    "\\sigma",
+    "\\phi",
+    "\\psi",
+    "\\omega",
 ]
 GREEK_UPPER = [
-    "\\Gamma", "\\Delta", "\\Sigma", "\\Pi",
-    "\\Phi", "\\Psi", "\\Omega",
+    "\\Gamma",
+    "\\Delta",
+    "\\Sigma",
+    "\\Pi",
+    "\\Phi",
+    "\\Psi",
+    "\\Omega",
 ]
 
 # ── Operator pools ───────────────────────────────────────────────────
@@ -29,8 +44,7 @@ SET_OPS = ["\\cup", "\\cap"]
 LOGIC = ["\\forall", "\\exists"]
 ARROWS = ["\\rightarrow", "\\leftarrow"]
 BIGOPS = ["\\sum", "\\int", "\\prod"]
-FUNCS = ["\\sin", "\\cos", "\\tan", "\\log", "\\ln",
-         "\\exp", "\\max", "\\min"]
+FUNCS = ["\\sin", "\\cos", "\\tan", "\\log", "\\ln", "\\exp", "\\max", "\\min"]
 
 # ── Extra symbols for coverage ───────────────────────────────────────
 
@@ -41,11 +55,14 @@ OTHER = ["\\ldots"]
 
 # Flat pool of all "rare" symbols that are underrepresented in v1-v16
 MISC_SYMBOLS = (
-    ["\\pm", "\\div"]               # extended ops
-    + ["<", ">"]                     # extended relations
-    + LOGIC + ARROWS                 # logic + arrows
-    + PUNCT + BRACKETS               # punctuation + brackets
-    + CALCULUS + OTHER               # calculus + misc
+    ["\\pm", "\\div"]  # extended ops
+    + ["<", ">"]  # extended relations
+    + LOGIC
+    + ARROWS  # logic + arrows
+    + PUNCT
+    + BRACKETS  # punctuation + brackets
+    + CALCULUS
+    + OTHER  # calculus + misc
 )
 
 
@@ -123,7 +140,13 @@ def _shared_term(d, atom_fn, base_fn, struct_fn):
     if v < 0.62:
         return " ".join(base_fn() for _ in range(random.randint(2, 3)))
     if v < 0.75:
-        return "\\frac{" + _shared_short_content(d + 1, atom_fn, base_fn) + "}{" + _shared_short_content(d + 1, atom_fn, base_fn) + "}"
+        return (
+            "\\frac{"
+            + _shared_short_content(d + 1, atom_fn, base_fn)
+            + "}{"
+            + _shared_short_content(d + 1, atom_fn, base_fn)
+            + "}"
+        )
     return base_fn()
 
 
@@ -135,8 +158,7 @@ def _shared_expr(d, atom_fn, base_fn, struct_fn):
     if d == 0:
         # Top level: 1-3 terms, ops or juxtaposition
         max_terms = 3
-        n = random.choices(range(1, max_terms + 1),
-                           weights=[3, 2, 1])[0]
+        n = random.choices(range(1, max_terms + 1), weights=[3, 2, 1])[0]
         parts = [_shared_term(d, atom_fn, base_fn, struct_fn)]
         for _ in range(n - 1):
             if random.random() < 0.5:
@@ -148,7 +170,11 @@ def _shared_expr(d, atom_fn, base_fn, struct_fn):
     # 1-2 structured terms, juxtaposition only (no op chains)
     if random.random() < 0.6:
         return _shared_term(d, atom_fn, base_fn, struct_fn)
-    return _shared_term(d, atom_fn, base_fn, struct_fn) + " " + _shared_term(d, atom_fn, base_fn, struct_fn)
+    return (
+        _shared_term(d, atom_fn, base_fn, struct_fn)
+        + " "
+        + _shared_term(d, atom_fn, base_fn, struct_fn)
+    )
 
 
 def clean_latex(latex: str) -> str:
@@ -157,10 +183,9 @@ def clean_latex(latex: str) -> str:
     Handles brace stripping, spacing, \\left/\\right for parens.
     """
     from mathnote_ocr.tree_parser.tree_latex import latex_to_tree, tree_to_latex
+
     try:
         tree = latex_to_tree(latex)
         return tree_to_latex(tree)
     except Exception:
         return latex
-
-

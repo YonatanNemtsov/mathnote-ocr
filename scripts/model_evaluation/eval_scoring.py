@@ -2,24 +2,28 @@
 
 import json
 import os
-import sys
 import random
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import torch
 
 from mathnote_ocr.engine.checkpoint import load_checkpoint
-from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
-from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
-from mathnote_ocr.tree_parser.tree import ROOT
-from scripts.diagnostics.visualize_predictions import (
-    _spatial_subsets, _run_subsets, _build_trees,
-)
 from mathnote_ocr.tree_parser.evidence import (
-    aggregate_evidence, aggregate_evidence_soft, propagate_seq,
+    aggregate_evidence,
+    aggregate_evidence_soft,
+    propagate_seq,
 )
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.tree import ROOT
 from mathnote_ocr.tree_parser.tree_builder import build_tree_from_evidence
+from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
+from scripts.diagnostics.visualize_predictions import (
+    _build_trees,
+    _run_subsets,
+    _spatial_subsets,
+)
 
 
 def aggregate_evidence_hard(n_symbols, partial_outputs):
@@ -113,7 +117,9 @@ def main():
     model.eval()
 
     # Load failures
-    fail_path = os.path.join(os.path.dirname(__file__), "..", "data", "tree", "failures", "train.jsonl")
+    fail_path = os.path.join(
+        os.path.dirname(__file__), "..", "data", "tree", "failures", "train.jsonl"
+    )
     fail_examples = load_examples(fail_path, n_max=274) if os.path.exists(fail_path) else []
 
     # Load val (100 per version)
@@ -134,7 +140,9 @@ def main():
         else:
             fc, ft = 0, 0
         vc, vt = eval_examples(model, symbol_vocab, val_examples, device, max_subset, soft)
-        print(f"{name:>10s}  {fc:>3d}/{ft:<3d} {fc/max(ft,1):>5.1%}  {vc:>4d}/{vt:<4d} {vc/max(vt,1):>5.1%}")
+        print(
+            f"{name:>10s}  {fc:>3d}/{ft:<3d} {fc / max(ft, 1):>5.1%}  {vc:>4d}/{vt:<4d} {vc / max(vt, 1):>5.1%}"
+        )
 
 
 if __name__ == "__main__":

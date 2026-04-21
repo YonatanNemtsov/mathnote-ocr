@@ -8,10 +8,10 @@ import torch.nn as nn
 
 def compute_loss(
     out: dict[str, torch.Tensor],
-    parent_targets: torch.Tensor,    # (B, S)
-    edge_targets: torch.Tensor,      # (B, S)
-    order_targets: torch.Tensor,     # (B, S)
-    pad_mask: torch.Tensor,          # (B, S)
+    parent_targets: torch.Tensor,  # (B, S)
+    edge_targets: torch.Tensor,  # (B, S)
+    order_targets: torch.Tensor,  # (B, S)
+    pad_mask: torch.Tensor,  # (B, S)
     seq_targets: torch.Tensor | None = None,  # (B, S)
     order_weight: float = 0.1,
 ) -> tuple[torch.Tensor, dict[str, float]]:

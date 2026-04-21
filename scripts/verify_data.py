@@ -14,10 +14,9 @@ Usage:
     python3.10 scripts/verify_data.py data/runs/tree_subset/mixed_v10/train.jsonl --n 5000
 """
 
+import argparse
 import json
 import sys
-import re
-import argparse
 from collections import Counter
 from pathlib import Path
 
@@ -38,7 +37,9 @@ def check_upper_lower(symbols, tree):
         above = child_cy < parent_cy
         edge = "UPPER" if t["edge_type"] == 5 else "LOWER"
         if (edge == "UPPER" and not above) or (edge == "LOWER" and above):
-            issues.append(f"{symbols[i]['name']} labeled {edge} but spatially {'ABOVE' if above else 'BELOW'} parent {symbols[parent]['name']}")
+            issues.append(
+                f"{symbols[i]['name']} labeled {edge} but spatially {'ABOVE' if above else 'BELOW'} parent {symbols[parent]['name']}"
+            )
     return issues
 
 
@@ -60,8 +61,23 @@ def check_sup_in_sub(symbols, tree):
 
 def check_op_as_base(symbols, tree):
     """Check for operators as sup/sub bases."""
-    ops = {"+", "-", "times", "cdot", "pm", "div", "leq", "geq", "neq",
-           "cup", "cap", "in", "subset", "forall", "exists"}
+    ops = {
+        "+",
+        "-",
+        "times",
+        "cdot",
+        "pm",
+        "div",
+        "leq",
+        "geq",
+        "neq",
+        "cup",
+        "cap",
+        "in",
+        "subset",
+        "forall",
+        "exists",
+    }
     issues = []
     # Find symbols that have SUP or SUB children
     has_sup_sub = set()
@@ -133,8 +149,17 @@ def main():
         print(f"  N={k:2d}: {sizes[k]:5d}  {bar}")
     print()
     print("--- Edge type distribution ---")
-    edge_names = {-1: "ROOT", 0: "NUM", 1: "DEN", 2: "SUP", 3: "SUB",
-                  4: "SQRT", 5: "UPPER", 6: "LOWER", 7: "MATCH"}
+    edge_names = {
+        -1: "ROOT",
+        0: "NUM",
+        1: "DEN",
+        2: "SUP",
+        3: "SUB",
+        4: "SQRT",
+        5: "UPPER",
+        6: "LOWER",
+        7: "MATCH",
+    }
     for e in sorted(edges):
         print(f"  {edge_names.get(e, str(e)):6s}: {edges[e]:6d}")
 

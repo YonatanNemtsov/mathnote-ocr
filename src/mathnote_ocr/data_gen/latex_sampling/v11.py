@@ -13,7 +13,7 @@ whose edge types are easy to misclassify:
 
 import random
 
-from .symbols import (_pick_base, _shared_short_content, VARS, DIGITS, GREEK, MISC_SYMBOLS, ARITH_OPS)
+from .symbols import ARITH_OPS, DIGITS, GREEK, MISC_SYMBOLS, VARS, _pick_base, _shared_short_content
 
 
 def _atom():

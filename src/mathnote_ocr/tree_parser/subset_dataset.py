@@ -20,7 +20,6 @@ from torch.utils.data import Dataset
 from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
 from mathnote_ocr.tree_parser.tree import ROOT
 
-
 # ── Bbox jitter (online augmentation) ────────────────────────────────
 
 
@@ -49,12 +48,14 @@ def _augment_bboxes(bboxes: list[list[float]]) -> list[list[float]]:
         dy = random.uniform(-0.15, 0.15) * h
         sw = random.uniform(0.65, 1.35)
         sh = random.uniform(0.65, 1.35)
-        result.append([
-            max(0.0, rx - w * sw / 2 + dx),
-            max(0.0, ry - h * sh / 2 + dy),
-            max(0.001, w * sw),
-            max(0.001, h * sh),
-        ])
+        result.append(
+            [
+                max(0.0, rx - w * sw / 2 + dx),
+                max(0.0, ry - h * sh / 2 + dy),
+                max(0.001, w * sw),
+                max(0.001, h * sh),
+            ]
+        )
     return result
 
 
@@ -83,17 +84,18 @@ def _augment_bboxes_gentle(bboxes: list[list[float]]) -> list[list[float]]:
         dy = random.uniform(-0.05, 0.05) * h
         sw = random.uniform(0.88, 1.12)
         sh = random.uniform(0.88, 1.12)
-        result.append([
-            max(0.0, rx - w * sw / 2 + dx),
-            max(0.0, ry - h * sh / 2 + dy),
-            max(0.001, w * sw),
-            max(0.001, h * sh),
-        ])
+        result.append(
+            [
+                max(0.0, rx - w * sw / 2 + dx),
+                max(0.0, ry - h * sh / 2 + dy),
+                max(0.001, w * sw),
+                max(0.001, h * sh),
+            ]
+        )
     return result
 
 
 from mathnote_ocr.latex_utils.collapse import EXPR_NAME, random_collapse
-
 
 # ── Symbol vocab ─────────────────────────────────────────────────────
 
@@ -160,8 +162,12 @@ class TreeSubsetDataset(Dataset):
             for s in range(len(ex["symbols"])):
                 self.index.append((i, s))
 
-        log.info("Loaded %d examples from %s (%d subsets)",
-                 len(self.examples), jsonl_path, len(self.index))
+        log.info(
+            "Loaded %d examples from %s (%d subsets)",
+            len(self.examples),
+            jsonl_path,
+            len(self.index),
+        )
 
     def __len__(self) -> int:
         return len(self.index)
@@ -271,9 +277,11 @@ class TreeSubsetDataset(Dataset):
                 # Find previous sibling in subset
                 for j, gj in enumerate(subset):
                     tj = tree[gj]
-                    if (tj["parent"] == t["parent"]
-                            and tj["edge_type"] == t["edge_type"]
-                            and tj["order"] == t["order"] - 1):
+                    if (
+                        tj["parent"] == t["parent"]
+                        and tj["edge_type"] == t["edge_type"]
+                        and tj["order"] == t["order"] - 1
+                    ):
                         seq_targets[i] = j
                         break
                 # else: -100 (prev sibling not in subset, ignore)

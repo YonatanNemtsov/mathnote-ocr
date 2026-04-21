@@ -18,21 +18,29 @@ import re
 
 import websockets
 
-from mathnote_ocr.engine.stroke import Stroke, compute_bbox
-from mathnote_ocr.engine.renderer import render_strokes
-from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
-from mathnote_ocr.latex_utils.sampling import _set_sampler, sample_expression, sampler_list
-from mathnote_ocr.latex_utils.expr_aug import parse_latex, _n_frac_bars, _FUNC_GLYPH_COUNTS
-from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
 from mathnote_ocr import config
 
-
 # ── Template expansion ────────────────────────────────────────────────
-
 from mathnote_ocr.data_gen.latex_sampling_v2.templates import (
-    Variable, UpperVar, Digit, Greek, GreekUpper, Op, RelOp,
-    BigOp, Misc, Quant, Bracket, Punct,
+    BigOp,
+    Bracket,
+    Digit,
+    Greek,
+    GreekUpper,
+    Misc,
+    Op,
+    Punct,
+    Quant,
+    RelOp,
+    UpperVar,
+    Variable,
 )
+from mathnote_ocr.engine.renderer import render_strokes
+from mathnote_ocr.engine.stroke import Stroke, compute_bbox
+from mathnote_ocr.latex_utils.expr_aug import _FUNC_GLYPH_COUNTS, _n_frac_bars, parse_latex
+from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
+from mathnote_ocr.latex_utils.sampling import _set_sampler, sample_expression, sampler_list
+from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
 
 _TEMPLATE_ATOMS = {
     "var": Variable,
@@ -54,6 +62,7 @@ _TEMPLATE_RE = re.compile(r"\[([a-zA-Z]+)\]")
 
 def expand_template(template: str) -> str:
     """Replace [placeholder] tokens with random values from template atoms."""
+
     def _replace(m):
         name = m.group(1)
         atom = _TEMPLATE_ATOMS.get(name)
@@ -64,6 +73,7 @@ def expand_template(template: str) -> str:
         if val.startswith("\\"):
             val = "{" + val + "}"
         return val
+
     return _TEMPLATE_RE.sub(_replace, template)
 
 
@@ -71,17 +81,57 @@ def expand_template(template: str) -> str:
 
 # Commands that produce a visible glyph (matched by _extract_glyphs)
 _GLYPH_COMMANDS = {
-    r"\alpha", r"\beta", r"\gamma", r"\delta", r"\epsilon", r"\theta",
-    r"\lambda", r"\mu", r"\pi", r"\sigma", r"\phi", r"\psi", r"\omega",
-    r"\Gamma", r"\Delta", r"\Sigma", r"\Pi", r"\Phi", r"\Psi", r"\Omega",
-    r"\times", r"\cdot", r"\pm", r"\div",
-    r"\leq", r"\geq", r"\neq",
-    r"\in", r"\subset", r"\cup", r"\cap", r"\forall", r"\exists",
-    r"\partial", r"\nabla", r"\infty",
-    r"\rightarrow", r"\leftarrow", r"\ldots", r"\cdots",
-    r"\lbrace", r"\rbrace",
-    r"\sin", r"\cos", r"\tan", r"\log", r"\ln", r"\lim",
-    r"\int", r"\sum", r"\prod",
+    r"\alpha",
+    r"\beta",
+    r"\gamma",
+    r"\delta",
+    r"\epsilon",
+    r"\theta",
+    r"\lambda",
+    r"\mu",
+    r"\pi",
+    r"\sigma",
+    r"\phi",
+    r"\psi",
+    r"\omega",
+    r"\Gamma",
+    r"\Delta",
+    r"\Sigma",
+    r"\Pi",
+    r"\Phi",
+    r"\Psi",
+    r"\Omega",
+    r"\times",
+    r"\cdot",
+    r"\pm",
+    r"\div",
+    r"\leq",
+    r"\geq",
+    r"\neq",
+    r"\in",
+    r"\subset",
+    r"\cup",
+    r"\cap",
+    r"\forall",
+    r"\exists",
+    r"\partial",
+    r"\nabla",
+    r"\infty",
+    r"\rightarrow",
+    r"\leftarrow",
+    r"\ldots",
+    r"\cdots",
+    r"\lbrace",
+    r"\rbrace",
+    r"\sin",
+    r"\cos",
+    r"\tan",
+    r"\log",
+    r"\ln",
+    r"\lim",
+    r"\int",
+    r"\sum",
+    r"\prod",
     r"\sqrt",
 }
 
@@ -90,29 +140,33 @@ _STRUCTURAL_COMMANDS = {r"\frac", r"\binom"}
 
 # Multi-glyph commands (rendered as multiple <use> elements)
 _MULTI_GLYPH = {
-    r"\sin": 3, r"\cos": 3, r"\tan": 3,
-    r"\log": 3, r"\ln": 2, r"\lim": 3,
+    r"\sin": 3,
+    r"\cos": 3,
+    r"\tan": 3,
+    r"\log": 3,
+    r"\ln": 2,
+    r"\lim": 3,
 }
 
 
 def _find_brace_end(latex: str, pos: int) -> int:
     """Find the end of a {}-delimited group starting at pos."""
-    if pos >= len(latex) or latex[pos] != '{':
+    if pos >= len(latex) or latex[pos] != "{":
         return pos
     depth = 1
     k = pos + 1
     while k < len(latex) and depth > 0:
-        if latex[k] == '{':
+        if latex[k] == "{":
             depth += 1
-        elif latex[k] == '}':
+        elif latex[k] == "}":
             depth -= 1
         k += 1
     return k
 
 
-def _highlight_latex(latex: str, glyph_index: int, is_bar: list,
-                     bar_string_indices: list,
-                     binom_paren_str_idx: list) -> str:
+def _highlight_latex(
+    latex: str, glyph_index: int, is_bar: list, bar_string_indices: list, binom_paren_str_idx: list
+) -> str:
     """Return LaTeX with the glyph_index-th symbol highlighted.
 
     Uses is_bar list to determine whether to highlight a char glyph,
@@ -132,13 +186,7 @@ def _highlight_latex(latex: str, glyph_index: int, is_bar: list,
                     end_top = _find_brace_end(latex, j)
                     end_bot = _find_brace_end(latex, end_top)
                     token = latex[i:end_bot]
-                    return (
-                        latex[:i]
-                        + r"\colorbox{#fde68a}{$"
-                        + token
-                        + "$}"
-                        + latex[end_bot:]
-                    )
+                    return latex[:i] + r"\colorbox{#fde68a}{$" + token + "$}" + latex[end_bot:]
                 count += 1
                 i += 6
             else:
@@ -152,18 +200,12 @@ def _highlight_latex(latex: str, glyph_index: int, is_bar: list,
         while i < len(latex):
             if latex[i:].startswith(r"\frac") or latex[i:].startswith(r"\binom"):
                 if frac_count == bar_index:
-                    cmd_len = 5 if latex[i] == '\\' and latex[i+1:i+5] == 'frac' else 6
+                    cmd_len = 5 if latex[i] == "\\" and latex[i + 1 : i + 5] == "frac" else 6
                     j = i + cmd_len
                     end_num = _find_brace_end(latex, j)
                     end_den = _find_brace_end(latex, end_num)
                     token = latex[i:end_den]
-                    return (
-                        latex[:i]
-                        + r"\colorbox{#fde68a}{$"
-                        + token
-                        + "$}"
-                        + latex[end_den:]
-                    )
+                    return latex[:i] + r"\colorbox{#fde68a}{$" + token + "$}" + latex[end_den:]
                 frac_count += 1
                 cmd_len = 5 if latex[i:].startswith(r"\frac") else 6
                 i += cmd_len
@@ -172,25 +214,24 @@ def _highlight_latex(latex: str, glyph_index: int, is_bar: list,
         return latex  # fallback
 
     # Count which char this is (0-based among non-bar, non-binom-paren symbols)
-    char_index = sum(1 for i in range(glyph_index)
-                     if not is_bar[i] and binom_paren_str_idx[i] < 0)
+    char_index = sum(1 for i in range(glyph_index) if not is_bar[i] and binom_paren_str_idx[i] < 0)
     count = 0
     i = 0
     while i < len(latex):
         ch = latex[i]
 
         # Skip whitespace
-        if ch == ' ':
+        if ch == " ":
             i += 1
             continue
 
         # Skip structural characters
-        if ch in '{}^_':
+        if ch in "{}^_":
             i += 1
             continue
 
         # LaTeX command
-        if ch == '\\':
+        if ch == "\\":
             j = i + 1
             if j < len(latex) and latex[j].isalpha():
                 while j < len(latex) and latex[j].isalpha():
@@ -211,13 +252,7 @@ def _highlight_latex(latex: str, glyph_index: int, is_bar: list,
                         else:
                             token = latex[i:j]
                             end = j
-                        return (
-                            latex[:i]
-                            + r"\colorbox{#fde68a}{$"
-                            + token
-                            + "$}"
-                            + latex[end:]
-                        )
+                        return latex[:i] + r"\colorbox{#fde68a}{$" + token + "$}" + latex[end:]
                     count += n_glyphs
                     i = j
                     continue
@@ -228,13 +263,7 @@ def _highlight_latex(latex: str, glyph_index: int, is_bar: list,
 
         # Regular character — visible glyph
         if count == char_index:
-            return (
-                latex[:i]
-                + r"\colorbox{#fde68a}{$"
-                + ch
-                + "$}"
-                + latex[i + 1:]
-            )
+            return latex[:i] + r"\colorbox{#fde68a}{$" + ch + "$}" + latex[i + 1 :]
         count += 1
         i += 1
 
@@ -243,8 +272,10 @@ def _highlight_latex(latex: str, glyph_index: int, is_bar: list,
 
 # ── Expression generation ────────────────────────────────────────────
 
-def _emit_drawing_order(node, char_c, bar_c, frac_str_c, binom_str_c,
-                         n_chars, order, frac_str_idx, binom_paren_idx):
+
+def _emit_drawing_order(
+    node, char_c, bar_c, frac_str_c, binom_str_c, n_chars, order, frac_str_idx, binom_paren_idx
+):
     """Walk LNode tree emitting glyph indices in natural drawing order.
 
     Mirrors _assign_labels() from tree_parser/gen_data.py but emits
@@ -254,9 +285,16 @@ def _emit_drawing_order(node, char_c, bar_c, frac_str_c, binom_str_c,
     Tracks frac_str_idx (bar → frac/binom string-order index) and
     binom_paren_idx (binom paren → binom-only string-order index).
     """
-    _r = dict(char_c=char_c, bar_c=bar_c, frac_str_c=frac_str_c,
-              binom_str_c=binom_str_c, n_chars=n_chars, order=order,
-              frac_str_idx=frac_str_idx, binom_paren_idx=binom_paren_idx)
+    _r = dict(
+        char_c=char_c,
+        bar_c=bar_c,
+        frac_str_c=frac_str_c,
+        binom_str_c=binom_str_c,
+        n_chars=n_chars,
+        order=order,
+        frac_str_idx=frac_str_idx,
+        binom_paren_idx=binom_paren_idx,
+    )
 
     if node.kind == "char":
         order.append(char_c[0])
@@ -376,8 +414,7 @@ def _reorder_for_collection(symbols, tree_labels, n_chars, latex):
     new_order = []
     frac_str_idx = []
     binom_paren_idx = []
-    _emit_drawing_order(tree, [0], [0], [0], [0], n_chars,
-                        new_order, frac_str_idx, binom_paren_idx)
+    _emit_drawing_order(tree, [0], [0], [0], [0], n_chars, new_order, frac_str_idx, binom_paren_idx)
 
     # Safety: append any missed indices
     visited = set(new_order)
@@ -415,13 +452,11 @@ def _generate_from_latex(latex: str):
     symbols = [g["name"] for g in glyphs]
     n_chars = sum(1 for g in glyphs if not g.get("is_frac_bar"))
 
-    symbols, tree_labels, is_bar, bar_str_idx, binom_paren_idx = \
-        _reorder_for_collection(symbols, tree_labels, n_chars, latex)
+    symbols, tree_labels, is_bar, bar_str_idx, binom_paren_idx = _reorder_for_collection(
+        symbols, tree_labels, n_chars, latex
+    )
 
-    tree = [
-        {"parent": p, "edge_type": e, "order": o}
-        for p, e, o in tree_labels
-    ]
+    tree = [{"parent": p, "edge_type": e, "order": o} for p, e, o in tree_labels]
     return latex, symbols, tree, is_bar, bar_str_idx, binom_paren_idx
 
 
@@ -445,6 +480,7 @@ def _generate_expression(max_symbols: int = 30, min_symbols: int = 3):
 
 # ── Symbol data saving ───────────────────────────────────────────────
 
+
 def _get_next_id(label_dir: Path, run: str) -> str:
     """Find the next numeric ID for a given run prefix in label_dir."""
     prefix = f"{run}_"
@@ -457,8 +493,13 @@ def _get_next_id(label_dir: Path, run: str) -> str:
 
 
 def _save_symbol_image(
-    name: str, raw_strokes: list, canvas_width: int, canvas_height: int,
-    stroke_width: float, symbols_dir: Path, run: str,
+    name: str,
+    raw_strokes: list,
+    canvas_width: int,
+    canvas_height: int,
+    stroke_width: float,
+    symbols_dir: Path,
+    run: str,
 ):
     """Render and save individual symbol PNG + stroke JSON."""
     strokes = [Stroke.from_dicts(pts) for pts in raw_strokes]
@@ -485,6 +526,7 @@ def _save_symbol_image(
 
 
 # ── Session state ────────────────────────────────────────────────────
+
 
 class ExpressionSession:
     def __init__(self, output_dir: Path, run: str):
@@ -522,8 +564,14 @@ class ExpressionSession:
             result = _generate_expression()
         if result is None:
             return None
-        self.latex, self.expected_symbols, self.tree_labels, self.is_bar, \
-            self.bar_str_idx, self.binom_paren_idx = result
+        (
+            self.latex,
+            self.expected_symbols,
+            self.tree_labels,
+            self.is_bar,
+            self.bar_str_idx,
+            self.binom_paren_idx,
+        ) = result
         self.current_index = 0
         self.collected_bboxes = []
         self.collected_strokes = []
@@ -531,8 +579,8 @@ class ExpressionSession:
             "type": "expression",
             "latex": self.latex,
             "highlighted_latex": _highlight_latex(
-                self.latex, 0, self.is_bar, self.bar_str_idx,
-                self.binom_paren_idx),
+                self.latex, 0, self.is_bar, self.bar_str_idx, self.binom_paren_idx
+            ),
             "symbols": self.expected_symbols,
             "total": len(self.expected_symbols),
             "is_bar": self.is_bar,
@@ -558,13 +606,15 @@ class ExpressionSession:
             round(bbox.h / ref, 6),
         ]
         self.collected_bboxes.append(norm_bbox)
-        self.collected_strokes.append({
-            "name": name,
-            "raw_strokes": raw_strokes,
-            "canvas_width": canvas_width,
-            "canvas_height": canvas_height,
-            "stroke_width": stroke_width,
-        })
+        self.collected_strokes.append(
+            {
+                "name": name,
+                "raw_strokes": raw_strokes,
+                "canvas_width": canvas_width,
+                "canvas_height": canvas_height,
+                "stroke_width": stroke_width,
+            }
+        )
 
         self.current_index += 1
 
@@ -578,7 +628,10 @@ class ExpressionSession:
             "current_index": self.current_index,
             "remaining": len(self.expected_symbols) - self.current_index,
             "highlighted_latex": _highlight_latex(
-                self.latex, self.current_index, self.is_bar, self.bar_str_idx,
+                self.latex,
+                self.current_index,
+                self.is_bar,
+                self.bar_str_idx,
                 self.binom_paren_idx,
             ),
         }
@@ -595,7 +648,10 @@ class ExpressionSession:
             "current_index": self.current_index,
             "remaining": len(self.expected_symbols) - self.current_index,
             "highlighted_latex": _highlight_latex(
-                self.latex, self.current_index, self.is_bar, self.bar_str_idx,
+                self.latex,
+                self.current_index,
+                self.is_bar,
+                self.bar_str_idx,
                 self.binom_paren_idx,
             ),
         }
@@ -606,15 +662,21 @@ class ExpressionSession:
         symbol_paths = []
         for s in self.collected_strokes:
             png_path, json_path = _save_symbol_image(
-                s["name"], s["raw_strokes"], s["canvas_width"],
-                s["canvas_height"], s["stroke_width"], self.symbols_dir,
+                s["name"],
+                s["raw_strokes"],
+                s["canvas_width"],
+                s["canvas_height"],
+                s["stroke_width"],
+                self.symbols_dir,
                 self.run,
             )
             # Store paths relative to tree_handwritten dir
-            symbol_paths.append((
-                str(png_path.relative_to(self.output_dir.parent)),
-                str(json_path.relative_to(self.output_dir.parent)),
-            ))
+            symbol_paths.append(
+                (
+                    str(png_path.relative_to(self.output_dir.parent)),
+                    str(json_path.relative_to(self.output_dir.parent)),
+                )
+            )
 
         # Expression labels (lightweight — used by tree parser training/eval)
         sample = {
@@ -622,7 +684,8 @@ class ExpressionSession:
             "symbols": [
                 {"name": name, "bbox": bbox, "png": png, "json": js}
                 for name, bbox, (png, js) in zip(
-                    self.expected_symbols, self.collected_bboxes, symbol_paths)
+                    self.expected_symbols, self.collected_bboxes, symbol_paths
+                )
             ],
             "tree": self.tree_labels,
         }
@@ -665,19 +728,24 @@ class ExpressionSession:
 
 # ── WebSocket handler ────────────────────────────────────────────────
 
+
 async def handler(websocket, state: dict):
     addr = websocket.remote_address
     print(f"[connect] {addr}")
 
     # Send init info on connect
-    await websocket.send(json.dumps({
-        "type": "init",
-        "samplers": sampler_list(),
-        "current_sampler": state["sampler"],
-        "runs": _list_runs(),
-        "current_run": state["run"],
-        "count": state["session"].total_saved,
-    }))
+    await websocket.send(
+        json.dumps(
+            {
+                "type": "init",
+                "samplers": sampler_list(),
+                "current_sampler": state["sampler"],
+                "runs": _list_runs(),
+                "current_run": state["run"],
+                "count": state["session"].total_saved,
+            }
+        )
+    )
 
     async for message in websocket:
         try:
@@ -693,50 +761,70 @@ async def handler(websocket, state: dict):
                 state["session"] = ExpressionSession(BASE_DIR / run, run)
                 session = state["session"]
                 print(f"  Switched to run: {run}")
-                await websocket.send(json.dumps({
-                    "type": "run_changed",
-                    "run": run,
-                    "runs": _list_runs(),
-                    "count": session.total_saved,
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "run_changed",
+                            "run": run,
+                            "runs": _list_runs(),
+                            "count": session.total_saved,
+                        }
+                    )
+                )
 
             elif msg_type == "set_sampler":
                 name = msg["sampler"]
                 _set_sampler(name)
                 state["sampler"] = name
                 print(f"  Switched sampler: {name}")
-                await websocket.send(json.dumps({
-                    "type": "sampler_changed",
-                    "sampler": name,
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "sampler_changed",
+                            "sampler": name,
+                        }
+                    )
+                )
 
             elif msg_type == "set_template":
                 template = msg.get("template", "").strip()
                 session.template = template or None
                 mode = f"template: {template}" if template else "sampler"
                 print(f"  Mode: {mode}")
-                await websocket.send(json.dumps({
-                    "type": "template_changed",
-                    "template": template,
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "template_changed",
+                            "template": template,
+                        }
+                    )
+                )
 
             elif msg_type == "get_expression":
                 result = session.new_expression()
                 if result is None:
-                    await websocket.send(json.dumps({
-                        "type": "error",
-                        "message": "Failed to generate expression",
-                    }))
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "message": "Failed to generate expression",
+                            }
+                        )
+                    )
                 else:
                     await websocket.send(json.dumps(result))
 
             elif msg_type == "save_symbol":
                 raw_strokes = msg.get("strokes", [])
                 if not raw_strokes:
-                    await websocket.send(json.dumps({
-                        "type": "error",
-                        "message": "No strokes",
-                    }))
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "message": "No strokes",
+                            }
+                        )
+                    )
                     continue
 
                 result = session.save_symbol(
@@ -764,11 +852,16 @@ async def handler(websocket, state: dict):
 
         except Exception as e:
             import traceback
+
             traceback.print_exc()
-            await websocket.send(json.dumps({
-                "type": "error",
-                "message": str(e),
-            }))
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "error",
+                        "message": str(e),
+                    }
+                )
+            )
 
     print(f"[disconnect] {addr}")
 
@@ -780,10 +873,7 @@ def _list_runs() -> list[str]:
     """List existing run directories (run_NNN pattern only)."""
     if not BASE_DIR.exists():
         return []
-    return sorted(
-        d.name for d in BASE_DIR.iterdir()
-        if d.is_dir() and re.match(r"run_\d+", d.name)
-    )
+    return sorted(d.name for d in BASE_DIR.iterdir() if d.is_dir() and re.match(r"run_\d+", d.name))
 
 
 def _next_run_name() -> str:
@@ -821,11 +911,12 @@ async def main(args):
     print(f"  Symbols: {BASE_DIR}/symbols/")
     print(f"  Existing: {state['session'].total_saved} expressions")
     print(f"  WebSocket: ws://localhost:{args.port}")
-    print(f"\nOpen tools/collect_expr.html in your browser.\n")
+    print("\nOpen tools/collect_expr.html in your browser.\n")
 
     async with websockets.serve(
         lambda ws: handler(ws, state),
-        "localhost", args.port,
+        "localhost",
+        args.port,
     ):
         await asyncio.Future()
 

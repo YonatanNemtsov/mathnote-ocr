@@ -1,6 +1,23 @@
 import random
 
-from mathnote_ocr.data_gen.latex_sampling import v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16
+from mathnote_ocr.data_gen.latex_sampling import (
+    v1,
+    v2,
+    v3,
+    v4,
+    v5,
+    v6,
+    v7,
+    v8,
+    v9,
+    v10,
+    v11,
+    v12,
+    v13,
+    v14,
+    v15,
+    v16,
+)
 
 # (module, weight)
 #   v1  balanced recursive          v9  juxtaposition-heavy
@@ -12,22 +29,22 @@ from mathnote_ocr.data_gen.latex_sampling import v1, v2, v3, v4, v5, v6, v7, v8,
 #   v7  academic / calculus          v15 complex num/den with integrals
 #   v8  discrete math / relations   v16 superscript + juxtaposition
 _VERSIONS = [
-    (v1,  10),   # balanced baseline
-    (v2,   6),   # context-aware misc
-    (v3,   6),   # structure-dense
-    (v4,   6),   # wide & flat
-    (v5,   8),   # frac & index heavy
-    (v6,   4),   # max nesting
-    (v7,   6),   # calculus
-    (v8,   4),   # discrete math
-    (v9,   6),   # juxtaposition
-    (v10,  6),   # kitchen sink
-    (v11,  8),   # hard: ambiguities
-    (v12,  6),   # missing patterns
-    (v13,  6),   # long num/den
-    (v14,  8),   # hard: nested frac/int/abs
-    (v15,  6),   # complex num/den
-    (v16,  8),   # sup + juxtaposition
+    (v1, 10),  # balanced baseline
+    (v2, 6),  # context-aware misc
+    (v3, 6),  # structure-dense
+    (v4, 6),  # wide & flat
+    (v5, 8),  # frac & index heavy
+    (v6, 4),  # max nesting
+    (v7, 6),  # calculus
+    (v8, 4),  # discrete math
+    (v9, 6),  # juxtaposition
+    (v10, 6),  # kitchen sink
+    (v11, 8),  # hard: ambiguities
+    (v12, 6),  # missing patterns
+    (v13, 6),  # long num/den
+    (v14, 8),  # hard: nested frac/int/abs
+    (v15, 6),  # complex num/den
+    (v16, 8),  # sup + juxtaposition
 ]
 
 _modules = [m for m, _ in _VERSIONS]
@@ -67,6 +84,7 @@ def sample_all_with_gen3():
     if random.random() < 0.5:
         return sample_all()
     from mathnote_ocr.data_gen.latex_sampling_v3.generator import sample as gen3_sample
+
     return gen3_sample()
 
 

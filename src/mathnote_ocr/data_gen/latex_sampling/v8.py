@@ -6,9 +6,21 @@ factorial, ldots, upper greek, upper variables as sets.
 
 import random
 
-from .symbols import (_pick_base, _shared_expr, _shared_term, _shared_sub_content, MAX_DEPTH,
-                       VARS, UPPER, DIGITS, GREEK, GREEK_UPPER, MISC_SYMBOLS,
-                       RELOPS, SET_OPS)
+from .symbols import (
+    DIGITS,
+    GREEK,
+    GREEK_UPPER,
+    MAX_DEPTH,
+    MISC_SYMBOLS,
+    RELOPS,
+    SET_OPS,
+    UPPER,
+    VARS,
+    _pick_base,
+    _shared_expr,
+    _shared_sub_content,
+    _shared_term,
+)
 
 ARITH_OPS = ["+", "-"]  # v8-specific: discrete math focus
 
@@ -22,28 +34,45 @@ def _atom():
     )[0]
     return random.choice(pool)
 
+
 def _var():
     return random.choice(VARS)
+
 
 def _expr(d=0):
     return _shared_expr(d, _atom, _pick_base, _struct)
 
+
 def _term(d):
     return _shared_term(d, _atom, _pick_base, _struct)
+
 
 def _slot(d):
     return _expr(d + 1)
 
+
 def _struct(d):
     kind = random.choices(
-        ["frac", "sup", "sub", "subsup", "sqrt", "func",
-         "parens", "binom", "abs",
-         "set_op", "element", "subset_rel", "arrow",
-         "inequality", "factorial", "ldots", "bigop"],
-        weights=[10, 10, 8, 5, 5, 5,
-                 5, 8, 4,
-                 6, 5, 4, 4,
-                 6, 4, 3, 6],
+        [
+            "frac",
+            "sup",
+            "sub",
+            "subsup",
+            "sqrt",
+            "func",
+            "parens",
+            "binom",
+            "abs",
+            "set_op",
+            "element",
+            "subset_rel",
+            "arrow",
+            "inequality",
+            "factorial",
+            "ldots",
+            "bigop",
+        ],
+        weights=[10, 10, 8, 5, 5, 5, 5, 8, 4, 6, 5, 4, 4, 6, 4, 3, 6],
     )[0]
 
     if kind == "frac":

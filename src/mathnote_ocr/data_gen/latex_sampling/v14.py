@@ -10,13 +10,18 @@ Key patterns that cause failures:
 
 import random
 
-from .symbols import _pick_base, _shared_short_content, MISC_SYMBOLS, ARITH_OPS
+from .symbols import ARITH_OPS, MISC_SYMBOLS, _pick_base, _shared_short_content
 
 VARS = list("xyzabcnmkpqr")
 DIGITS = list("0123456789")
 COMMON_VARS = list("xyz")
 GREEK = [
-    "\\alpha", "\\beta", "\\gamma", "\\theta", "\\pi", "\\sigma",
+    "\\alpha",
+    "\\beta",
+    "\\gamma",
+    "\\theta",
+    "\\pi",
+    "\\sigma",
 ]
 
 
@@ -187,7 +192,11 @@ def _int_of_nested_frac():
     lo = random.choice(["0", _atom(), _expr(1, 2)])
     hi = random.choice([_atom(), "\\infty"])
     inner = _small_frac()
-    num = (_expr(1, 2) + " + " + inner + " + " + _expr(0, 1)) if random.random() < 0.5 else (inner + " + " + _expr(1, 3))
+    num = (
+        (_expr(1, 2) + " + " + inner + " + " + _expr(0, 1))
+        if random.random() < 0.5
+        else (inner + " + " + _expr(1, 3))
+    )
     den = _expr(3, 6)
     dx = " d " + _var() if "int" in op else ""
     return "{" + op + "_{" + lo + "}^{" + hi + "}} " + "\\frac{" + num + "}{" + den + "}" + dx
@@ -238,7 +247,11 @@ def _abs_in_frac_num():
     """frac{|a+b+c|+d}{e+f} — abs expression in numerator."""
     content = _expr(2, 4)
     extra = _expr(1, 2)
-    num = (_abs(content) + " + " + extra) if random.random() < 0.5 else (extra + " + " + _abs(content))
+    num = (
+        (_abs(content) + " + " + extra)
+        if random.random() < 0.5
+        else (extra + " + " + _abs(content))
+    )
     den = _expr(2, 4)
     return "\\frac{" + num + "}{" + den + "}"
 
@@ -287,7 +300,19 @@ def _multi_level():
         sup = _var() + "^{" + _expr(1, 2) + "}"
         num = sup + " + " + _small_frac()
         den = _expr(2, 4)
-        return "\\int_{" + _atom() + "}^{" + _atom() + "}} " + "\\frac{" + num + "}{" + den + "} d " + _var()
+        return (
+            "\\int_{"
+            + _atom()
+            + "}^{"
+            + _atom()
+            + "}} "
+            + "\\frac{"
+            + num
+            + "}{"
+            + den
+            + "} d "
+            + _var()
+        )
     elif v < 0.6:
         # frac inside sqrt inside frac
         inner = _small_frac()

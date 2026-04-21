@@ -10,7 +10,7 @@ from collections import defaultdict
 
 import torch
 
-from mathnote_ocr.tree_parser.tree_v2 import Tree, Edge, ROOT_ID
+from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Edge, Tree
 
 
 def _parent_decisiveness(evidence: dict, tree: Tree, N: int) -> float:
@@ -24,8 +24,8 @@ def _parent_decisiveness(evidence: dict, tree: Tree, N: int) -> float:
 
 def _subset_agreement(evidence: dict, tree: Tree, N: int) -> float:
     """How consistently subsets agree on the chosen parent."""
-    parent_votes = evidence["parent_votes"]            # (N, N+1, E)
-    pair_cooccurrence = evidence["pair_cooccurrence"]   # (N, N)
+    parent_votes = evidence["parent_votes"]  # (N, N+1, E)
+    pair_cooccurrence = evidence["pair_cooccurrence"]  # (N, N)
 
     total_per_parent = parent_votes.sum(dim=-1)  # (N, N+1)
     root_cooc = pair_cooccurrence.sum(dim=1) / max(1, N - 1)
@@ -125,6 +125,7 @@ def _spatial_consistency(evidence: dict, tree: Tree, N: int) -> float:
 
 def _x_position_consistency(evidence: dict, tree: Tree, N: int) -> float:
     """Check that children's x-positions stay within parent's span."""
+
     def cx(sid: int) -> float:
         return tree[sid].symbol.bbox.cx
 
@@ -253,26 +254,31 @@ def _geo_mean(*vals: float) -> float:
 def parent_decisiveness(evidence: dict, tree: Tree, N: int) -> float:
     return _parent_decisiveness(evidence, tree, N)
 
+
 def parent_seq(evidence: dict, tree: Tree, N: int) -> float:
-    return _geo_mean(
-        _parent_decisiveness(evidence, tree, N),
-        _seq_agreement(evidence, tree, N))
+    return _geo_mean(_parent_decisiveness(evidence, tree, N), _seq_agreement(evidence, tree, N))
+
 
 def subset_agreement(evidence: dict, tree: Tree, N: int) -> float:
     return _subset_agreement(evidence, tree, N)
+
 
 def parent_seq_agree(evidence: dict, tree: Tree, N: int) -> float:
     return _geo_mean(
         _parent_decisiveness(evidence, tree, N),
         _seq_agreement(evidence, tree, N),
-        _subset_agreement(evidence, tree, N))
+        _subset_agreement(evidence, tree, N),
+    )
+
 
 def full(evidence: dict, tree: Tree, N: int) -> float:
     return _geo_mean(
         _parent_decisiveness(evidence, tree, N),
         _seq_agreement(evidence, tree, N),
         _subset_agreement(evidence, tree, N),
-        _parent_margin(evidence, tree, N))
+        _parent_margin(evidence, tree, N),
+    )
+
 
 def full_spatial(evidence: dict, tree: Tree, N: int) -> float:
     return _geo_mean(
@@ -282,13 +288,16 @@ def full_spatial(evidence: dict, tree: Tree, N: int) -> float:
         _parent_margin(evidence, tree, N),
         _spatial_consistency(evidence, tree, N),
         _x_position_consistency(evidence, tree, N),
-        _weakest_subtree(evidence, tree, N))
+        _weakest_subtree(evidence, tree, N),
+    )
+
 
 def parent_seq_xpos(evidence: dict, tree: Tree, N: int) -> float:
     return _geo_mean(
         _parent_decisiveness(evidence, tree, N),
         _seq_agreement(evidence, tree, N),
-        _x_position_consistency(evidence, tree, N))
+        _x_position_consistency(evidence, tree, N),
+    )
 
 
 _STRATEGIES = {
@@ -305,5 +314,7 @@ _STRATEGIES = {
 def score_tree(method: str, evidence: dict, tree: Tree, N: int) -> float:
     fn = _STRATEGIES.get(method)
     if fn is None:
-        raise ValueError(f"Unknown scoring method {method!r}. Available: {list(_STRATEGIES.keys())}")
+        raise ValueError(
+            f"Unknown scoring method {method!r}. Available: {list(_STRATEGIES.keys())}"
+        )
     return fn(evidence, tree, N)

@@ -75,8 +75,7 @@ def _jitter(strokes: list[Stroke], scale: float = 0.015) -> list[Stroke]:
     result = []
     for s in strokes:
         new_pts = [
-            StrokePoint(p.x + random.gauss(0, sigma),
-                        p.y + random.gauss(0, sigma), p.t)
+            StrokePoint(p.x + random.gauss(0, sigma), p.y + random.gauss(0, sigma), p.t)
             for p in s.points
         ]
         result.append(Stroke(new_pts, s.bbox))

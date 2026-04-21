@@ -10,19 +10,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Callable
 
 import torch
 from torch.utils.data import Dataset
 
 from mathnote_ocr.latex_utils.glyphs import _extract_glyphs
 from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
-from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
-from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets
 from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft, evidence_to_features
 from mathnote_ocr.tree_parser.gen_data import latex_to_tree_labels
+from mathnote_ocr.tree_parser.subset_model import SubsetTreeModel
+from mathnote_ocr.tree_parser.subset_selection import make_spatial_subsets
 from mathnote_ocr.tree_parser.tree import ROOT
-
 
 # ── Evidence computation ─────────────────────────────────────────────
 
@@ -41,6 +39,7 @@ def _compute_evidence_for_example(
     # Optionally apply expression collapsing augmentation
     if augment and len(symbols) > 3:
         from mathnote_ocr.latex_utils.collapse import random_collapse
+
         symbols, tree = random_collapse(symbols, tree)
         if len(symbols) < 2:
             return None
@@ -69,8 +68,10 @@ def _compute_evidence_for_example(
         pad_mask[:n_sub] = False
 
         out = subset_model.forward(
-            sub_ids.unsqueeze(0), geo.unsqueeze(0),
-            pad_mask.unsqueeze(0), size_feats.unsqueeze(0),
+            sub_ids.unsqueeze(0),
+            geo.unsqueeze(0),
+            pad_mask.unsqueeze(0),
+            size_feats.unsqueeze(0),
         )
         out_cpu = {k: v[0].cpu() for k, v in out.items()}
         partial_outputs.append((subset_indices, out_cpu, n_sub))
@@ -97,6 +98,7 @@ def _compute_evidence_for_example(
     # Compute gt_seq: previous sibling = same parent+edge_type, order-1
     # Group symbols by (parent, edge_type) → sorted by order
     from collections import defaultdict
+
     sibling_groups = defaultdict(list)
     for i in range(N):
         t = tree[i]
@@ -182,7 +184,23 @@ class GNNDataset(Dataset):
         max_attempts_mult: int = 5,
     ) -> GNNDataset:
         """Sample expressions from each of the 14 data_gen versions."""
-        from mathnote_ocr.data_gen.latex_sampling import v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15
+        from mathnote_ocr.data_gen.latex_sampling import (
+            v1,
+            v2,
+            v3,
+            v4,
+            v5,
+            v6,
+            v7,
+            v8,
+            v9,
+            v10,
+            v11,
+            v12,
+            v13,
+            v14,
+            v15,
+        )
 
         versions = [v1, v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15]
         raw = []
@@ -204,13 +222,14 @@ class GNNDataset(Dataset):
                 if tree_labels is None:
                     continue
 
-                raw.append({
-                    "symbols": [{"name": g["name"], "bbox": g["bbox"]} for g in glyphs],
-                    "tree": [
-                        {"parent": p, "edge_type": e, "order": o}
-                        for p, e, o in tree_labels
-                    ],
-                })
+                raw.append(
+                    {
+                        "symbols": [{"name": g["name"], "bbox": g["bbox"]} for g in glyphs],
+                        "tree": [
+                            {"parent": p, "edge_type": e, "order": o} for p, e, o in tree_labels
+                        ],
+                    }
+                )
                 count += 1
 
             print(f"    {name}: {count}/{per_version} ({attempts} attempts)")
@@ -239,8 +258,12 @@ def _process_raw(
     examples = []
     for idx, ex in enumerate(raw):
         result = _compute_evidence_for_example(
-            ex["symbols"], ex["tree"],
-            subset_model, symbol_vocab, max_subset, device,
+            ex["symbols"],
+            ex["tree"],
+            subset_model,
+            symbol_vocab,
+            max_subset,
+            device,
         )
         if result is not None:
             examples.append(result)

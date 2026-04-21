@@ -5,9 +5,9 @@ Single source of truth for the model architecture.
 Based on: "Deep Nearest Neighbor Anomaly Detection" (Bergman & Hoshen, 2020)
 """
 
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
 
 
 class SymbolCNNWithPrototypes(nn.Module):
@@ -43,7 +43,9 @@ class SymbolCNNWithPrototypes(nn.Module):
         self.register_buffer("prototypes", torch.zeros(num_classes, 256))
         self.prototypes_computed = False
 
-    def forward(self, x: torch.Tensor, size_feat: torch.Tensor | None = None) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x: torch.Tensor, size_feat: torch.Tensor | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         x = self.pool(self.relu(self.conv1(x)))
         x = self.pool(self.relu(self.conv2(x)))
         x = self.pool(self.relu(self.conv3(x)))

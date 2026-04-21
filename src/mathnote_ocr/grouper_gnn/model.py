@@ -8,7 +8,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
 # ── Edge-biased transformer layer ────────────────────────────────────
 
 
@@ -50,8 +49,8 @@ class EdgeBiasTransformerLayer(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,              # (B, N, D)
-        edge_feats: torch.Tensor,      # (B, N, N, d_edge)
+        x: torch.Tensor,  # (B, N, D)
+        edge_feats: torch.Tensor,  # (B, N, N, d_edge)
         pad_mask: torch.Tensor | None = None,  # (B, N) True=pad
         adj_mask: torch.Tensor | None = None,  # (B, N, N) True=connected
     ) -> torch.Tensor:
@@ -71,14 +70,10 @@ class EdgeBiasTransformerLayer(nn.Module):
 
         # Adjacency mask: block attention to non-neighbours
         if adj_mask is not None:
-            scores = scores.masked_fill(
-                ~adj_mask.unsqueeze(1), float("-inf")
-            )
+            scores = scores.masked_fill(~adj_mask.unsqueeze(1), float("-inf"))
 
         if pad_mask is not None:
-            scores = scores.masked_fill(
-                pad_mask.unsqueeze(1).unsqueeze(2), float("-inf")
-            )
+            scores = scores.masked_fill(pad_mask.unsqueeze(1).unsqueeze(2), float("-inf"))
 
         attn = F.softmax(scores, dim=-1)
         attn = attn.nan_to_num(0.0)  # all-masked rows → 0 instead of NaN
@@ -117,7 +112,7 @@ class SymmetricBiaffineScorer(nn.Module):
 
     def forward(self, h: torch.Tensor) -> torch.Tensor:
         """Returns symmetric edge scores: (B, N, N)."""
-        h_l = self.W_left(h)   # (B, N, d_arc)
+        h_l = self.W_left(h)  # (B, N, d_arc)
         h_r = self.W_right(h)  # (B, N, d_arc)
 
         # Biaffine: h_l^T U h_r
@@ -183,10 +178,12 @@ class StrokeGNN(nn.Module):
 
         # Transformer layers
         d_ff = d_node * 2
-        self.layers = nn.ModuleList([
-            EdgeBiasTransformerLayer(d_node, n_heads, d_ff, d_edge, dropout)
-            for _ in range(n_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [
+                EdgeBiasTransformerLayer(d_node, n_heads, d_ff, d_edge, dropout)
+                for _ in range(n_layers)
+            ]
+        )
         self.final_norm = nn.LayerNorm(d_node)
 
         # Edge classifier (same_symbol / different_symbol)
@@ -204,9 +201,9 @@ class StrokeGNN(nn.Module):
 
     def forward(
         self,
-        renders: torch.Tensor,       # (B, N, 1, R, R)
-        geo: torch.Tensor,           # (B, N, 8)
-        edge_feats: torch.Tensor,    # (B, N, N, 5)
+        renders: torch.Tensor,  # (B, N, 1, R, R)
+        geo: torch.Tensor,  # (B, N, 8)
+        edge_feats: torch.Tensor,  # (B, N, N, 5)
         pad_mask: torch.Tensor | None = None,  # (B, N) True=pad
         adj_mask: torch.Tensor | None = None,  # (B, N, N) True=connected
     ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -236,7 +233,7 @@ class StrokeGNN(nn.Module):
         x = self.final_norm(x)
 
         # Predictions
-        edge_scores = self.edge_scorer(x)          # (B, N, N)
-        node_logits = self.node_classifier(x)       # (B, N, num_classes)
+        edge_scores = self.edge_scorer(x)  # (B, N, N)
+        node_logits = self.node_classifier(x)  # (B, N, num_classes)
 
         return edge_scores, node_logits

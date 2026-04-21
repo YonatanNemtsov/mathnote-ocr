@@ -12,9 +12,22 @@ This ensures maximum variety — every sample could look completely different.
 
 import random
 
-from .symbols import (_pick_base, _shared_expr, _shared_term, _shared_sub_content,
-                       VARS, UPPER, DIGITS, GREEK, GREEK_UPPER, MISC_SYMBOLS,
-                       ARITH_OPS, RELOPS, SET_OPS, BIGOPS, FUNCS)
+from .symbols import (
+    ARITH_OPS,
+    BIGOPS,
+    DIGITS,
+    FUNCS,
+    GREEK,
+    GREEK_UPPER,
+    MISC_SYMBOLS,
+    RELOPS,
+    SET_OPS,
+    UPPER,
+    VARS,
+    _pick_base,
+    _shared_expr,
+    _shared_term,
+)
 
 
 def _atom():
@@ -25,6 +38,7 @@ def _atom():
         weights=[10, 3, 7, 4, 1, 2],
     )[0]
     return random.choice(pool)
+
 
 def _var():
     return random.choice(VARS)
@@ -40,11 +54,14 @@ _strat = "balanced"  # set per-sample in sample()
 def _expr(d=0):
     return _shared_expr(d, _atom, _pick_base, _struct)
 
+
 def _term(d):
     return _shared_term(d, _atom, _pick_base, _struct)
 
+
 def _slot(d):
     return _expr(d + 1)
+
 
 def _struct(d):
     if _strat == "calculus":
@@ -53,37 +70,63 @@ def _struct(d):
         return _struct_discrete(d)
     return _struct_standard(d)
 
+
 def _struct_standard(d):
     kind = random.choices(
-        ["frac", "sup", "sub", "subsup", "sqrt", "func", "bigop",
-         "parens", "binom", "abs"],
+        ["frac", "sup", "sub", "subsup", "sqrt", "func", "bigop", "parens", "binom", "abs"],
         weights=[18, 14, 10, 7, 10, 7, 10, 7, 4, 5],
     )[0]
     return _build(kind, d)
 
+
 def _struct_calculus(d):
     kind = random.choices(
-        ["frac", "sup", "sub", "subsup", "sqrt", "func",
-         "integral", "sum_prod", "deriv", "partial", "lim",
-         "parens", "nabla", "pm"],
-        weights=[12, 10, 8, 5, 6, 6,
-                 10, 8, 6, 5, 5,
-                 5, 3, 3],
+        [
+            "frac",
+            "sup",
+            "sub",
+            "subsup",
+            "sqrt",
+            "func",
+            "integral",
+            "sum_prod",
+            "deriv",
+            "partial",
+            "lim",
+            "parens",
+            "nabla",
+            "pm",
+        ],
+        weights=[12, 10, 8, 5, 6, 6, 10, 8, 6, 5, 5, 5, 3, 3],
     )[0]
     return _build(kind, d)
 
+
 def _struct_discrete(d):
     kind = random.choices(
-        ["frac", "sup", "sub", "subsup", "sqrt", "func",
-         "parens", "binom", "abs",
-         "set_op", "element", "subset_rel", "arrow",
-         "inequality", "factorial", "ldots", "bigop"],
-        weights=[10, 10, 8, 5, 5, 5,
-                 5, 8, 4,
-                 6, 5, 4, 3,
-                 5, 4, 3, 6],
+        [
+            "frac",
+            "sup",
+            "sub",
+            "subsup",
+            "sqrt",
+            "func",
+            "parens",
+            "binom",
+            "abs",
+            "set_op",
+            "element",
+            "subset_rel",
+            "arrow",
+            "inequality",
+            "factorial",
+            "ldots",
+            "bigop",
+        ],
+        weights=[10, 10, 8, 5, 5, 5, 5, 8, 4, 6, 5, 4, 3, 5, 4, 3, 6],
     )[0]
     return _build(kind, d)
+
 
 def _build(kind, d):
     s = lambda: _slot(d)
