@@ -65,7 +65,11 @@ def create_app() -> FastAPI:
                     ocr_session.canvas_size = max(
                         msg.get("canvas_width", 800), msg.get("canvas_height", 400)
                     )
-                    ocr_session.add_stroke(_points(msg["points"]), width=msg.get("stroke_width", 2.0))
+                    ocr_session.add_stroke(
+                        _points(msg["points"]),
+                        id=msg["id"],
+                        width=msg.get("stroke_width", 2.0),
+                    )
                     await _send_result()
 
                 elif kind == "remove_stroke":
@@ -85,8 +89,9 @@ def create_app() -> FastAPI:
                         msg.get("canvas_width", 800), msg.get("canvas_height", 400)
                     )
                     sw = msg.get("stroke_width", 2.0)
-                    for pts in msg.get("strokes", []):
-                        ocr_session.add_stroke(_points(pts), width=sw)
+                    stroke_ids = msg.get("stroke_ids", [])
+                    for pts, sid in zip(msg.get("strokes", []), stroke_ids):
+                        ocr_session.add_stroke(_points(pts), id=sid, width=sw)
                     await _send_result()
 
         except WebSocketDisconnect:

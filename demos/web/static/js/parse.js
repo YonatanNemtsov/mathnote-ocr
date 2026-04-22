@@ -43,6 +43,7 @@ function redetect() {
   send({
     type: 'redetect',
     strokes: drawer.strokes,
+    stroke_ids: drawer.strokeIds,
     canvas_width: drawer.canvas.width,
     canvas_height: drawer.canvas.height,
     stroke_width: drawer.strokeWidth,
@@ -64,12 +65,13 @@ function clearAll() {
 
 // ── Auto-detect on stroke end (incremental) ─────────────────────────
 
-drawer.onStrokeEnd = () => {
+drawer.onStrokeEnd = (id) => {
   const strokes = drawer.strokes;
   if (strokes.length === 0) return;
   const newStroke = strokes[strokes.length - 1];
   send({
     type: 'add_stroke',
+    id,
     points: newStroke,
     canvas_width: drawer.canvas.width,
     canvas_height: drawer.canvas.height,

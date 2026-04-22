@@ -14,6 +14,8 @@ class StrokeCanvas {
     this.overlayCtx = this.overlay.getContext('2d');
 
     this.strokes = [];
+    this.strokeIds = [];
+    this._nextStrokeId = 0;
     this.currentStroke = [];
     this.isDrawing = false;
     this.strokeWidth = 2.0;
@@ -71,9 +73,11 @@ class StrokeCanvas {
       e.preventDefault();
       this.isDrawing = false;
       if (this.currentStroke.length > 0) {
+        const id = this._nextStrokeId++;
         this.strokes.push(this.currentStroke);
+        this.strokeIds.push(id);
         this.currentStroke = [];
-        if (this.onStrokeEnd) this.onStrokeEnd();
+        if (this.onStrokeEnd) this.onStrokeEnd(id);
       }
     };
 
@@ -91,14 +95,16 @@ class StrokeCanvas {
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     this._initStyle();
     this.strokes = [];
+    this.strokeIds = [];
+    this._nextStrokeId = 0;
     this.currentStroke = [];
     this.overlayCtx.clearRect(0, 0, this.overlay.width, this.overlay.height);
   }
 
   undo() {
     if (this.strokes.length === 0) return;
-    const removedId = this.strokes.length - 1;
     this.strokes.pop();
+    const removedId = this.strokeIds.pop();
     this.redraw();
     this.overlayCtx.clearRect(0, 0, this.overlay.width, this.overlay.height);
     if (this.onStrokeRemove) this.onStrokeRemove(removedId);
