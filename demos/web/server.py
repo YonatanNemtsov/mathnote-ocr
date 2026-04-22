@@ -40,9 +40,6 @@ def create_app() -> FastAPI:
         ocr_session = ocr.session()
         log.info("WebSocket connected")
 
-        def _points(pts):
-            return [(p["x"], p["y"]) for p in pts]
-
         async def _send_result():
             t0 = time.perf_counter()
             expr = ocr_session.detect(top_k=5)
@@ -62,11 +59,8 @@ def create_app() -> FastAPI:
                 kind = msg.get("type")
 
                 if kind == "add_stroke":
-                    ocr_session.canvas_size = max(
-                        msg.get("canvas_width", 800), msg.get("canvas_height", 400)
-                    )
                     ocr_session.add_stroke(
-                        _points(msg["points"]),
+                        msg["points"],
                         id=msg["id"],
                         width=msg.get("stroke_width", 2.0),
                     )
@@ -85,13 +79,10 @@ def create_app() -> FastAPI:
 
                 elif kind == "redetect":
                     ocr_session.clear()
-                    ocr_session.canvas_size = max(
-                        msg.get("canvas_width", 800), msg.get("canvas_height", 400)
-                    )
                     sw = msg.get("stroke_width", 2.0)
                     stroke_ids = msg.get("stroke_ids", [])
                     for pts, sid in zip(msg.get("strokes", []), stroke_ids):
-                        ocr_session.add_stroke(_points(pts), id=sid, width=sw)
+                        ocr_session.add_stroke(pts, id=sid, width=sw)
                     await _send_result()
 
         except WebSocketDisconnect:

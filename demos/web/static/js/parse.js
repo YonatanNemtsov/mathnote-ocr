@@ -42,10 +42,8 @@ function redetect() {
   if (drawer.strokes.length === 0) return;
   send({
     type: 'redetect',
-    strokes: drawer.strokes,
+    strokes: drawer.strokes.map(s => s.map(p => [p.x, p.y])),
     stroke_ids: drawer.strokeIds,
-    canvas_width: drawer.canvas.width,
-    canvas_height: drawer.canvas.height,
     stroke_width: drawer.strokeWidth,
   });
 }
@@ -72,9 +70,7 @@ drawer.onStrokeEnd = (id) => {
   send({
     type: 'add_stroke',
     id,
-    points: newStroke,
-    canvas_width: drawer.canvas.width,
-    canvas_height: drawer.canvas.height,
+    points: newStroke.map(p => [p.x, p.y]),
     stroke_width: drawer.strokeWidth,
   });
 };
