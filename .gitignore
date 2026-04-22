@@ -51,5 +51,10 @@ data/shared/tree_handwritten/**/*.bak*
 venv/
 .venv/
 
+# Tool caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
 # Debug artifacts
 tree_vis.html
