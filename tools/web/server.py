@@ -80,7 +80,9 @@ class Pipeline:
             conflict_threshold=get(cfg, "grouper.conflict_threshold", 0.32),
             min_confidence=get(cfg, "classifier.min_confidence", 0.15),
             ood_threshold=get(cfg, "classifier.ood_threshold", 15.0),
-            stroke_width=get(cfg, "grouper.stroke_width", app_config.RENDER_STROKE_WIDTH),
+        )
+        self.default_stroke_width = get(
+            cfg, "grouper.stroke_width", app_config.RENDER_STROKE_WIDTH
         )
         self.top_k = get(cfg, "grouper.top_k", 10)
 
@@ -135,7 +137,7 @@ class Pipeline:
             "gnn_run": get(self.cfg, "tree_parser.gnn_run"),
             "scoring": get(self.cfg, "tree_parser.scoring", "full_spatial"),
             "grouper_params": {
-                "stroke_width": self.grouper_params.stroke_width,
+                "stroke_width": self.default_stroke_width,
                 "min_confidence": self.grouper_params.min_confidence,
                 "ood_threshold": self.grouper_params.ood_threshold,
                 "top_k": self.top_k,
@@ -212,19 +214,21 @@ def create_app(config_name: str | None = "default") -> FastAPI:
                         await websocket.send_json({"type": "error", "message": "No strokes."})
                         continue
 
-                    stroke_width = msg.get("stroke_width", pipeline.grouper_params.stroke_width)
+                    stroke_width = msg.get("stroke_width", pipeline.default_stroke_width)
                     source_size = max(
                         msg.get("canvas_width", 800),
                         msg.get("canvas_height", 400),
                     )
 
-                    strokes = [Stroke.from_dicts(pts, id=i) for i, pts in enumerate(raw_strokes)]
+                    strokes = [
+                        Stroke.from_dicts(pts, id=i, width=stroke_width)
+                        for i, pts in enumerate(raw_strokes)
+                    ]
 
                     t0 = time.perf_counter()
                     all_partitions = group_and_classify(
                         strokes,
                         pipeline.classifier,
-                        stroke_width=stroke_width,
                         source_size=source_size,
                         top_k=pipeline.top_k,
                         debug=msg.get("debug", False),

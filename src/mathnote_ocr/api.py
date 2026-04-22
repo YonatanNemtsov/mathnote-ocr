@@ -65,7 +65,6 @@ class MathOCR:
             conflict_threshold=get(cfg, "grouper.conflict_threshold", 0.32),
             min_confidence=get(cfg, "classifier.min_confidence", 0.15),
             ood_threshold=get(cfg, "classifier.ood_threshold", 15.0),
-            stroke_width=get(cfg, "grouper.stroke_width", 2.0),
         )
         self._top_k_default = get(cfg, "grouper.top_k", 1)
 
@@ -89,14 +88,9 @@ class MathOCR:
 
     # ── Session factory ──────────────────────────────────────────────
 
-    def session(
-        self,
-        *,
-        canvas_size: int | None = None,
-        stroke_width: float | None = None,
-    ) -> Session:
+    def session(self, *, canvas_size: int | None = None) -> Session:
         """Create a stateful session for incremental detection."""
-        return Session(self, canvas_size=canvas_size, stroke_width=stroke_width)
+        return Session(self, canvas_size=canvas_size)
 
     # ── Detection ────────────────────────────────────────────────────
 
@@ -105,8 +99,6 @@ class MathOCR:
         strokes: StrokesInput,
         *,
         canvas_size: int | None = None,
-        stroke_width: float | None = None,
-        hints: dict[int, str] | None = None,
         top_k: int = 1,
         cache: GrouperCache | None = None,
     ) -> Expression:
@@ -114,13 +106,10 @@ class MathOCR:
 
         Args:
             strokes: List of strokes. Each stroke is a list of (x, y) or
-                (x, y, t) tuples, or {"x", "y", "t"?} dicts.
+                (x, y, t) tuples, or {"x", "y", "t"?} dicts, or Stroke
+                objects. Rendering uses each ``Stroke.width``.
             canvas_size: Source canvas max dimension. Auto-computed from
                 stroke extents when absent.
-            stroke_width: Rendering stroke width. Defaults to config.
-            hints: Map of stroke_id → forced symbol name. The classifier
-                output is overridden when all strokes of a detected symbol
-                share a hint label.
             top_k: How many candidate partitions to consider. Extras are
                 placed on ``expr.alternatives``.
             cache: Optional GrouperCache for reuse across detections.
@@ -134,13 +123,11 @@ class MathOCR:
             return empty_expression()
 
         cs = canvas_size if canvas_size is not None else _autocanvas(stroke_objs, self._default_canvas_size)
-        sw = stroke_width if stroke_width is not None else self.grouper_params.stroke_width
         k = max(1, top_k)
 
         partitions = group_and_classify(
             stroke_objs,
             self.classifier,
-            stroke_width=sw,
             source_size=cs,
             top_k=k,
             cache=cache,
@@ -152,8 +139,6 @@ class MathOCR:
         results: list[Expression] = []
         for partition in partitions:
             detected = sorted(partition, key=lambda s: s.bbox.x)
-            if hints:
-                _apply_hints(detected, hints)
             latex, parse_conf, tree, _ev = self.tree_parser.parse_with_tree(detected)
             symbols = _symbols_from_detected(detected, stroke_objs)
             sym_conf = _geomean_confidence(detected)
@@ -197,14 +182,6 @@ def _autocanvas(strokes: list[Stroke], fallback: int) -> int:
     return int(max(coords, default=fallback))
 
 
-def _apply_hints(detected, hints: dict[int, str]) -> None:
-    """Override symbol names when all strokes of a symbol share a hint."""
-    for ds in detected:
-        labels = {hints[i] for i in ds.stroke_indices if i in hints}
-        if len(labels) == 1:
-            ds.symbol = labels.pop()
-
-
 def _symbols_from_detected(detected, strokes: list[Stroke]) -> dict[int, Symbol]:
     """Convert pipeline DetectedSymbols to our Symbol dict."""
     return {
@@ -244,14 +221,12 @@ class Session:
         ocr: MathOCR,
         *,
         canvas_size: int | None = None,
-        stroke_width: float | None = None,
     ) -> None:
         self._ocr = ocr
         self._strokes: dict[int, Stroke] = {}
         self._next_id: int = 0
         self._cache = GrouperCache()
         self.canvas_size = canvas_size
-        self.stroke_width = stroke_width
 
     @property
     def strokes(self) -> list[Stroke]:
@@ -312,18 +287,11 @@ class Session:
         self._next_id = 0
         self._cache = GrouperCache()
 
-    def detect(
-        self,
-        *,
-        hints: dict[int, str] | None = None,
-        top_k: int = 1,
-    ) -> Expression:
+    def detect(self, *, top_k: int = 1) -> Expression:
         """Run detection on the current strokes. Uses the cache."""
         return self._ocr.detect(
             list(self._strokes.values()),
             canvas_size=self.canvas_size,
-            stroke_width=self.stroke_width,
-            hints=hints,
             top_k=top_k,
             cache=self._cache,
         )

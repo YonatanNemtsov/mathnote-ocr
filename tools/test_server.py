@@ -69,8 +69,11 @@ async def handler(websocket):
 
                 # Convert and render
                 source_size = max(msg.get("canvas_width", 800), msg.get("canvas_height", 400))
-                strokes = [Stroke.from_dicts(pts, id=i) for i, pts in enumerate(raw_strokes)]
-                image = render_strokes(strokes, stroke_width=stroke_width, source_size=source_size)
+                strokes = [
+                    Stroke.from_dicts(pts, id=i, width=stroke_width)
+                    for i, pts in enumerate(raw_strokes)
+                ]
+                image = render_strokes(strokes, source_size=source_size)
 
                 # Classify
                 result, all_predictions = classifier.classify_topn(image, n=10)

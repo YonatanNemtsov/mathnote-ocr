@@ -49,12 +49,14 @@ def load_strokes_data(path: str) -> list[dict]:
     return data
 
 
-def expr_strokes(item: dict) -> list[Stroke]:
+def expr_strokes(item: dict, width: float = 2.0) -> list[Stroke]:
     """Flatten all per-symbol strokes into a single stroke list."""
     all_strokes = []
     for sym in item["symbols"]:
         for stroke_points in sym["strokes"]:
-            all_strokes.append(Stroke.from_dicts(stroke_points, id=len(all_strokes)))
+            all_strokes.append(
+                Stroke.from_dicts(stroke_points, id=len(all_strokes), width=width)
+            )
     return all_strokes
 
 
@@ -159,7 +161,7 @@ def main():
             stroke_w = item.get("stroke_width", 2)
 
             # Flatten strokes
-            strokes = expr_strokes(item)
+            strokes = expr_strokes(item, width=stroke_w)
             if not strokes:
                 continue
 
@@ -174,7 +176,6 @@ def main():
                 partitions = group_and_classify(
                     strokes,
                     classifier,
-                    stroke_width=stroke_w,
                     source_size=max(canvas_w, canvas_h),
                     top_k=1,
                 )

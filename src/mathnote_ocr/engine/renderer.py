@@ -10,7 +10,6 @@ _SUPERSAMPLE_DEFAULT = 4
 def render_strokes(
     strokes: list[Stroke],
     canvas_size: int = 128,
-    stroke_width: float = 2.0,
     padding_ratio: float = 0.15,
     source_size: float | None = None,
 ) -> Image.Image:
@@ -18,13 +17,12 @@ def render_strokes(
     Render strokes to a grayscale image.
 
     Renders at 4x resolution then downsamples with LANCZOS for smooth
-    anti-aliased output.
+    anti-aliased output. Each stroke uses its own ``Stroke.width``
+    (line width in source canvas pixels, scaled with the coordinates).
 
     Args:
         strokes: List of strokes to render.
         canvas_size: Output image size (square).
-        stroke_width: Line width in source canvas pixels. Scaled proportionally
-                      with the symbol coordinates.
         padding_ratio: Fraction of canvas to leave as padding on each side.
         source_size: Max dimension of the original drawing canvas (e.g. 800 for
                      an 800x400 canvas). When provided, caps the scale factor so
@@ -58,8 +56,6 @@ def render_strokes(
     offset_x = (hi - bbox_w * scale) / 2
     offset_y = (hi - bbox_h * scale) / 2
 
-    width = max(1, round(stroke_width * scale))
-
     img = Image.new("L", (hi, hi), 255)
     draw = ImageDraw.Draw(img)
 
@@ -71,6 +67,8 @@ def render_strokes(
             )
             for p in stroke.points
         ]
+
+        width = max(1, round(stroke.width * scale))
 
         if len(pts) == 1:
             x, y = pts[0]

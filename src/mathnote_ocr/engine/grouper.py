@@ -55,7 +55,6 @@ class GrouperParams:
     conflict_threshold: float = 0.32
     min_confidence: float = 0.15
     ood_threshold: float = 15.0
-    stroke_width: float = 2.0
     similar_symbols: list[set[str]] | None = None
 
     def __post_init__(self):
@@ -506,7 +505,6 @@ def _symbols_conflict(
 def group_and_classify(
     strokes: list[Stroke],
     classifier: SymbolClassifier,
-    stroke_width: float | None = None,
     source_size: float | None = None,
     top_k: int = 1,
     debug: bool = False,
@@ -526,8 +524,6 @@ def group_and_classify(
 
     if params is None:
         params = GrouperParams()
-    if stroke_width is None:
-        stroke_width = params.stroke_width
 
     if not strokes:
         return [[]]
@@ -571,7 +567,6 @@ def group_and_classify(
                 render_strokes(
                     group_strokes,
                     canvas_size=canvas_sz,
-                    stroke_width=stroke_width,
                     source_size=source_size,
                 )
             )
@@ -623,7 +618,6 @@ def group_and_classify(
                 render_strokes(
                     group_strokes,
                     canvas_size=canvas_sz,
-                    stroke_width=stroke_width,
                     source_size=source_size,
                 )
             )

@@ -114,7 +114,6 @@ class GNNGrouper:
                 render_strokes(
                     group_strokes,
                     canvas_size=self.classifier.canvas_size,
-                    stroke_width=stroke_width,
                     source_size=source_size,
                 )
             )

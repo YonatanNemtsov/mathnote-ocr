@@ -355,7 +355,7 @@ def main():
 
         # Convert and render
         engine_strokes = strokes_to_engine(raw_strokes)
-        img = render_strokes(engine_strokes, canvas_size=128, stroke_width=2.0)
+        img = render_strokes(engine_strokes, canvas_size=128)
 
         # Save
         file_id = next_id[name]

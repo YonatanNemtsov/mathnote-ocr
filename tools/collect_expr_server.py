@@ -498,9 +498,12 @@ def _save_symbol_image(
     run: str,
 ):
     """Render and save individual symbol PNG + stroke JSON."""
-    strokes = [Stroke.from_dicts(pts, id=i) for i, pts in enumerate(raw_strokes)]
+    strokes = [
+        Stroke.from_dicts(pts, id=i, width=stroke_width)
+        for i, pts in enumerate(raw_strokes)
+    ]
     source_size = max(canvas_width, canvas_height)
-    image = render_strokes(strokes, stroke_width=stroke_width, source_size=source_size)
+    image = render_strokes(strokes, source_size=source_size)
 
     label_dir = symbols_dir / name
     label_dir.mkdir(parents=True, exist_ok=True)

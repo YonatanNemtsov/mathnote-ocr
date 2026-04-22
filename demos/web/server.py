@@ -37,7 +37,7 @@ def create_app() -> FastAPI:
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
         await websocket.accept()
-        ocr_session = ocr.ocr_session()
+        ocr_session = ocr.session()
         log.info("WebSocket connected")
 
         def _points(pts):
@@ -65,7 +65,6 @@ def create_app() -> FastAPI:
                     ocr_session.canvas_size = max(
                         msg.get("canvas_width", 800), msg.get("canvas_height", 400)
                     )
-                    ocr_session.stroke_width = msg.get("stroke_width")
                     ocr_session.add_stroke(_points(msg["points"]), width=msg.get("stroke_width", 2.0))
                     await _send_result()
 
@@ -86,7 +85,6 @@ def create_app() -> FastAPI:
                         msg.get("canvas_width", 800), msg.get("canvas_height", 400)
                     )
                     sw = msg.get("stroke_width", 2.0)
-                    ocr_session.stroke_width = sw
                     for pts in msg.get("strokes", []):
                         ocr_session.add_stroke(_points(pts), width=sw)
                     await _send_result()
