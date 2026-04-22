@@ -9,11 +9,8 @@ allowing multiple augmentation variants (tight/mid/wide).
 """
 
 import json
-import sys
 import time
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from mathnote_ocr.tree_parser.hw_bbox_augment import augment_bboxes
 

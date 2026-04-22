@@ -14,11 +14,8 @@ import argparse
 import json
 import logging
 import random
-import sys
 import time
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import torch
 

@@ -4,9 +4,6 @@
 import sys
 from pathlib import Path
 
-# Allow running from math_ocr_v2/ or math_ocr_v2/training/
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 import json
 import math
 import random
