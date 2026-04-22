@@ -1,6 +1,6 @@
 """Web demo for mathnote_ocr — draw math in the browser, get LaTeX back.
 
-Uses only the public API: MathOCR and Session. Bundled defaults only.
+Uses only the public API: MathOCR and ocr_Session. Bundled defaults only.
 
     pip install -e .[tools]
     python demos/web/server.py
@@ -37,7 +37,7 @@ def create_app() -> FastAPI:
     @app.websocket("/ws")
     async def ws(websocket: WebSocket):
         await websocket.accept()
-        session = ocr.session()
+        ocr_session = ocr.ocr_session()
         log.info("WebSocket connected")
 
         def _points(pts):
@@ -45,11 +45,11 @@ def create_app() -> FastAPI:
 
         async def _send_result():
             t0 = time.perf_counter()
-            expr = session.detect(top_k=5)
+            expr = ocr_session.detect(top_k=5)
             elapsed_ms = int((time.perf_counter() - t0) * 1000)
             log.info(
                 "%d strokes → %r (conf=%.2f) [%dms]",
-                len(session), expr.latex, expr.confidence, elapsed_ms,
+                len(ocr_session), expr.latex, expr.confidence, elapsed_ms,
             )
             partitions = [expr.to_dict()] + [a.to_dict() for a in expr.alternatives]
             await websocket.send_json(
@@ -62,33 +62,33 @@ def create_app() -> FastAPI:
                 kind = msg.get("type")
 
                 if kind == "add_stroke":
-                    session.canvas_size = max(
+                    ocr_session.canvas_size = max(
                         msg.get("canvas_width", 800), msg.get("canvas_height", 400)
                     )
-                    session.stroke_width = msg.get("stroke_width")
-                    session.add_stroke(_points(msg["points"]), width=msg.get("stroke_width", 2.0))
+                    ocr_session.stroke_width = msg.get("stroke_width")
+                    ocr_session.add_stroke(_points(msg["points"]), width=msg.get("stroke_width", 2.0))
                     await _send_result()
 
                 elif kind == "remove_stroke":
-                    session.remove_stroke(msg["id"])
-                    if len(session) > 0:
+                    ocr_session.remove_stroke(msg["id"])
+                    if len(ocr_session) > 0:
                         await _send_result()
                     else:
                         await websocket.send_json({"type": "result", "partitions": [], "timing": {"total_ms": 0}})
 
                 elif kind == "clear":
-                    session.clear()
+                    ocr_session.clear()
                     await websocket.send_json({"type": "result", "partitions": [], "timing": {"total_ms": 0}})
 
                 elif kind == "redetect":
-                    session.clear()
-                    session.canvas_size = max(
+                    ocr_session.clear()
+                    ocr_session.canvas_size = max(
                         msg.get("canvas_width", 800), msg.get("canvas_height", 400)
                     )
                     sw = msg.get("stroke_width", 2.0)
-                    session.stroke_width = sw
+                    ocr_session.stroke_width = sw
                     for pts in msg.get("strokes", []):
-                        session.add_stroke(_points(pts), width=sw)
+                        ocr_session.add_stroke(_points(pts), width=sw)
                     await _send_result()
 
         except WebSocketDisconnect:
