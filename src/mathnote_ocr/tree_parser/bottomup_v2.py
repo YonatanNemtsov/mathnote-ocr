@@ -538,7 +538,6 @@ def verify_subtree(
 
     parent_votes = evidence["parent_votes"]
     N = len(group_syms)
-    E = parent_votes.shape[-1]
 
     # Parent is at local position 0. For each child, how much does the model
     # agree with this parent+edge assignment?

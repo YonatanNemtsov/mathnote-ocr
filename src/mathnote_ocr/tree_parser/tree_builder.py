@@ -210,27 +210,6 @@ def build_tree_from_evidence(
     return _scores_to_tree(parent_scores, evidence["parent_votes"], symbols)
 
 
-def build_tree_greedy(
-    parent_scores: torch.Tensor,
-    edge_type_scores: torch.Tensor,
-    symbols: list[Symbol],
-) -> Tree:
-    """Greedy: each symbol picks best parent. No cycle guarantee."""
-    N = len(symbols)
-    scores = parent_scores[:N, :].detach().cpu()
-
-    nodes = []
-    for i in range(N):
-        best = scores[i].argmax().item()
-        if best == N:
-            nodes.append(Node(symbols[i], ROOT_ID, Edge.ROOT, 0))
-        else:
-            et = int(edge_type_scores[i, best].argmax().item())
-            nodes.append(Node(symbols[i], best, et, 0))
-
-    return reorder_siblings(Tree(tuple(nodes)))
-
-
 def find_seq_conflicts(
     evidence: dict[str, torch.Tensor],
     tree: Tree,

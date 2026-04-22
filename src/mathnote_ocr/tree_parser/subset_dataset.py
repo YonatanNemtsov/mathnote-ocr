@@ -242,7 +242,6 @@ class TreeSubsetDataset(Dataset):
         # Bounding boxes for subset (with optional augmentation)
         bbox_list = [symbols[gi]["bbox"] for gi in subset]
         if self.augment:
-            name_list = [symbols[gi]["name"] for gi in subset]
             bbox_list = _augment_bboxes_gentle(bbox_list)
         geo_feats, size_feats = compute_features_from_bbox_list(bbox_list, S)
 

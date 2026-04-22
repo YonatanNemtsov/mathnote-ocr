@@ -96,7 +96,6 @@ class TreeParser(ABC):
         subset_ckpt = load_checkpoint(
             "tree_subset", subset_run, device=self.device, weights_dir=weights_dir
         )
-        cfg = subset_ckpt["config"]
         self.symbol_vocab: dict[str, int] = subset_ckpt["symbol_vocab"]
 
         self.subset_model = load_subset_model(subset_ckpt, device=self.device)
@@ -385,76 +384,6 @@ class TreeParser(ABC):
                     f"(dy={dy:.2f}, ref={[names[r] for r in ref]})"
                 )
                 symbols[di].symbol = new_name
-
-    @torch.no_grad()
-    def parse(
-        self,
-        symbols: list[DetectedSymbol],
-    ) -> tuple[str, float]:
-        """Parse detected symbols into (latex, confidence)."""
-        if not symbols:
-            return "", 1.0
-        if len(symbols) == 1:
-            from mathnote_ocr.latex_utils.glyphs import SYMBOL_TO_LATEX
-
-            name = symbols[0].symbol
-            return SYMBOL_TO_LATEX.get(name, name), 1.0
-
-        N = len(symbols)
-        names = [s.symbol for s in symbols]
-        bboxes = [[s.bbox.x, s.bbox.y, s.bbox.w, s.bbox.h] for s in symbols]
-        v2_syms = self._make_symbols(names, bboxes)
-
-        # Step 1: Initial evidence with optional TTA
-        t0 = time.perf_counter()
-        all_partial = []
-        seen_subsets: set[tuple] = set()
-        for tta_i in range(self.tta_runs):
-            bb = (
-                bboxes
-                if tta_i == 0
-                else jitter_bboxes(bboxes, self.tta_dx, self.tta_dy, self.tta_size)
-            )
-            subsets = self._make_subsets(bb)
-            all_partial.extend(self._run_subsets(names, bb, subsets))
-            for s in subsets:
-                seen_subsets.add(tuple(s))
-        t_subsets = time.perf_counter() - t0
-
-        # Step 2: Iterative conflict resolution
-        t0 = time.perf_counter()
-        n_iters = 0
-        for _ in range(self.max_iters):
-            evidence = aggregate_evidence_soft(N, all_partial)
-            tree = self._evidence_to_tree(evidence, v2_syms)
-            targets = find_seq_conflicts(
-                evidence,
-                tree,
-                seq_threshold=2.0,
-                max_subset_size=min(self.max_subset, N),
-            )
-            new_targets = [t for t in targets if tuple(t) not in seen_subsets]
-            if not new_targets:
-                break
-            n_iters += 1
-            for t in new_targets:
-                seen_subsets.add(tuple(t))
-            all_partial.extend(self._run_subsets(names, bboxes, new_targets))
-        t_resolve = time.perf_counter() - t0
-
-        # Step 3: Final tree
-        t0 = time.perf_counter()
-        evidence = aggregate_evidence_soft(N, all_partial)
-        tree = self._evidence_to_tree(evidence, v2_syms)
-        t_final = time.perf_counter() - t0
-
-        print(
-            f"    parse({N}sym,{self.mode}): subsets={t_subsets * 1000:.0f}ms "
-            f"resolve={t_resolve * 1000:.0f}ms({n_iters}i) final={t_final * 1000:.0f}ms"
-        )
-
-        confidence = score_tree(self.scoring, evidence, tree, N)
-        return tree_to_latex(tree), confidence
 
     @torch.no_grad()
     def parse_with_tree(

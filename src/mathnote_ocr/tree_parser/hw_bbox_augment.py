@@ -537,7 +537,6 @@ def augment_bboxes(
         content = children_by_et[p_i].get(SQRT_CONTENT, [])
         if not content:
             continue
-        old_left = bboxes[p_i][0] - bboxes[p_i][2] / 2
         old_right = bboxes[p_i][0] + bboxes[p_i][2] / 2
 
         content_left = min(_subtree_left(ci) for ci in content)

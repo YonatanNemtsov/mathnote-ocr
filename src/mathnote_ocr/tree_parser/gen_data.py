@@ -79,15 +79,8 @@ def _head_glyph(
         return char_c[0]
 
     if node.kind == "frac":
-        # Bar index = n_chars + current bar counter
-        # But we need to count past the char glyphs in children first
-        child_chars = sum(_n_char_glyphs(c) for c in node.children)
-        child_bars = sum(_n_frac_bars(c) for c in node.children) - 1  # exclude this bar
-        # Actually the bar is appended AFTER all children's bars
-        # Let's count: DFS order for frac is num chars, den chars, num bars, den bars, THIS bar
-        # Wait — the glyph order is: all chars (DFS), then all bars (DFS)
-        # So frac bar index = n_chars + bar_c[0] + child bars
-        # But we need to know how many bars are in the children
+        # Glyph order: all chars (DFS) then all bars (DFS). So a frac bar's
+        # index is n_chars + bar_c[0] + bars contributed by children first.
         total_child_bars = sum(_n_frac_bars(c) for c in node.children)
         return n_chars + bar_c[0] + total_child_bars
 
