@@ -9,7 +9,7 @@ Expression is immutable; corrections return new Expression.
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from mathnote_ocr.classifier.inference import SymbolClassifier
 from mathnote_ocr.engine.grouper import (

@@ -5,13 +5,12 @@ Generates LaTeX expressions, walks the user through drawing each symbol,
 and saves real handwritten bboxes paired with ground truth tree labels.
 """
 
-from pathlib import Path
-
 import argparse
 import asyncio
 import json
 import random
 import re
+from pathlib import Path
 
 import websockets
 

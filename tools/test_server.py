@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """WebSocket server for testing the symbol classifier."""
 
-from pathlib import Path
-
 import asyncio
 import base64
 import io
 import json
+from pathlib import Path
 
 import websockets
 

@@ -8,12 +8,11 @@ Usage:
     python3.10 tools/test_tree.py --run v5
 """
 
-from pathlib import Path
-
 import argparse
 import base64
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from urllib.parse import parse_qs
 
 import torch

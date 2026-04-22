@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """WebSocket server for expression detection (grouping + classification)."""
 
-from pathlib import Path
-
 import asyncio
 import json
+from pathlib import Path
 
 import websockets
 

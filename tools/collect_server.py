@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """WebSocket server for symbol data collection."""
 
-from pathlib import Path
-
 import asyncio
 import base64
 import io
 import json
 import re
+from pathlib import Path
 
 import websockets
 

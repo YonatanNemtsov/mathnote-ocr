@@ -9,11 +9,10 @@ Usage:
     # Then open tools/tree_browse.html in browser
 """
 
-from pathlib import Path
-
 import asyncio
 import json
 import subprocess
+from pathlib import Path
 
 import torch
 import websockets

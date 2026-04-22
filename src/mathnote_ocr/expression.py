@@ -17,9 +17,10 @@ An "empty" Expression is returned when nothing was detected. Use
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import TYPE_CHECKING, Iterator
+from typing import TYPE_CHECKING
 
 from mathnote_ocr.bbox import BBox
 from mathnote_ocr.engine.stroke import Stroke
