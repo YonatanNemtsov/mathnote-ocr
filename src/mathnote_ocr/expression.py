@@ -98,7 +98,7 @@ class Expression:
 
         Does NOT re-run the pipeline. Safe only for structurally compatible
         renames (x → y, 0 → o). For structural changes (- → frac_bar),
-        re-run with ``ocr.detect(strokes, hints={...})``.
+        re-run the full pipeline with the intended input.
         """
         old = self.symbols[sym_id]
         new_sym = DetectedSymbol(

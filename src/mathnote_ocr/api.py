@@ -92,7 +92,6 @@ class MathOCR:
         *,
         canvas_size: int | None = None,
         top_k: int = 1,
-        cache: GrouperCache | None = None,
     ) -> Expression:
         """Detect a math expression from strokes.
 
@@ -104,12 +103,28 @@ class MathOCR:
                 stroke extents when absent.
             top_k: How many candidate partitions to consider. Extras are
                 placed on ``expr.alternatives``.
-            cache: Optional GrouperCache for reuse across detections.
 
         Returns:
             An Expression. Empty Expression (``len(expr) == 0``) when
             nothing was detected.
         """
+        return self._detect_with_cache(
+            strokes,
+            GrouperCache(),
+            canvas_size=canvas_size,
+            top_k=top_k,
+        )
+
+    def _detect_with_cache(
+        self,
+        strokes: StrokesInput,
+        cache: GrouperCache,
+        *,
+        canvas_size: int | None = None,
+        top_k: int = 1,
+    ) -> Expression:
+        """Detection with an explicit cache. Used by Session to reuse
+        classification results across calls. Not part of the public API."""
         stroke_objs = _normalize_strokes(strokes)
         if not stroke_objs:
             return empty_expression()
@@ -121,7 +136,7 @@ class MathOCR:
             stroke_objs,
             self.classifier,
             params=self.grouper_params,
-            cache=cache if cache is not None else GrouperCache(),
+            cache=cache,
             source_size=cs,
             top_k=k,
         )
@@ -131,21 +146,27 @@ class MathOCR:
         results: list[Expression] = []
         for partition in partitions:
             detected = sorted(partition, key=lambda s: s.bbox.x)
-            latex, parse_conf, tree, _ev = self.tree_parser.parse_with_tree(detected)
+            _latex, parse_conf, tree, _ev = self.tree_parser.parse_with_tree(detected)
             symbols = {i: s for i, s in enumerate(detected)}
             sym_conf = _geomean_confidence(detected)
-            expr = Expression(
-                strokes=stroke_objs,
-                symbols=symbols,
-                tree=tree,
-                confidence=round(sym_conf * parse_conf, 4),
+            results.append(
+                Expression(
+                    strokes=stroke_objs,
+                    symbols=symbols,
+                    tree=tree,
+                    confidence=round(sym_conf * parse_conf, 4),
+                )
             )
-            results.append(expr)
 
         results.sort(key=lambda e: e.confidence, reverse=True)
         best = results[0]
-        best.alternatives = results[1:] if k > 1 else []
-        return best
+        return Expression(
+            strokes=best.strokes,
+            symbols=best.symbols,
+            tree=best.tree,
+            confidence=best.confidence,
+            alternatives=results[1:] if k > 1 else [],
+        )
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -201,7 +222,6 @@ class Session:
     ) -> None:
         self._ocr = ocr
         self._strokes: dict[int, Stroke] = {}
-        self._next_id: int = 0
         self._cache = GrouperCache()
         self.canvas_size = canvas_size
 
@@ -214,9 +234,8 @@ class Session:
         return len(self._strokes)
 
     def _allocate_id(self) -> int:
-        sid = self._next_id
-        self._next_id += 1
-        return sid
+        """Lowest unused id, one past the current max."""
+        return max(self._strokes, default=-1) + 1
 
     def add_stroke(
         self,
@@ -232,8 +251,6 @@ class Session:
             id = self._allocate_id()
         elif id in self._strokes:
             raise ValueError(f"Stroke id {id} already exists")
-        else:
-            self._next_id = max(self._next_id, id + 1)
         self._strokes[id] = Stroke.from_points(
             [StrokePoint(*p) for p in points], id=id, width=width
         )
@@ -259,16 +276,15 @@ class Session:
         self._cache.invalidate_stroke(stroke_id)
 
     def clear(self) -> None:
-        """Reset strokes, cache, and id counter."""
+        """Reset strokes and cache."""
         self._strokes.clear()
-        self._next_id = 0
         self._cache = GrouperCache()
 
     def detect(self, *, top_k: int = 1) -> Expression:
-        """Run detection on the current strokes. Uses the cache."""
-        return self._ocr.detect(
+        """Run detection on the current strokes. Uses the session's cache."""
+        return self._ocr._detect_with_cache(
             list(self._strokes.values()),
+            self._cache,
             canvas_size=self.canvas_size,
             top_k=top_k,
-            cache=self._cache,
         )
