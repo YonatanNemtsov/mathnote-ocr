@@ -121,9 +121,13 @@ class Tree:
     # ── Mutations (return new Tree) ──────────────────────────────────
 
     def add_node(self, node: Node) -> Tree:
+        """Append *node* to the tree. Caller must ensure its id is unique
+        and its parent_id already exists in the tree."""
         return Tree(self._nodes + (node,), self.root)
 
     def remove_node(self, sym_id: SymbolId) -> Tree:
+        """Remove *sym_id* **and all of its descendants**. Siblings and
+        ancestors are untouched."""
         to_remove = self._descendants(sym_id) | {sym_id}
         return Tree(tuple(n for n in self._nodes if n.symbol.id not in to_remove), self.root)
 
@@ -134,6 +138,9 @@ class Tree:
         edge_type: EdgeType,
         order: SiblingOrder = 0,
     ) -> Tree:
+        """Re-parent *sym_id* under *new_parent_id* with the given edge
+        and sibling order. The node's own descendants are carried along
+        unchanged. Caller must ensure no cycle is introduced."""
         return Tree(
             tuple(
                 Node(n.symbol, new_parent_id, edge_type, order) if n.symbol.id == sym_id else n
@@ -143,6 +150,8 @@ class Tree:
         )
 
     def rename_node(self, sym_id: SymbolId, new_name: str) -> Tree:
+        """Replace the *name* of the symbol at *sym_id*. Bbox, id, and
+        tree structure are preserved."""
         return Tree(
             tuple(
                 Node(
@@ -158,8 +167,11 @@ class Tree:
     # ── Traversal ────────────────────────────────────────────────────
 
     def walk(self, sym_id: SymbolId) -> tuple[SymbolId, ...]:
-        """All ids in subtree (depth-first)."""
-        return (sym_id,) + sum((self.walk(cid) for cid, _, _ in self.children_of(sym_id)), ())
+        """All ids in the subtree rooted at *sym_id* (depth-first, self first)."""
+        result: list[SymbolId] = [sym_id]
+        for cid, _, _ in self.children_of(sym_id):
+            result.extend(self.walk(cid))
+        return tuple(result)
 
     def path(self, sym_id: SymbolId) -> tuple[tuple[SymbolId, EdgeType, SiblingOrder], ...]:
         """Path from root to symbol: ((id, edge_type, order), ...). Root itself returns ()."""
