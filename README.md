@@ -33,29 +33,57 @@ Default production weights (mixed_v10 subset + GNN, v9_combined classifier) are 
 ```python
 from mathnote_ocr import MathOCR
 
-ocr = MathOCR()  # uses bundled default config + weights
+ocr = MathOCR()  # bundled default config + weights
 
 strokes = [
-    [{"x": 10, "y": 20}, {"x": 15, "y": 25}, ...],  # first stroke
-    [{"x": 30, "y": 20}, {"x": 35, "y": 25}, ...],  # second stroke
-    ...
+    [(10, 20), (15, 25), ...],  # first stroke — list of (x, y) tuples
+    [(30, 20), (35, 25), ...],  # second stroke
 ]
 
-results = ocr.parse(strokes, canvas_size=800)
-# Returns [{"latex": "...", "confidence": 0.89, "symbols": [...]}]
-
-print(results[0]["latex"])  # → "x^{2} + y"
+expr = ocr.detect(strokes)
+print(expr.latex)         # → "x^{2} + y"
+print(expr.confidence)    # → 0.89
+for sym in expr:
+    print(sym.name, sym.bbox)
 ```
 
-Between unrelated inputs, call `ocr.clear()` to reset the grouper cache (it's designed for incremental interactive use where strokes are added one by one).
+`detect()` returns an `Expression` with:
+
+- `.latex` — the recognized LaTeX string
+- `.confidence` — overall confidence (0–1)
+- `.symbols` — `dict[int, DetectedSymbol]` keyed by symbol id
+- `.tree` — the parsed expression tree
+- `.strokes` — the input strokes (with stable ids)
+- `.alternatives` — top-k alternative Expressions (when `top_k > 1`)
+
+#### Interactive / incremental detection
+
+For a drawing UI that adds strokes one by one:
+
+```python
+session = ocr.session()
+
+session.add_stroke([(10, 20), (15, 25)])      # auto-id
+session.add_stroke([(30, 20), (35, 25)])
+
+expr = session.detect()
+print(expr.latex)
+
+session.remove_stroke(0)                       # undo last stroke
+expr = session.detect()
+```
+
+The session keeps an incremental cache so repeated `detect()` calls on overlapping stroke sets are fast.
 
 ### Web interface
 
+The bundled demo:
+
 ```bash
-python tools/web/server.py --config mixed_v10_backtrack_gnn
+python demos/web/server.py
 ```
 
-Open [http://localhost:8768](http://localhost:8768). Draw math expressions; get LaTeX.
+Open [http://localhost:8080](http://localhost:8080). Draw math expressions; get LaTeX.
 
 ### Collect handwritten training data
 
@@ -108,18 +136,17 @@ classifier:
     "-": 15.0
 
 grouper:
-  type: classical           # "classical" (neighbor-based) or "gnn"
-  classifier_run: v9_combined
   top_k: 3                  # number of candidate partitions to return
   max_strokes_per_symbol: 4
-  stroke_width: 2.0
-  # ...other spatial thresholds
+  size_multiplier: 0.1      # neighbour distance relative to stroke diagonal
+  min_merge_distance: 14.0
+  max_group_diameter_ratio: 2.2
+  conflict_threshold: 0.32
 
 tree_parser:
-  type: gnn                 # "subset" (Edmonds' on evidence) or "gnn" (with refinement)
-  subset_run: mixed_v10     # which subset model checkpoint
-  gnn_run: mixed_v10        # which GNN checkpoint (only used if type: gnn)
-  tree_strategy: backtrack  # "backtrack" (beam search) or "edmonds" (fallback)
+  subset_run: mixed_v10     # subset model checkpoint
+  gnn_run: mixed_v10        # GNN refinement checkpoint (optional — omit for subset-only)
+  tree_strategy: backtrack  # "backtrack" (beam search) or "edmonds"
   scoring: full_spatial
   tta_runs: 1               # test-time augmentation — jitter bboxes and average
   tta_dx: 0.05
@@ -174,13 +201,20 @@ Copy an existing one (start with `configs/reference.yaml`), adjust the fields yo
 python data/runs/tree_subset/mixed_v10/build.py
 
 # 2. Train the subset tree parser
-python -m mathnote_ocr.tree_parser.subset_train --run my_v1
+python -m mathnote_ocr.tree_parser.subset_train \
+    --run my_v1 \
+    --train data/runs/tree_subset/mixed_v10/train.jsonl \
+    --val data/runs/tree_subset/mixed_v10/val.jsonl
 
-# 3. Generate GNN evidence data (needs trained subset model)
+# 3. Generate GNN evidence data (needs a trained subset model)
 python data/runs/gnn/mixed_v10/build_mixed_v10.py
 
-# 4. Train the GNN
-python -m mathnote_ocr.tree_parser.gnn.train --run my_v1
+# 4. Train the GNN (looks up data under data/runs/gnn/{subset-run}/)
+python -m mathnote_ocr.tree_parser.gnn.train \
+    --run my_v1 \
+    --subset-run mixed_v10 \
+    --train-data train \
+    --val-data val
 ```
 
 The classifier trains on included handwritten symbol JSONs in `data/shared/symbols/`:

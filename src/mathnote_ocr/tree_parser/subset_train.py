@@ -44,6 +44,7 @@ def train(
     val_path: str | Path,
     device: torch.device | None = None,
     *,
+    weights_dir: str | Path | None = None,
     epochs: int = 50,
     batch_size: int = 64,
     lr: float = 3e-4,
@@ -63,10 +64,14 @@ def train(
     """Train a SubsetTreeModel.
 
     Args:
-        run: Run name (checkpoint saved to weights/tree_subset/{run}/).
+        run: Run name (checkpoint saved to ``{weights_dir}/tree_subset/{run}/``).
         train_path: Path to training JSONL file.
         val_path: Path to validation JSONL file.
         device: Torch device (auto-detected if None).
+        weights_dir: Directory to save weights under. Defaults to the
+            bundled package weights dir — CLI callers should pass
+            ``./weights`` to keep user-trained checkpoints out of the
+            package install tree.
         epochs: Number of training epochs.
         batch_size: Batch size.
         lr: Learning rate.
@@ -92,7 +97,7 @@ def train(
     val_path = Path(val_path)
 
     ckpt_kind = "tree_subset"
-    run_dir = _checkpoint_path(ckpt_kind, run).parent
+    run_dir = _checkpoint_path(ckpt_kind, run, weights_dir=weights_dir).parent
     run_dir.mkdir(parents=True, exist_ok=True)
 
     # Set up logging to file (root logger so all modules are captured)
@@ -361,7 +366,7 @@ def train(
                 },
                 "metrics": val_metrics,
             }
-            save_checkpoint(ckpt_kind, run, best_state)
+            save_checkpoint(ckpt_kind, run, best_state, weights_dir=weights_dir)
             log.info("  -> Best (val_loss=%.4f) -> saved", val_loss)
 
     if best_state is not None:
@@ -402,6 +407,12 @@ if __name__ == "__main__":
     parser.add_argument("--train", default=str(data_dir / "tree_train.jsonl"))
     parser.add_argument("--val", default=str(data_dir / "tree_val.jsonl"))
     parser.add_argument("--run", default="default")
+    parser.add_argument(
+        "--weights-dir",
+        type=str,
+        default="weights",
+        help="Directory to save weights (default: ./weights)",
+    )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument(
         "--reset-val",
@@ -441,6 +452,7 @@ if __name__ == "__main__":
         run=args.run,
         train_path=args.train,
         val_path=args.val,
+        weights_dir=args.weights_dir,
         epochs=args.epochs,
         batch_size=args.batch_size,
         lr=args.lr,

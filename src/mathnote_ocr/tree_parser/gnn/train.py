@@ -29,7 +29,8 @@ from mathnote_ocr.tree_parser.gnn.model import EvidenceGNN
 
 log = logging.getLogger(__name__)
 
-DATA_DIR = Path(__file__).parent.parent.parent / "data" / "runs" / "gnn"
+# Repo-root data/runs/gnn/. Parents: gnn → tree_parser → mathnote_ocr → src → repo-root.
+DATA_DIR = Path(__file__).resolve().parents[4] / "data" / "runs" / "gnn"
 
 
 # ── Loss computation ─────────────────────────────────────────────────
@@ -137,6 +138,7 @@ def train(
     val_data: str,
     device: torch.device | None = None,
     *,
+    weights_dir: str | Path | None = None,
     epochs: int = 50,
     batch_size: int = 32,
     lr: float = 1e-3,
@@ -153,11 +155,14 @@ def train(
     """Train an EvidenceGNN model.
 
     Args:
-        run: Run name (checkpoint saved to weights/tree_gnn/{run}/).
+        run: Run name (checkpoint saved to ``{weights_dir}/tree_gnn/{run}/``).
         subset_run: Subset model run name (subdir under data/runs/gnn/).
         train_data: Name of train .pt file (without extension).
         val_data: Name of val .pt file (without extension).
         device: Torch device (auto-detected if None).
+        weights_dir: Directory to save weights under. Defaults to the
+            bundled package weights dir — CLI callers should pass
+            ``./weights``.
 
     Returns:
         Path to the checkpoint directory.
@@ -165,7 +170,7 @@ def train(
     if device is None:
         device = _default_device()
 
-    run_dir = _checkpoint_path("tree_gnn", run).parent
+    run_dir = _checkpoint_path("tree_gnn", run, weights_dir=weights_dir).parent
     run_dir.mkdir(parents=True, exist_ok=True)
 
     log_path = run_dir / "train.log"
@@ -401,7 +406,7 @@ def train(
                 "metrics": val_metrics,
                 "subset_run": meta_subset_run,
             }
-            save_checkpoint("tree_gnn", run, best_state)
+            save_checkpoint("tree_gnn", run, best_state, weights_dir=weights_dir)
             log.info("  -> Best (val_loss=%.4f) -> saved", val_loss)
 
     if best_state is not None:
@@ -444,6 +449,12 @@ if __name__ == "__main__":
     parser.add_argument("--train-data", required=True, help="Name of train .pt file")
     parser.add_argument("--val-data", required=True, help="Name of val .pt file")
     parser.add_argument("--run", default="v1")
+    parser.add_argument(
+        "--weights-dir",
+        type=str,
+        default="weights",
+        help="Directory to save weights (default: ./weights)",
+    )
     parser.add_argument("--resume", action="store_true")
 
     # Training
@@ -470,6 +481,7 @@ if __name__ == "__main__":
         subset_run=args.subset_run,
         train_data=args.train_data,
         val_data=args.val_data,
+        weights_dir=args.weights_dir,
         epochs=args.epochs,
         batch_size=args.batch_size,
         lr=args.lr,

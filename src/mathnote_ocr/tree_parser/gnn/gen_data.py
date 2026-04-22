@@ -30,7 +30,8 @@ from mathnote_ocr.tree_parser.subset_model import load_subset_model
 
 log = logging.getLogger(__name__)
 
-DATA_DIR = Path(__file__).parent.parent.parent / "data" / "runs" / "gnn"
+# Repo-root data/runs/gnn/. Parents: gnn → tree_parser → mathnote_ocr → src → repo-root.
+DATA_DIR = Path(__file__).resolve().parents[4] / "data" / "runs" / "gnn"
 
 
 def _default_device() -> torch.device:
