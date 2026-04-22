@@ -5,10 +5,7 @@ Generates LaTeX expressions, walks the user through drawing each symbol,
 and saves real handwritten bboxes paired with ground truth tree labels.
 """
 
-import sys
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import argparse
 import asyncio

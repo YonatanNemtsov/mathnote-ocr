@@ -1,9 +1,8 @@
 """FastAPI server for math OCR pipeline.
 
 Usage:
-    cd math_ocr_v2
-    PYTHONPATH=. python3.10 tools/web/server.py
-    PYTHONPATH=. python3.10 tools/web/server.py --config mixed_v3
+    python3.10 tools/web/server.py
+    python3.10 tools/web/server.py --config mixed_v3
 """
 
 from __future__ import annotations
@@ -11,11 +10,8 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import sys
 import time
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect

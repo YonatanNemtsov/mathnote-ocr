@@ -8,10 +8,7 @@ Usage:
     python3.10 tools/test_tree.py --run v5
 """
 
-import sys
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import argparse
 import base64

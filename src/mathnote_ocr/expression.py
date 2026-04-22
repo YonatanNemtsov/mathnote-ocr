@@ -105,7 +105,6 @@ class Expression:
     # ── Serialization ────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        stroke_idx = {id(s): i for i, s in enumerate(self.strokes)}
         tree_rows = []
         if self.tree is not None:
             for sid, node in self.tree.nodes.items():
@@ -127,7 +126,7 @@ class Expression:
                     "id": s.id,
                     "name": s.name,
                     "bbox": {"x": s.bbox.x, "y": s.bbox.y, "w": s.bbox.w, "h": s.bbox.h},
-                    "stroke_ids": [stroke_idx[id(st)] for st in s.strokes],
+                    "stroke_ids": [st.id for st in s.strokes],
                     "confidence": round(s.confidence, 4),
                     "alternatives": [
                         {"name": n, "confidence": round(c, 4)} for n, c in s.alternatives

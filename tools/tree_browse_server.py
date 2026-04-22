@@ -9,10 +9,7 @@ Usage:
     # Then open tools/tree_browse.html in browser
 """
 
-import sys
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 import asyncio
 import json
