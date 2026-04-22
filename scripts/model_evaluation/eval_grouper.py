@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from mathnote_ocr.classifier.inference import SymbolClassifier
-from mathnote_ocr.engine.grouper import GrouperParams, group_and_classify
+from mathnote_ocr.engine.grouper import GrouperCache, GrouperParams, group_and_classify
 from mathnote_ocr.engine.stroke import Stroke
 from mathnote_ocr.grouper_gnn.inference import GNNGrouper
 
@@ -176,6 +176,8 @@ def main():
                 partitions = group_and_classify(
                     strokes,
                     classifier,
+                    params=GrouperParams(),
+                    cache=GrouperCache(),
                     source_size=max(canvas_w, canvas_h),
                     top_k=1,
                 )

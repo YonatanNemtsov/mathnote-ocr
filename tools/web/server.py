@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 
 import mathnote_ocr.config as app_config
 from mathnote_ocr.classifier.inference import SymbolClassifier
-from mathnote_ocr.engine.grouper import GrouperParams, group_and_classify
+from mathnote_ocr.engine.grouper import GrouperCache, GrouperParams, group_and_classify
 from mathnote_ocr.engine.stroke import Stroke
 from mathnote_ocr.pipeline_config import get, load_config
 from mathnote_ocr.tree_parser.inference import SubsetTreeParser
@@ -72,15 +72,7 @@ class Pipeline:
             weights_dir=str(WEIGHTS_DIR),
         )
 
-        self.grouper_params = GrouperParams(
-            max_strokes_per_symbol=get(cfg, "grouper.max_strokes_per_symbol", 4),
-            size_multiplier=get(cfg, "grouper.size_multiplier", 0.1),
-            min_merge_distance=get(cfg, "grouper.min_merge_distance", 14.0),
-            max_group_diameter_ratio=get(cfg, "grouper.max_group_diameter_ratio", 2.2),
-            conflict_threshold=get(cfg, "grouper.conflict_threshold", 0.32),
-            min_confidence=get(cfg, "classifier.min_confidence", 0.15),
-            ood_threshold=get(cfg, "classifier.ood_threshold", 15.0),
-        )
+        self.grouper_params = GrouperParams.from_config(cfg)
         self.default_stroke_width = get(
             cfg, "grouper.stroke_width", app_config.RENDER_STROKE_WIDTH
         )
@@ -229,10 +221,11 @@ def create_app(config_name: str | None = "default") -> FastAPI:
                     all_partitions = group_and_classify(
                         strokes,
                         pipeline.classifier,
+                        params=pipeline.grouper_params,
+                        cache=GrouperCache(),
                         source_size=source_size,
                         top_k=pipeline.top_k,
                         debug=msg.get("debug", False),
-                        params=pipeline.grouper_params,
                     )
                     t_group = time.perf_counter() - t0
 

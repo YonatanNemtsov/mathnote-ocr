@@ -57,15 +57,7 @@ class MathOCR:
             weights_dir=weights_dir,
         )
 
-        self.grouper_params = GrouperParams(
-            max_strokes_per_symbol=get(cfg, "grouper.max_strokes_per_symbol", 4),
-            size_multiplier=get(cfg, "grouper.size_multiplier", 0.1),
-            min_merge_distance=get(cfg, "grouper.min_merge_distance", 14.0),
-            max_group_diameter_ratio=get(cfg, "grouper.max_group_diameter_ratio", 2.2),
-            conflict_threshold=get(cfg, "grouper.conflict_threshold", 0.32),
-            min_confidence=get(cfg, "classifier.min_confidence", 0.15),
-            ood_threshold=get(cfg, "classifier.ood_threshold", 15.0),
-        )
+        self.grouper_params = GrouperParams.from_config(cfg)
         self._top_k_default = get(cfg, "grouper.top_k", 1)
 
         tp_kwargs = dict(
@@ -128,10 +120,10 @@ class MathOCR:
         partitions = group_and_classify(
             stroke_objs,
             self.classifier,
+            params=self.grouper_params,
+            cache=cache if cache is not None else GrouperCache(),
             source_size=cs,
             top_k=k,
-            cache=cache,
-            params=self.grouper_params,
         )
         if not partitions:
             return Expression(strokes=stroke_objs, symbols={}, tree=None, confidence=0.0)

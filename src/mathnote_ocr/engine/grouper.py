@@ -8,6 +8,7 @@ exact cover search.
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 
 from mathnote_ocr.classifier.inference import ClassificationResult, SymbolClassifier
@@ -61,9 +62,21 @@ class GrouperParams:
         groups = self.similar_symbols or _DEFAULT_SIMILAR_SYMBOLS
         self.similar_symbol_map: dict[str, set[str]] = _build_similar_map(groups)
 
+    @classmethod
+    def from_config(cls, cfg: dict) -> "GrouperParams":
+        """Build from a pipeline config dict (typically YAML-loaded)."""
+        from mathnote_ocr.pipeline_config import get
 
-# Module-level default instance
-_DEFAULT_PARAMS = GrouperParams()
+        return cls(
+            max_strokes_per_symbol=get(cfg, "grouper.max_strokes_per_symbol", 4),
+            size_multiplier=get(cfg, "grouper.size_multiplier", 0.1),
+            min_merge_distance=get(cfg, "grouper.min_merge_distance", 14.0),
+            max_group_diameter_ratio=get(cfg, "grouper.max_group_diameter_ratio", 2.2),
+            conflict_threshold=get(cfg, "grouper.conflict_threshold", 0.32),
+            min_confidence=get(cfg, "classifier.min_confidence", 0.15),
+            ood_threshold=get(cfg, "classifier.ood_threshold", 15.0),
+        )
+
 
 # Default confusable symbols to most common variant
 _DEFAULTS = {
@@ -167,9 +180,7 @@ def _check_stroke_pattern(
     return _STROKE_PATTERNS.get(pattern)
 
 
-def _group_confidence(
-    result: ClassificationResult, similar_map: dict[str, set[str]] | None = None
-) -> float:
+def _group_confidence(result: ClassificationResult, similar_map: dict[str, set[str]]) -> float:
     """Sum probabilities across similar/confusable symbols for partition scoring.
 
     E.g. if classifier gives x=0.4, X_cap=0.3, times=0.2, the group
@@ -178,25 +189,66 @@ def _group_confidence(
     """
     if result.alternatives is None or result.symbol is None:
         return result.confidence
-    if similar_map is None:
-        similar_map = _DEFAULT_PARAMS.similar_symbol_map
     group = similar_map.get(result.symbol)
     if group is None:
         return result.confidence
     return sum(conf for sym, conf in result.alternatives if sym in group)
 
 
-class GrouperCache:
-    """Classification cache keyed by stroke ids.
+def _singleton_geo_mean(
+    group: frozenset[int],
+    stroke_ids: list[int],
+    cache: "GrouperCache",
+    params: "GrouperParams",
+) -> float | None:
+    """Geometric mean of per-stroke singleton confidences in *group*.
 
-    Entries are frozenset[int] of stable stroke ids, mapped to the
-    classification result for that group. Invalidation is per-stroke:
-    when a stroke is removed or moved, we drop entries referencing it.
-    Other entries remain valid.
+    Returns ``None`` when none of the strokes' singletons have been classified
+    yet — callers should treat that as "no gate available".
+    """
+    confs = []
+    for si in group:
+        sr = cache.get(frozenset([stroke_ids[si]]))
+        if sr and sr.confidence is not None:
+            confs.append(_group_confidence(sr, similar_map=params.similar_symbol_map))
+    if not confs:
+        return None
+    product = 1.0
+    for c in confs:
+        product *= c
+    return product ** (1.0 / len(confs))
+
+
+class GrouperCache:
+    """Classification cache keyed by stroke-id sets.
+
+    Keys are ``frozenset[int]`` of stable stroke ids; values are the
+    ``ClassificationResult`` for that group. Invalidation is per-stroke:
+    when a stroke is removed or moved, entries referencing it are dropped;
+    entries that don't reference it remain valid.
+
+    Usable like a read/write dict (``key in cache``, ``cache[key]``,
+    ``cache.get(key)``) plus the two invalidation helpers below.
     """
 
     def __init__(self) -> None:
         self._data: dict[frozenset[int], ClassificationResult] = {}
+
+    def __contains__(self, key: frozenset[int]) -> bool:
+        return key in self._data
+
+    def __getitem__(self, key: frozenset[int]) -> ClassificationResult:
+        return self._data[key]
+
+    def __setitem__(self, key: frozenset[int], value: ClassificationResult) -> None:
+        self._data[key] = value
+
+    def get(
+        self,
+        key: frozenset[int],
+        default: ClassificationResult | None = None,
+    ) -> ClassificationResult | None:
+        return self._data.get(key, default)
 
     def invalidate_stroke(self, stroke_id: int) -> None:
         """Drop cache entries that reference a specific stroke id."""
@@ -333,13 +385,8 @@ def _enumerate_candidate_groups(
         pattern = tuple(sorted(syms))
         return pattern in _STROKE_PATTERNS
 
-    # Old: consecutive groups only (stroke order constrained)
-    # for start in range(n):
-    #     for length in range(2, min(max_strokes, n - start) + 1):
-    #         indices = list(range(start, start + length))
-
-    # New: neighbor-based groups (allows non-consecutive strokes,
-    # e.g. going back to add a stroke to an earlier symbol)
+    # Neighbor-based groups: allows non-consecutive strokes, e.g. going
+    # back to add a stroke to an earlier symbol.
     candidates: set[frozenset[int]] = set()
     for i in range(n):
         for j in neighbors.get(i, set()):
@@ -433,14 +480,12 @@ def _find_best_partitions(
             return
 
         # Pick stroke with fewest valid groups (most constrained first)
-        best_stroke = -1
         best_valid: list[int] = []
         best_count = len(scored_groups) + 1
         for s in uncovered:
             valid = [g for g in stroke_to_groups[s] if scored_groups[g][0] <= uncovered]
             if len(valid) < best_count:
                 best_count = len(valid)
-                best_stroke = s
                 best_valid = valid
 
         if not best_valid:
@@ -499,17 +544,33 @@ def _symbols_conflict(
     return (dist / avg_diag) < threshold
 
 
+def _size_feat(group_strokes: list[Stroke], source_size: float) -> float:
+    """Symbol-relative diagonal, used as an extra classifier feature.
+
+    Returns 0.5 when strokes have no points (degenerate input).
+    """
+    all_x = [p.x for s in group_strokes for p in s.points]
+    all_y = [p.y for s in group_strokes for p in s.points]
+    if not all_x:
+        return 0.5
+    bw = max(all_x) - min(all_x)
+    bh = max(all_y) - min(all_y)
+    sym_diag = math.sqrt(bw * bw + bh * bh)
+    return sym_diag / max(source_size, 1.0)
+
+
 # ── Top-level ────────────────────────────────────────────────────────
 
 
 def group_and_classify(
     strokes: list[Stroke],
     classifier: SymbolClassifier,
-    source_size: float | None = None,
+    *,
+    params: GrouperParams,
+    cache: GrouperCache,
+    source_size: float,
     top_k: int = 1,
     debug: bool = False,
-    cache: GrouperCache | None = None,
-    params: GrouperParams | None = None,
 ) -> list[list[DetectedSymbol]]:
     """Detect symbols in a set of strokes.
 
@@ -517,27 +578,48 @@ def group_and_classify(
     ``DetectedSymbol``, sorted by descending total confidence.
     Returns ``[[]]`` (one empty partition) if nothing is found.
 
-    Pass a persistent *cache* (``GrouperCache``) across calls to reuse
-    classification results for stroke groups that haven't changed.
+    The *cache* is reused across calls on overlapping stroke sets —
+    callers that want one-shot detection should construct a fresh
+    ``GrouperCache()`` at the call site.
     """
-    import time
-
-    if params is None:
-        params = GrouperParams()
-
     if not strokes:
         return [[]]
 
     n = len(strokes)
-    _cache = cache._data if cache is not None else {}
 
-    # Two coordinate systems: positions (for array lookups) and stable stroke
-    # ids (for cache keys). Maintain both mappings.
-    stroke_ids: list[int] = [s.id for s in strokes]            # position → stroke_id
-    stroke_id_to_pos: dict[int, int] = {sid: i for i, sid in enumerate(stroke_ids)}  # stroke_id → position
+    # The grouper runs on positions (array lookups), but the cache keys on
+    # stable stroke ids. Translate position-sets → id-sets at the boundary.
+    stroke_ids: list[int] = [s.id for s in strokes]
 
     def _pos_to_ids(pos_set: frozenset[int]) -> frozenset[int]:
         return frozenset(stroke_ids[p] for p in pos_set)
+
+    def _classify_uncached(groups: list[frozenset[int]]) -> int:
+        """Classify every group in *groups* that isn't already in the cache,
+        store results, and return how many were classified."""
+        uncached = [g for g in groups if _pos_to_ids(g) not in cache]
+        if not uncached:
+            return 0
+        use_size = classifier.use_size_feat
+        images = []
+        size_feats = []
+        for group in uncached:
+            group_strokes = [strokes[i] for i in group]
+            images.append(
+                render_strokes(
+                    group_strokes,
+                    canvas_size=classifier.canvas_size,
+                    source_size=source_size,
+                )
+            )
+            size_feats.append(
+                _size_feat(group_strokes, source_size) if use_size else 0.5
+            )
+        sf = size_feats if use_size else None
+        results = classifier.classify_batch(images, size_feats=sf)
+        for group, result in zip(uncached, results):
+            cache[_pos_to_ids(group)] = result
+        return len(uncached)
 
     # 1. Distances + neighbours
     t0 = time.perf_counter()
@@ -552,40 +634,7 @@ def group_and_classify(
 
     # 2. Classify singletons first (needed for pattern matching in enumeration)
     t0 = time.perf_counter()
-    canvas_sz = classifier.canvas_size
-    singleton_uncached: list[tuple[int, frozenset[int]]] = []
-    for i in range(n):
-        sg = frozenset([i])
-        if _pos_to_ids(sg) not in _cache:
-            singleton_uncached.append((i, sg))
-    if singleton_uncached:
-        images = []
-        size_feats = []
-        for idx, group in singleton_uncached:
-            group_strokes = [strokes[idx]]
-            images.append(
-                render_strokes(
-                    group_strokes,
-                    canvas_size=canvas_sz,
-                    source_size=source_size,
-                )
-            )
-            if classifier.use_size_feat:
-                all_x = [p.x for s in group_strokes for p in s.points]
-                all_y = [p.y for s in group_strokes for p in s.points]
-                if all_x:
-                    bw = max(all_x) - min(all_x)
-                    bh = max(all_y) - min(all_y)
-                    sym_diag = math.sqrt(bw * bw + bh * bh)
-                    size_feats.append(sym_diag / max(source_size or 800, 1.0))
-                else:
-                    size_feats.append(0.5)
-            else:
-                size_feats.append(0.5)
-        sf = size_feats if classifier.use_size_feat else None
-        results = classifier.classify_batch(images, size_feats=sf)
-        for (_, group), result in zip(singleton_uncached, results):
-            _cache[_pos_to_ids(group)] = result
+    _classify_uncached([frozenset([i]) for i in range(n)])
     t_singletons = time.perf_counter() - t0
 
     # 3. Enumerate candidate groups (singletons + multi-stroke)
@@ -597,7 +646,7 @@ def group_and_classify(
         neighbors,
         params.max_strokes_per_symbol,
         params.size_multiplier,
-        cache=_cache,
+        cache=cache,
         min_merge_distance=params.min_merge_distance,
         max_group_diameter_ratio=params.max_group_diameter_ratio,
     )
@@ -605,38 +654,7 @@ def group_and_classify(
 
     # 4. Classify remaining uncached multi-stroke groups
     t0 = time.perf_counter()
-    uncached: list[tuple[int, frozenset[int]]] = []
-    for i, group in enumerate(candidate_groups):
-        if _pos_to_ids(group) not in _cache:
-            uncached.append((i, group))
-    if uncached:
-        images = []
-        size_feats = []
-        for _, group in uncached:
-            group_strokes = [strokes[i] for i in group]
-            images.append(
-                render_strokes(
-                    group_strokes,
-                    canvas_size=canvas_sz,
-                    source_size=source_size,
-                )
-            )
-            if classifier.use_size_feat:
-                all_x = [p.x for s in group_strokes for p in s.points]
-                all_y = [p.y for s in group_strokes for p in s.points]
-                if all_x:
-                    bw = max(all_x) - min(all_x)
-                    bh = max(all_y) - min(all_y)
-                    sym_diag = math.sqrt(bw * bw + bh * bh)
-                    size_feats.append(sym_diag / max(source_size or 800, 1.0))
-                else:
-                    size_feats.append(0.5)
-            else:
-                size_feats.append(0.5)
-        sf = size_feats if classifier.use_size_feat else None
-        results = classifier.classify_batch(images, size_feats=sf)
-        for (_, group), result in zip(uncached, results):
-            _cache[_pos_to_ids(group)] = result
+    n_new = _classify_uncached(candidate_groups)
     t_classify = time.perf_counter() - t0
 
     # 4. Filter valid groups
@@ -646,7 +664,7 @@ def group_and_classify(
     rejected_conf = 0
 
     for group in candidate_groups:
-        result = _cache[_pos_to_ids(group)]
+        result = cache[_pos_to_ids(group)]
 
         if result.is_ood:
             rejected_ood += 1
@@ -670,37 +688,24 @@ def group_and_classify(
         proto_quality = 1.0 / (1.0 + (result.prototype_distance / params.ood_threshold) ** 2)
         effective_conf = group_conf * proto_quality
 
-        # Stroke pattern heuristic: boost multi-stroke groups when individual
-        # stroke classifications match a known decomposition pattern and the
-        # group classifier's top-1 agrees
-        has_pattern = False
+        # Multi-stroke groups: either get a pattern boost, or must beat the
+        # geometric mean of their singleton confidences (prevents merging two
+        # confident singletons like s+i into 'n').
+        # Multi-stroke merges either match a known stroke-decomposition
+        # pattern (boost), or must beat the geometric mean of the singleton
+        # confidences — otherwise two confident singletons would merge into
+        # an unlikely combined symbol (e.g. s+i → 'n').
         if len(group) >= 2:
-            candidates = _check_stroke_pattern(group, _cache, strokes)
-            if candidates and result.symbol in candidates:
+            pattern = _check_stroke_pattern(group, cache, strokes)
+            if pattern and result.symbol in pattern:
                 effective_conf = max(effective_conf, _HEURISTIC_BOOST)
-                has_pattern = True
                 if debug:
                     print(
                         f"  group {set(group)} → PATTERN BOOST '{result.symbol}' to {effective_conf:.3f}"
                     )
-
-        # Singleton confidence gate: multi-stroke groups without a pattern
-        # match must beat the geometric mean of their singleton confidences.
-        # Prevents merging two confident singletons (e.g. s+i → "n").
-        if len(group) >= 2 and not has_pattern:
-            singleton_confs = []
-            for si in group:
-                sr = _cache.get(frozenset([stroke_ids[si]]))
-                if sr and sr.confidence is not None:
-                    singleton_confs.append(
-                        _group_confidence(sr, similar_map=params.similar_symbol_map)
-                    )
-            if singleton_confs:
-                geo_mean = 1.0
-                for c in singleton_confs:
-                    geo_mean *= c
-                geo_mean **= 1.0 / len(singleton_confs)
-                if effective_conf < geo_mean:
+            else:
+                geo_mean = _singleton_geo_mean(group, stroke_ids, cache, params)
+                if geo_mean is not None and effective_conf < geo_mean:
                     if debug:
                         print(
                             f"  group {set(group)} → REJECT SINGLETON GATE: "
@@ -721,7 +726,6 @@ def group_and_classify(
             alternatives=result.alternatives,
         )
         scored_groups.append((group, effective_conf, sym))
-    t_filter = time.perf_counter() - t0
 
     if debug:
         print(
@@ -735,7 +739,7 @@ def group_and_classify(
     t_cover = time.perf_counter() - t0
 
     print(
-        f"  [grouper] {n}s {len(candidate_groups)}g {len(uncached)}new: "
+        f"  [grouper] {n}s {len(candidate_groups)}g {n_new}new: "
         f"geo={t_geo * 1000:.0f}ms singles={t_singletons * 1000:.0f}ms "
         f"enum={t_enum * 1000:.0f}ms classify={t_classify * 1000:.0f}ms "
         f"cover={t_cover * 1000:.0f}ms"
