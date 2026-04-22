@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from mathnote_ocr.classifier.inference import ClassificationResult, SymbolClassifier
 from mathnote_ocr.engine.renderer import render_strokes
 from mathnote_ocr.engine.stroke import BBox, Stroke, compute_bbox
+from mathnote_ocr.expression import DetectedSymbol
 
 # ── Default config values (can be overridden via GrouperParams) ──────
 
@@ -261,16 +262,6 @@ class GrouperCache:
         self._data.clear()
 
 
-@dataclass
-class DetectedSymbol:
-    stroke_indices: list[int]
-    bbox: BBox
-    symbol: str
-    confidence: float
-    prototype_distance: float
-    alternatives: list[tuple[str, float]] = None  # [(symbol, confidence), ...]
-
-
 # ── Geometry ─────────────────────────────────────────────────────────
 
 
@@ -501,7 +492,7 @@ def _find_best_partitions(
             # Skip for sqrt — its bbox naturally encloses the radicand
             conflict = False
             for existing in symbols:
-                if sym.symbol == "sqrt" or existing.symbol == "sqrt":
+                if sym.name == "sqrt" or existing.name == "sqrt":
                     continue
                 if _symbols_conflict(sym.bbox, existing.bbox):
                     conflict = True
@@ -718,12 +709,12 @@ def group_and_classify(
         sym_name = _DEFAULTS.get(result.symbol, result.symbol)
 
         sym = DetectedSymbol(
-            stroke_indices=list(group),
+            name=sym_name,
             bbox=bbox,
-            symbol=sym_name,
+            strokes=group_strokes,
             confidence=effective_conf,
             prototype_distance=result.prototype_distance,
-            alternatives=result.alternatives,
+            alternatives=list(result.alternatives or []),
         )
         scored_groups.append((group, effective_conf, sym))
 
@@ -749,7 +740,7 @@ def group_and_classify(
         print(f"[grouper] {len(partitions)} valid partitions")
         if partitions:
             best = partitions[0]
-            syms = ", ".join(f"'{s.symbol}'({s.confidence:.2f})" for s in best[1])
+            syms = ", ".join(f"'{s.name}'({s.confidence:.2f})" for s in best[1])
             print(f"[grouper] best: [{syms}] score={best[0]:.2f}")
 
     if not partitions:
@@ -776,13 +767,13 @@ def _merged_symbol(
     bbox = parts[0].bbox
     for p in parts[1:]:
         bbox = _merge_bbox(bbox, p.bbox)
-    indices = []
+    merged_strokes: list[Stroke] = []
     for p in parts:
-        indices.extend(p.stroke_indices)
+        merged_strokes.extend(p.strokes)
     return DetectedSymbol(
-        stroke_indices=indices,
+        name=name,
         bbox=bbox,
-        symbol=name,
+        strokes=merged_strokes,
         confidence=min(p.confidence for p in parts),
         prototype_distance=max(p.prototype_distance for p in parts),
     )
@@ -810,7 +801,7 @@ def _overlapping(a: DetectedSymbol, b: DetectedSymbol) -> bool:
 
 
 def _by_symbol(symbols: list[DetectedSymbol], name: str) -> list[tuple[int, DetectedSymbol]]:
-    return [(i, s) for i, s in enumerate(symbols) if s.symbol == name]
+    return [(i, s) for i, s in enumerate(symbols) if s.name == name]
 
 
 def _postprocess(symbols: list[DetectedSymbol]) -> list[DetectedSymbol]:

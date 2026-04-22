@@ -2,14 +2,15 @@
 
 Three joined concerns:
   - strokes (input)    — list, indexed by stroke id
-  - symbols (detection) — dict keyed by symbol id
+  - symbols (detection) — dict keyed by symbol id (= dict key)
   - tree (structure)   — tree_v2.Tree, keyed by symbol id
 
-Symbol.id and tree node id are the same integer.
+The symbol id is the dict key in ``Expression.symbols`` — it's also the
+tree node id. DetectedSymbol itself carries no id field (the key is the id).
 
 Expression is immutable by convention: rename() returns a new Expression.
 Structural sharing is used throughout (tree_v2 shares unchanged nodes; the
-new symbols dict is shallow-copied, unchanged Symbol objects are reused).
+new symbols dict is shallow-copied, unchanged DetectedSymbol objects are reused).
 
 An "empty" Expression is returned when nothing was detected. Use
 ``if expr:`` or ``len(expr)`` to check.
@@ -32,14 +33,18 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True)
-class Symbol:
-    """A detected symbol. Frozen — construct new ones, don't mutate."""
+class DetectedSymbol:
+    """A symbol produced by the OCR pipeline. Frozen — construct new ones.
 
-    id: int
+    Identified externally by its position key in ``Expression.symbols``; this
+    class itself intentionally has no ``id`` field.
+    """
+
     name: str
     bbox: BBox
     strokes: list[Stroke]
     confidence: float = 1.0
+    prototype_distance: float = 0.0
     alternatives: list[tuple[str, float]] = field(default_factory=list)
 
 
@@ -47,7 +52,7 @@ class Expression:
     """A recognized math expression."""
 
     strokes: list[Stroke]
-    symbols: dict[int, Symbol]
+    symbols: dict[int, DetectedSymbol]
     tree: Tree | None
     confidence: float
     alternatives: list[Expression]
@@ -55,7 +60,7 @@ class Expression:
     def __init__(
         self,
         strokes: list[Stroke],
-        symbols: dict[int, Symbol],
+        symbols: dict[int, DetectedSymbol],
         tree: Tree | None,
         confidence: float = 0.0,
         alternatives: list[Expression] | None = None,
@@ -80,7 +85,7 @@ class Expression:
     def __len__(self) -> int:
         return len(self.symbols)
 
-    def __iter__(self) -> Iterator[Symbol]:
+    def __iter__(self) -> Iterator[DetectedSymbol]:
         return iter(self.symbols.values())
 
     def __repr__(self) -> str:
@@ -96,8 +101,8 @@ class Expression:
         re-run with ``ocr.detect(strokes, hints={...})``.
         """
         old = self.symbols[sym_id]
-        new_sym = Symbol(
-            old.id, new_name, old.bbox, old.strokes, old.confidence, old.alternatives
+        new_sym = DetectedSymbol(
+            new_name, old.bbox, old.strokes, old.confidence, old.alternatives
         )
         new_symbols = {**self.symbols, sym_id: new_sym}
         new_tree = self.tree.rename_node(sym_id, new_name) if self.tree else None
@@ -124,7 +129,7 @@ class Expression:
             "confidence": round(self.confidence, 4),
             "symbols": [
                 {
-                    "id": s.id,
+                    "id": sid,
                     "name": s.name,
                     "bbox": {"x": s.bbox.x, "y": s.bbox.y, "w": s.bbox.w, "h": s.bbox.h},
                     "stroke_ids": [st.id for st in s.strokes],
@@ -133,7 +138,7 @@ class Expression:
                         {"name": n, "confidence": round(c, 4)} for n, c in s.alternatives
                     ],
                 }
-                for s in self.symbols.values()
+                for sid, s in self.symbols.items()
             ],
             "tree": tree_rows,
         }

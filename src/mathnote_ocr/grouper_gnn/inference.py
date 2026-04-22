@@ -144,12 +144,12 @@ class GNNGrouper:
 
             symbols.append(
                 DetectedSymbol(
-                    stroke_indices=sorted(group_indices),
+                    name=sym_name,
                     bbox=bbox,
-                    symbol=sym_name,
+                    strokes=group_strokes,
                     confidence=result.confidence,
                     prototype_distance=result.prototype_distance,
-                    alternatives=result.alternatives,
+                    alternatives=list(result.alternatives or []),
                 )
             )
 

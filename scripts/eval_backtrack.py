@@ -75,9 +75,9 @@ def make_detected_symbols(ex):
     for s in ex["symbols"]:
         bbox = s["bbox"]
         ds = DetectedSymbol(
-            stroke_indices=[],
+            name=s["name"],
             bbox=BBox(*bbox),
-            symbol=s["name"],
+            strokes=[],
             confidence=1.0,
             prototype_distance=0.0,
             alternatives=[],

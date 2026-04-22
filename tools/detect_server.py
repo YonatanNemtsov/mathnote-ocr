@@ -92,10 +92,10 @@ async def handler(websocket):
                     return {
                         "symbols": [
                             {
-                                "symbol": s.symbol,
+                                "name": s.name,
                                 "confidence": s.confidence,
                                 "prototype_distance": s.prototype_distance,
-                                "stroke_indices": s.stroke_indices,
+                                "stroke_ids": [st.id for st in s.strokes],
                                 "bbox": {
                                     "x": s.bbox.x,
                                     "y": s.bbox.y,
@@ -103,7 +103,7 @@ async def handler(websocket):
                                     "h": s.bbox.h,
                                 },
                                 "alternatives": [
-                                    {"symbol": sym, "confidence": c}
+                                    {"name": sym, "confidence": c}
                                     for sym, c in (s.alternatives or [])
                                 ],
                             }
@@ -120,7 +120,7 @@ async def handler(websocket):
                             }
                             for e in layout.edges
                         ],
-                        "expression": " ".join(s.symbol for s in sorted_syms),
+                        "expression": " ".join(s.name for s in sorted_syms),
                     }
 
                 results = [serialize_partition(p) for p in all_partitions]

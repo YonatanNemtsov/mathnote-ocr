@@ -17,10 +17,10 @@ from mathnote_ocr.engine.stroke import BBox
 class LayoutSymbol:
     """Symbol node in the geometry graph."""
 
-    symbol: str
+    name: str
     bbox: BBox
     confidence: float
-    stroke_indices: list[int]
+    stroke_ids: list[int]
 
 
 @dataclass
@@ -96,10 +96,10 @@ def analyze_layout(symbols: list[DetectedSymbol]) -> ExpressionLayout:
     """
     nodes = [
         LayoutSymbol(
-            symbol=s.symbol,
+            name=s.name,
             bbox=s.bbox,
             confidence=s.confidence,
-            stroke_indices=s.stroke_indices,
+            stroke_ids=[st.id for st in s.strokes],
         )
         for s in symbols
     ]

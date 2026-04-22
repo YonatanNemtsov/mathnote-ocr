@@ -240,7 +240,7 @@ def create_app(config_name: str | None = "default") -> FastAPI:
                         )
                         symbols_dump = [
                             {
-                                "symbol": s.symbol,
+                                "name": s.name,
                                 "bbox": [s.bbox.x, s.bbox.y, s.bbox.w, s.bbox.h],
                                 "confidence": round(s.confidence, 3),
                             }
@@ -368,9 +368,9 @@ def _build_results(all_partitions, parser, diagnostics: bool = False) -> list[di
             "score": round(combined, 3),
             "symbols": [
                 {
-                    "symbol": s.symbol,
+                    "name": s.name,
                     "confidence": s.confidence,
-                    "stroke_indices": s.stroke_indices,
+                    "stroke_ids": [st.id for st in s.strokes],
                     "bbox": {"x": s.bbox.x, "y": s.bbox.y, "w": s.bbox.w, "h": s.bbox.h},
                 }
                 for s in symbols

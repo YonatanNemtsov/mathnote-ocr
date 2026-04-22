@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import time
 from abc import ABC, abstractmethod
+from dataclasses import replace
 
 import torch
 
@@ -214,7 +215,7 @@ class TreeParser(ABC):
             children for a minus with high confidence, it's a fraction bar.
         """
         N = len(symbols)
-        names = [s.symbol for s in symbols]
+        names = [s.name for s in symbols]
         bboxes = [[s.bbox.x, s.bbox.y, s.bbox.w, s.bbox.h] for s in symbols]
 
         # Dot/cdot promotion runs for all strategies
@@ -226,7 +227,7 @@ class TreeParser(ABC):
             return symbols  # builder handles frac_bar promotion via resolve_frac_bars
 
         # Rebuild names after dot/cdot promotion may have changed some
-        names = [s.symbol for s in symbols]
+        names = [s.name for s in symbols]
         self._promote_frac_bars(symbols, names, bboxes, N, confidence_threshold)
 
         return symbols
@@ -240,7 +241,7 @@ class TreeParser(ABC):
         confidence_threshold: float,
     ) -> None:
         """Disambiguate `-` → `frac_bar` using subset model."""
-        minus_indices = [i for i, s in enumerate(symbols) if s.symbol == "-"]
+        minus_indices = [i for i, s in enumerate(symbols) if s.name == "-"]
         if not minus_indices:
             return
 
@@ -292,7 +293,7 @@ class TreeParser(ABC):
                 wide_bar = False
 
             if (has_num and has_den) or (wide_bar and (has_num or has_den)):
-                symbols[mi].symbol = "frac_bar"
+                symbols[mi] = replace(symbols[mi], name="frac_bar")
                 print(
                     f"    promote: '-' (idx {mi}) → 'frac_bar' "
                     f"(num={has_num} den={has_den} wide={wide_bar} "
@@ -317,7 +318,7 @@ class TreeParser(ABC):
         - Centered or above → cdot (multiply)
         No model calls — pure geometry.
         """
-        dot_indices = [i for i, s in enumerate(symbols) if s.symbol in ("dot", "cdot")]
+        dot_indices = [i for i, s in enumerate(symbols) if s.name in ("dot", "cdot")]
         if not dot_indices:
             return
 
@@ -378,12 +379,12 @@ class TreeParser(ABC):
             else:
                 new_name = "cdot"
 
-            if new_name != symbols[di].symbol:
+            if new_name != symbols[di].name:
                 print(
-                    f"    promote: '{symbols[di].symbol}' (idx {di}) → '{new_name}' "
+                    f"    promote: '{symbols[di].name}' (idx {di}) → '{new_name}' "
                     f"(dy={dy:.2f}, ref={[names[r] for r in ref]})"
                 )
-                symbols[di].symbol = new_name
+                symbols[di] = replace(symbols[di], name=new_name)
 
     @torch.no_grad()
     def parse_with_tree(
@@ -400,7 +401,7 @@ class TreeParser(ABC):
         if len(symbols) == 1:
             from mathnote_ocr.latex_utils.glyphs import SYMBOL_TO_LATEX
 
-            name = symbols[0].symbol
+            name = symbols[0].name
             sym = Symbol(
                 id=0,
                 name=name,
@@ -412,7 +413,7 @@ class TreeParser(ABC):
             return SYMBOL_TO_LATEX.get(name, name), 1.0, tree, None
 
         N = len(symbols)
-        names = [s.symbol for s in symbols]
+        names = [s.name for s in symbols]
         bboxes = [[s.bbox.x, s.bbox.y, s.bbox.w, s.bbox.h] for s in symbols]
 
         if self.tree_strategy in ("backtrack", "backtrack_collapse"):
@@ -499,7 +500,7 @@ class TreeParser(ABC):
         if len(symbols) == 1:
             from mathnote_ocr.latex_utils.glyphs import SYMBOL_TO_LATEX
 
-            name = symbols[0].symbol
+            name = symbols[0].name
             sym = Symbol(
                 id=0,
                 name=name,
@@ -517,7 +518,7 @@ class TreeParser(ABC):
             }
 
         N = len(symbols)
-        names = [s.symbol for s in symbols]
+        names = [s.name for s in symbols]
         bboxes = [[s.bbox.x, s.bbox.y, s.bbox.w, s.bbox.h] for s in symbols]
         v2_syms = self._make_symbols(names, bboxes)
 

@@ -87,7 +87,7 @@ def match_symbols(gt_symbols, pred_symbols, canvas_w, canvas_h):
         for pi, pred in enumerate(pred_symbols):
             if pi in used_pred:
                 continue
-            pred_set = set(pred.stroke_indices)
+            pred_set = {st.id for st in pred.strokes}
             inter = len(gt_set & pred_set)
             union = len(gt_set | pred_set)
             iou = inter / union if union > 0 else 0
@@ -206,10 +206,10 @@ def main():
             for gi, pi in matched:
                 gt_name = gt_symbols[gi]["name"]
                 pred = pred_symbols[pi]
-                pred_name = pred.symbol
+                pred_name = pred.name
                 dist = pred.prototype_distance
                 total_symbols += 1
-                n_strokes = len(pred.stroke_indices)
+                n_strokes = len(pred.strokes)
                 conf = pred.confidence
                 is_correct = _symbols_match(gt_name, pred_name)
                 if is_correct:
@@ -229,7 +229,7 @@ def main():
             # Cross-symbol errors: pred symbol contains strokes from multiple GT symbols
             cross_errors = []
             for pi, pred in enumerate(pred_symbols):
-                pred_set = set(pred.stroke_indices)
+                pred_set = {st.id for st in pred.strokes}
                 sources = []
                 for gi, gt_set in enumerate(gt_stroke_sets):
                     overlap = pred_set & gt_set
@@ -237,7 +237,7 @@ def main():
                         sources.append((gt_symbols[gi]["name"], len(overlap)))
                 if len(sources) > 1:
                     src_str = "+".join(f"{n}({c})" for n, c in sources)
-                    cross_errors.append(f"MERGE {src_str} → {pred.symbol}")
+                    cross_errors.append(f"MERGE {src_str} → {pred.name}")
                     merge_counter[src_str] += 1
 
             # Split errors: GT symbol's strokes spread across multiple preds
@@ -245,9 +245,9 @@ def main():
             for gi, gt_set in enumerate(gt_stroke_sets):
                 targets = []
                 for pi, pred in enumerate(pred_symbols):
-                    overlap = gt_set & set(pred.stroke_indices)
+                    overlap = gt_set & {st.id for st in pred.strokes}
                     if overlap:
-                        targets.append((pred.symbol, len(overlap)))
+                        targets.append((pred.name, len(overlap)))
                 if len(targets) > 1:
                     tgt_str = "+".join(f"{n}({c})" for n, c in targets)
                     split_errors.append(f"SPLIT {gt_symbols[gi]['name']} → {tgt_str}")
@@ -265,12 +265,12 @@ def main():
             matched_pred = {pi for _, pi in matched}
             for pi in range(n_pred):
                 if pi not in matched_pred:
-                    confusion[("<extra>", pred_symbols[pi].symbol)] += 1
+                    confusion[("<extra>", pred_symbols[pi].name)] += 1
 
             has_issues = expr_errors or cross_errors or split_errors or n_gt != n_pred
             if has_issues:
                 gt_names = [s["name"] for s in gt_symbols]
-                pred_names = [s.symbol for s in pred_symbols]
+                pred_names = [s.name for s in pred_symbols]
                 print(f"\n  [{i}] GT({n_gt}): {gt_names}")
                 print(f"       PR({n_pred}): {pred_names}")
                 if expr_errors:

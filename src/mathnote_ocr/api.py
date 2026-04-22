@@ -18,7 +18,7 @@ from mathnote_ocr.engine.grouper import (
     group_and_classify,
 )
 from mathnote_ocr.engine.stroke import Stroke, StrokePoint
-from mathnote_ocr.expression import Expression, Symbol, empty_expression
+from mathnote_ocr.expression import DetectedSymbol, Expression, empty_expression
 from mathnote_ocr.pipeline_config import get, load_config
 from mathnote_ocr.tree_parser.inference import SubsetTreeParser
 
@@ -132,7 +132,7 @@ class MathOCR:
         for partition in partitions:
             detected = sorted(partition, key=lambda s: s.bbox.x)
             latex, parse_conf, tree, _ev = self.tree_parser.parse_with_tree(detected)
-            symbols = _symbols_from_detected(detected, stroke_objs)
+            symbols = {i: s for i, s in enumerate(detected)}
             sym_conf = _geomean_confidence(detected)
             expr = Expression(
                 strokes=stroke_objs,
@@ -172,21 +172,6 @@ def _autocanvas(strokes: list[Stroke], fallback: int) -> int:
     """Infer canvas size from the max extent of stroke points."""
     coords = (c for s in strokes for p in s.points for c in (p.x, p.y))
     return int(max(coords, default=fallback))
-
-
-def _symbols_from_detected(detected, strokes: list[Stroke]) -> dict[int, Symbol]:
-    """Convert pipeline DetectedSymbols to our Symbol dict."""
-    return {
-        i: Symbol(
-            id=i,
-            name=ds.symbol,
-            bbox=ds.bbox,
-            strokes=[strokes[idx] for idx in ds.stroke_indices],
-            confidence=ds.confidence,
-            alternatives=list(ds.alternatives or []),
-        )
-        for i, ds in enumerate(detected)
-    }
 
 
 def _geomean_confidence(detected) -> float:
