@@ -2,6 +2,11 @@
 
 Stroke-based handwritten math to LaTeX OCR.
 
+<video src="media_for_readme/math_ocr_demo.mp4" controls width="720">
+Your browser doesn't support embedded video.
+<a href="media_for_readme/math_ocr_demo.mp4">Download the demo video</a>.
+</video>
+
 ## Installation
 
 Requires Python 3.10+.
