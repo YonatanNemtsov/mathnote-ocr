@@ -2,10 +2,10 @@
 
 Stroke-based handwritten math to LaTeX OCR.
 
-<video src="media_for_readme/math_ocr_demo.mp4" controls width="720">
-Your browser doesn't support embedded video.
-<a href="media_for_readme/math_ocr_demo.mp4">Download the demo video</a>.
-</video>
+
+https://github.com/user-attachments/assets/9d3e37ca-8e27-4d48-9351-22ee9f3a0744
+
+
 
 ## Installation
 
