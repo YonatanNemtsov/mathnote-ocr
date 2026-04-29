@@ -51,6 +51,9 @@ data/shared/tree_handwritten/**/*.bak*
 venv/
 .venv/
 
+# Workspace-root scratch (test venvs, ad-hoc experiments)
+tmp/
+
 # Tool caches
 .ruff_cache/
 .pytest_cache/
