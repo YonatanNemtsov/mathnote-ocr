@@ -62,7 +62,15 @@ def collapse(tree: Tree, sym_ids: set[SymbolId], expr_id: SymbolId) -> tuple[Tre
     # EXPR inherits first group root's position
     ref = tree.nodes[group_roots[0]] if group_roots else tree.nodes[next(iter(sym_ids))]
     expr_bbox = BBox.union_all([tree.nodes[sid].symbol.bbox for sid in sym_ids])
-    expr_node = Node(Symbol(expr_id, "expr", expr_bbox), ref.parent_id, ref.edge_type, ref.order)
+    expr_stroke_ids = tuple(
+        sid_inner for sid in sym_ids for sid_inner in tree.nodes[sid].symbol.stroke_ids
+    )
+    expr_node = Node(
+        Symbol(expr_id, "expr", expr_bbox, expr_stroke_ids),
+        ref.parent_id,
+        ref.edge_type,
+        ref.order,
+    )
 
     # Remove collapsed symbols, add EXPR
     collapsed = Tree(

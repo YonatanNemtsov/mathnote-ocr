@@ -125,9 +125,17 @@ class TreeParser(ABC):
     def mode(self) -> str:
         """Short label for logging (e.g. "iter", "gnn")."""
 
-    def _make_symbols(self, names: list[str], bboxes: list[list[float]]) -> list[Symbol]:
-        """Create tree_v2 Symbol list from names and bboxes."""
-        return [Symbol(i, names[i], BBox(*bboxes[i])) for i in range(len(names))]
+    def _make_symbols(self, detected: list[DetectedSymbol]) -> list[Symbol]:
+        """Create tree_v2 Symbol list from DetectedSymbols, carrying stroke_ids."""
+        return [
+            Symbol(
+                id=i,
+                name=d.name,
+                bbox=BBox(d.bbox.x, d.bbox.y, d.bbox.w, d.bbox.h),
+                stroke_ids=tuple(s.id for s in d.strokes),
+            )
+            for i, d in enumerate(detected)
+        ]
 
     @abstractmethod
     def _evidence_to_tree(
@@ -408,6 +416,7 @@ class TreeParser(ABC):
                 bbox=BBox(
                     symbols[0].bbox.x, symbols[0].bbox.y, symbols[0].bbox.w, symbols[0].bbox.h
                 ),
+                stroke_ids=tuple(s.id for s in symbols[0].strokes),
             )
             tree = Tree((Node(sym, ROOT_ID, -1, 0),))
             return SYMBOL_TO_LATEX.get(name, name), 1.0, tree, None
@@ -420,7 +429,7 @@ class TreeParser(ABC):
             from mathnote_ocr.tree_parser.bottomup_v2 import build as build_v2
             from mathnote_ocr.tree_parser.bottomup_v2 import build_with_collapse
 
-            v2_syms = self._make_symbols(names, bboxes)
+            v2_syms = self._make_symbols(symbols)
             gnn_model = getattr(self, "gnn_model", None)
             symbol_vocab = getattr(self, "symbol_vocab", None)
             build_fn = (
@@ -441,7 +450,7 @@ class TreeParser(ABC):
             )
             return tree_to_latex(tree), 1.0, tree, None
 
-        v2_syms = self._make_symbols(names, bboxes)
+        v2_syms = self._make_symbols(symbols)
         all_partial = []
         seen_subsets: set[tuple] = set()
         for tta_i in range(self.tta_runs):
@@ -507,6 +516,7 @@ class TreeParser(ABC):
                 bbox=BBox(
                     symbols[0].bbox.x, symbols[0].bbox.y, symbols[0].bbox.w, symbols[0].bbox.h
                 ),
+                stroke_ids=tuple(s.id for s in symbols[0].strokes),
             )
             tree = Tree((Node(sym, ROOT_ID, -1, 0),))
             return {
@@ -520,7 +530,7 @@ class TreeParser(ABC):
         N = len(symbols)
         names = [s.name for s in symbols]
         bboxes = [[s.bbox.x, s.bbox.y, s.bbox.w, s.bbox.h] for s in symbols]
-        v2_syms = self._make_symbols(names, bboxes)
+        v2_syms = self._make_symbols(symbols)
 
         subsets = self._make_subsets(bboxes)
         all_partial = self._run_subsets(names, bboxes, subsets)

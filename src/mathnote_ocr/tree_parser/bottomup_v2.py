@@ -83,7 +83,7 @@ def resolve_frac_bars(
     # Build variants
     base = list(symbols)
     for mi in certain_frac:
-        base[mi] = Symbol(base[mi].id, "frac_bar", base[mi].bbox)
+        base[mi] = Symbol(base[mi].id, "frac_bar", base[mi].bbox, base[mi].stroke_ids)
 
     if not ambiguous:
         return [base]
@@ -97,7 +97,7 @@ def resolve_frac_bars(
             new_variants.append(list(v))
             # Promote to frac_bar
             promoted = list(v)
-            promoted[mi] = Symbol(v[mi].id, "frac_bar", v[mi].bbox)
+            promoted[mi] = Symbol(v[mi].id, "frac_bar", v[mi].bbox, v[mi].stroke_ids)
             new_variants.append(promoted)
         variants = new_variants
 
@@ -1104,9 +1104,14 @@ def build_with_collapse(
                         )
                 new_stored[next_expr_id] = Tree(tuple(subtree_nodes))
 
-                # Create EXPR symbol
+                # Create EXPR symbol — union of constituent stroke_ids
                 expr_bbox = BBox.union_all([syms[pos].bbox for pos in group_positions])
-                new_expr_syms.append(Symbol(next_expr_id, "expr", expr_bbox))
+                expr_stroke_ids = tuple(
+                    sid for pos in group_positions for sid in syms[pos].stroke_ids
+                )
+                new_expr_syms.append(
+                    Symbol(next_expr_id, "expr", expr_bbox, expr_stroke_ids)
+                )
 
                 log.info(
                     "    collapse iter %d: {%s} → expr_%d",

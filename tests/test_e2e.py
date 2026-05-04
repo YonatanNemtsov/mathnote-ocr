@@ -127,6 +127,20 @@ def test_tree_node_ids_match_symbol_keys(ocr, sample_strokes):
     assert tree_ids == symbol_ids
 
 
+def test_tree_symbols_carry_stroke_ids(ocr, sample_strokes):
+    """Detected tree symbols should have stroke_ids matching their DetectedSymbol."""
+    expr = ocr.detect(sample_strokes)
+    if expr.tree is None:
+        pytest.skip("no tree returned")
+    for sid, det_sym in expr.symbols.items():
+        node = expr.tree.nodes[sid]
+        expected = tuple(s.id for s in det_sym.strokes)
+        assert node.symbol.stroke_ids == expected, (
+            f"symbol {sid} ({det_sym.name}): tree stroke_ids={node.symbol.stroke_ids} "
+            f"vs detected={expected}"
+        )
+
+
 def test_tree_parents_are_valid(ocr, sample_strokes):
     """Every tree node's parent must be ROOT or another node in the tree."""
     expr = ocr.detect(sample_strokes)
