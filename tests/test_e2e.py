@@ -47,6 +47,16 @@ def sample_strokes() -> list[list[tuple[float, float]]]:
     ]
 
 
+@pytest.fixture(scope="module")
+def sample_dict_strokes() -> list[list[dict]]:
+    """Same handwritten sample, but strokes are lists of {x,y,t} dicts."""
+    if not HANDWRITTEN.exists():
+        pytest.skip(f"Handwritten test data not found at {HANDWRITTEN}")
+    with open(HANDWRITTEN) as f:
+        sample = json.loads(f.readline())
+    return [stroke for sym in sample["symbols"] for stroke in sym["strokes"]]
+
+
 # ── Smoke ───────────────────────────────────────────────────────────────
 
 
@@ -63,6 +73,15 @@ def test_detect_empty_input_returns_empty_expression(ocr):
     assert not bool(expr)
     assert len(expr) == 0
     assert expr.latex == ""
+
+
+def test_detect_accepts_dict_points(ocr, sample_dict_strokes, sample_strokes):
+    """Strokes specified as {x, y, t} dicts should produce the same result
+    as the equivalent (x, y) tuples."""
+    e_dicts = ocr.detect(sample_dict_strokes)
+    e_tuples = ocr.detect(sample_strokes)
+    assert e_dicts.latex == e_tuples.latex
+    assert len(e_dicts) == len(e_tuples)
 
 
 # ── Structural invariants ───────────────────────────────────────────────

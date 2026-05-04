@@ -173,9 +173,10 @@ class MathOCR:
 
 
 def _normalize_strokes(strokes) -> list[Stroke]:
-    """Convert point tuples to Stroke objects; assign auto-incremented ids.
+    """Convert point tuples or dicts to Stroke objects; assign auto-incremented ids.
 
-    Pass-through if item is already a Stroke (keeps its id).
+    Each stroke is a list of (x, y) / (x, y, t) tuples or {"x", "y", "t"?}
+    dicts. Pass-through if item is already a Stroke (keeps its id).
     """
     out: list[Stroke] = []
     next_id = 0
@@ -184,9 +185,16 @@ def _normalize_strokes(strokes) -> list[Stroke]:
             out.append(raw)
             next_id = max(next_id, raw.id + 1)
         elif raw:
-            out.append(Stroke.from_points([StrokePoint(*p) for p in raw], id=next_id))
+            out.append(Stroke.from_points([_to_point(p) for p in raw], id=next_id))
             next_id += 1
     return out
+
+
+def _to_point(p) -> StrokePoint:
+    """Convert a point in tuple or dict form to a StrokePoint."""
+    if isinstance(p, dict):
+        return StrokePoint(p["x"], p["y"], p.get("t", 0.0))
+    return StrokePoint(*p)
 
 
 def _autocanvas(strokes: list[Stroke], fallback: int) -> int:
