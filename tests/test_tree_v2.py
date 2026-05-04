@@ -170,6 +170,26 @@ def test_rename_node_preserves_structure():
     assert t2.children_of(0) == t.children_of(0)  # structure preserved
 
 
+# ── stroke_ids ──────────────────────────────────────────────────────────
+
+
+def test_symbol_stroke_ids_default_empty():
+    s = Symbol(id=0, name="x", bbox=BBox(0, 0, 5, 5))
+    assert s.stroke_ids == ()
+
+
+def test_symbol_carries_stroke_ids():
+    s = Symbol(id=0, name="=", bbox=BBox(0, 0, 5, 5), stroke_ids=(3, 7))
+    assert s.stroke_ids == (3, 7)
+
+
+def test_rename_preserves_stroke_ids():
+    s = Symbol(id=0, name="x", bbox=BBox(0, 0, 5, 5), stroke_ids=(3, 7))
+    t = Tree((Node(s, ROOT_ID, Edge.ROOT, 0),))
+    t2 = t.rename_node(0, "y")
+    assert t2[0].symbol.stroke_ids == (3, 7)
+
+
 # ── Traversal ───────────────────────────────────────────────────────────
 
 

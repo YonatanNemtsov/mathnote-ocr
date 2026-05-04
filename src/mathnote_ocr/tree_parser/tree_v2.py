@@ -45,6 +45,7 @@ class Symbol:
     id: SymbolId
     name: str
     bbox: BBox
+    stroke_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -150,12 +151,15 @@ class Tree:
         )
 
     def rename_node(self, sym_id: SymbolId, new_name: str) -> Tree:
-        """Replace the *name* of the symbol at *sym_id*. Bbox, id, and
-        tree structure are preserved."""
+        """Replace the *name* of the symbol at *sym_id*. Bbox, id,
+        stroke_ids, and tree structure are preserved."""
         return Tree(
             tuple(
                 Node(
-                    Symbol(n.symbol.id, new_name, n.symbol.bbox), n.parent_id, n.edge_type, n.order
+                    Symbol(n.symbol.id, new_name, n.symbol.bbox, n.symbol.stroke_ids),
+                    n.parent_id,
+                    n.edge_type,
+                    n.order,
                 )
                 if n.symbol.id == sym_id
                 else n
