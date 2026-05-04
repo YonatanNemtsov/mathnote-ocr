@@ -65,6 +65,14 @@ include = [
 [dependency-groups]
 dev = [
     "ruff>=0.15.11",
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
 ]
 
 [tool.ruff]
