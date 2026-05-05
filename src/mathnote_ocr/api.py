@@ -155,9 +155,10 @@ class MathOCR:
             return Expression(strokes=stroke_objs, symbols={}, tree=None, confidence=0.0)
 
         results: list[Expression] = []
+        pin_list = list(pins) if pins else None
         for partition in partitions:
             detected = sorted(partition, key=lambda s: s.bbox.x)
-            _latex, parse_conf, tree, _ev = self.tree_parser.parse_with_tree(detected)
+            _latex, parse_conf, tree, _ev = self.tree_parser.parse_with_tree(detected, pin_list)
             symbols = {i: s for i, s in enumerate(detected)}
             sym_conf = _geomean_confidence(detected)
             results.append(

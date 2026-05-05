@@ -15,6 +15,48 @@ from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Symbol, SymbolId, Tree
 log = logging.getLogger(__name__)
 
 
+def _apply_pins_to_initial_tree(
+    tree: Tree,
+    variant: list[Symbol],
+    pins: list[Tree],
+) -> tuple[Tree, set[SymbolId]]:
+    """Pre-apply each pin's internal edges to *tree*.
+
+    Returns the modified tree and the set of variant indices whose parent
+    is now pinned (these are added to the beam's *resolved* set so the
+    search won't reassign them).
+
+    Each pinned non-root symbol is mapped to a variant symbol by exact
+    stroke-id match. Raises ValueError if a pin references stroke sets
+    that don't match any variant symbol (e.g. EXPR collapse changed them).
+    """
+    sids_to_idx: dict[tuple[int, ...], int] = {
+        tuple(sorted(s.stroke_ids)): i for i, s in enumerate(variant)
+    }
+    resolved: set[SymbolId] = set()
+    for pin_idx, pin in enumerate(pins):
+        # Map each pin-local symbol id to its variant index.
+        local_to_idx: dict[SymbolId, int] = {}
+        for sid_node, node in pin.nodes.items():
+            if sid_node == ROOT_ID:
+                continue
+            key = tuple(sorted(node.symbol.stroke_ids))
+            if key not in sids_to_idx:
+                raise ValueError(
+                    f"pin {pin_idx} symbol with strokes {key} not found among detected symbols"
+                )
+            local_to_idx[sid_node] = sids_to_idx[key]
+        # Apply each non-root internal edge.
+        for sid_node, node in pin.nodes.items():
+            if sid_node == ROOT_ID or node.parent_id == ROOT_ID:
+                continue  # pin's root attaches freely to the surrounding tree
+            child_idx = local_to_idx[sid_node]
+            parent_idx = local_to_idx[node.parent_id]
+            tree = tree.move_node(child_idx, parent_idx, node.edge_type, node.order)
+            resolved.add(child_idx)
+    return tree, resolved
+
+
 def resolve_frac_bars(
     symbols: list[Symbol],
     run_subsets_fn: Callable,
@@ -694,8 +736,15 @@ def build(
     gnn_model=None,
     symbol_vocab: dict | None = None,
     device=None,
+    pins: list[Tree] | None = None,
 ) -> Tree:
-    """Build expression tree bottom-up with beam search."""
+    """Build expression tree bottom-up with beam search.
+
+    When *pins* are provided, each pin's internal edges are pre-applied to
+    the initial tree and added to the resolved set, so the beam search will
+    not reassign them. The pin's root attaches to the surrounding tree
+    normally — only internal subtree structure is fixed.
+    """
     from mathnote_ocr.tree_parser.tree_v2 import Edge, Node
 
     N = len(symbols)
@@ -724,7 +773,12 @@ def build(
             tta_size=tta_size,
         )
         initial_tree = Tree(tuple(Node(s, ROOT_ID, Edge.ROOT, i) for i, s in enumerate(variant)))
-        beam.append((initial_tree, set(), variant, evidence, 0.0, 0))
+        pinned_resolved: set[SymbolId] = set()
+        if pins:
+            initial_tree, pinned_resolved = _apply_pins_to_initial_tree(
+                initial_tree, variant, pins
+            )
+        beam.append((initial_tree, pinned_resolved, variant, evidence, 0.0, 0))
 
     for iteration in range(max_iterations):
         next_beam: list[tuple[Tree, set[SymbolId], list[Symbol], dict, float, int]] = []
@@ -956,11 +1010,16 @@ def build_with_collapse(
     gnn_model=None,
     symbol_vocab: dict | None = None,
     device=None,
+    pins: list[Tree] | None = None,
 ) -> Tree:
     """Build tree bottom-up with beam search + collapsing.
 
     After each iteration, verified subtrees are collapsed into EXPR nodes.
     Evidence is re-run on the smaller expression for better parent predictions.
+
+    See build() for pin semantics. With collapse, pinned edges may be
+    absorbed into EXPR nodes — the pre-application happens before any
+    collapse so each pin is honored on the original symbol set.
     """
     from mathnote_ocr.bbox import BBox
     from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft
@@ -994,7 +1053,10 @@ def build_with_collapse(
             tta_size=tta_size,
         )
         tree = Tree(tuple(Node(s, ROOT_ID, Edge.ROOT, i) for i, s in enumerate(variant)))
-        beam.append((tree, set(), variant, evidence, {}))
+        pinned_resolved: set[SymbolId] = set()
+        if pins:
+            tree, pinned_resolved = _apply_pins_to_initial_tree(tree, variant, pins)
+        beam.append((tree, pinned_resolved, variant, evidence, {}))
 
     next_expr_id = max(s.id for s in symbols) + 1000
 

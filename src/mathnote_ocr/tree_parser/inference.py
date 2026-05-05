@@ -398,8 +398,14 @@ class TreeParser(ABC):
     def parse_with_tree(
         self,
         symbols: list[DetectedSymbol],
+        pins: list[Tree] | None = None,
     ) -> tuple[str, float, Tree, dict | None]:
-        """Like parse(), but also returns (latex, confidence, tree, evidence)."""
+        """Like parse(), but also returns (latex, confidence, tree, evidence).
+
+        When *pins* are provided, the tree builder enforces each pin's internal
+        edges. The pin's root attaches to the surrounding tree as the model
+        chooses; only the internal subtree structure is fixed.
+        """
         if not symbols:
             return "", 1.0, Tree(()), None
 
@@ -447,6 +453,7 @@ class TreeParser(ABC):
                 gnn_model=gnn_model,
                 symbol_vocab=symbol_vocab,
                 device=self.device if gnn_model else None,
+                pins=pins,
             )
             return tree_to_latex(tree), 1.0, tree, None
 

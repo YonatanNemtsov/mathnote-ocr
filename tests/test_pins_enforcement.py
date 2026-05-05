@@ -117,10 +117,10 @@ def test_pin_does_not_affect_other_strokes(ocr, sample_strokes):
 # ── Subtree pin (structure not yet enforced — just verify no crash) ─────
 
 
-def test_subtree_pin_runs_without_crash(ocr, sample_strokes):
-    """A subtree pin (multiple symbols + edges) should run end-to-end.
-    Internal edge enforcement happens in a later commit; for now we just
-    verify the grouper accepts the pin's two symbols."""
+def test_subtree_pin_forces_internal_edge(ocr, sample_strokes):
+    """A 2-symbol pin with internal edge SUP should produce a tree where
+    the pinned child is a SUP child of the pinned parent — overriding
+    whatever the model would have predicted."""
     session = ocr.session()
     sids = [session.add_stroke(s) for s in sample_strokes]
 
@@ -132,8 +132,49 @@ def test_subtree_pin_runs_without_crash(ocr, sample_strokes):
     )
     expr = ocr.detect(list(session._strokes.values()), pins=[pin])
 
-    # Strokes are unique per symbol (partition invariant), so keying by
-    # the stroke-set is unambiguous even if labels repeat.
+    # Both pinned symbols should appear (strokes are unique per symbol)
     by_stroke_set = {frozenset(s.id for s in sym.strokes): sym for sym in expr}
-    assert by_stroke_set[frozenset([a])].name == "x"
-    assert by_stroke_set[frozenset([b])].name == "2"
+    parent_sym = by_stroke_set[frozenset([a])]
+    child_sym = by_stroke_set[frozenset([b])]
+    assert parent_sym.name == "x"
+    assert child_sym.name == "2"
+
+    # Find their tree symbol ids and verify the edge
+    assert expr.tree is not None
+    parent_id = next(
+        sid for sid, ds in expr.symbols.items() if ds is parent_sym
+    )
+    child_id = next(
+        sid for sid, ds in expr.symbols.items() if ds is child_sym
+    )
+    child_node = expr.tree[child_id]
+    assert child_node.parent_id == parent_id, (
+        f"pin says '2' is SUP child of 'x', "
+        f"but tree has parent={child_node.parent_id} (expected {parent_id})"
+    )
+    assert child_node.edge_type == Edge.SUP, (
+        f"pin says edge=SUP, but tree has edge={child_node.edge_type}"
+    )
+
+
+def test_subtree_pin_with_sub_edge(ocr, sample_strokes):
+    """Same as above but with SUB edge — verifies edge type is honored."""
+    session = ocr.session()
+    sids = [session.add_stroke(s) for s in sample_strokes]
+
+    a, b = sids[0], sids[1]
+    pin = Tree.pin_spec(
+        strokes={a: session._strokes[a], b: session._strokes[b]},
+        symbols=[("x", [a]), ("i", [b])],
+        edges=[(0, 1, Edge.SUB)],
+    )
+    expr = ocr.detect(list(session._strokes.values()), pins=[pin])
+
+    by_stroke_set = {frozenset(s.id for s in sym.strokes): sym for sym in expr}
+    parent_sym = by_stroke_set[frozenset([a])]
+    child_sym = by_stroke_set[frozenset([b])]
+    parent_id = next(sid for sid, ds in expr.symbols.items() if ds is parent_sym)
+    child_id = next(sid for sid, ds in expr.symbols.items() if ds is child_sym)
+
+    assert expr.tree[child_id].parent_id == parent_id
+    assert expr.tree[child_id].edge_type == Edge.SUB
