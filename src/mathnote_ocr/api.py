@@ -208,7 +208,9 @@ def _to_point(p) -> StrokePoint:
 
 
 def _validate_pin_strokes(pins: Sequence[Tree], available_stroke_ids: set[int]) -> None:
-    """Every pin's stroke ids must reference a stroke that exists."""
+    """Every pin's stroke ids must reference an available stroke. Stroke
+    sets across pins must be disjoint (no stroke can belong to two pins)."""
+    claimed: dict[int, int] = {}  # stroke_id -> pin_index that claimed it
     for i, pin in enumerate(pins):
         for sid_node, node in pin.nodes.items():
             if sid_node == ROOT_ID:
@@ -218,6 +220,11 @@ def _validate_pin_strokes(pins: Sequence[Tree], available_stroke_ids: set[int]) 
                     raise ValueError(
                         f"pin {i} references stroke id {sid} which is not in the input"
                     )
+                if sid in claimed:
+                    raise ValueError(
+                        f"stroke {sid} is claimed by both pin {claimed[sid]} and pin {i}"
+                    )
+                claimed[sid] = i
 
 
 def _pin_uses_stroke(pin: Tree, stroke_id: int) -> bool:
@@ -333,13 +340,13 @@ class Session:
         """Active pins, in insertion order."""
         return tuple(self._pins)
 
-    def pin(self, tree: Tree) -> None:
+    def add_pin(self, tree: Tree) -> None:
         """Add a constraint pin. The pin's stroke ids must reference strokes
-        currently in this session."""
-        _validate_pin_strokes([tree], set(self._strokes.keys()))
+        currently in this session, and must not overlap with any existing pin."""
+        _validate_pin_strokes([*self._pins, tree], set(self._strokes.keys()))
         self._pins.append(tree)
 
-    def unpin(self, tree: Tree) -> None:
+    def remove_pin(self, tree: Tree) -> None:
         """Remove a pin (matched by structural equality). Raises if not found."""
         try:
             self._pins.remove(tree)

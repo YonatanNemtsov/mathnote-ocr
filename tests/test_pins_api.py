@@ -100,7 +100,7 @@ def test_session_pin_adds_to_list(ocr, sample_strokes):
         strokes={sid: session._strokes[sid]},
         symbols=[("x", [sid])],
     )
-    session.pin(pin)
+    session.add_pin(pin)
     assert len(session.pins) == 1
     assert session.pins[0] == pin
 
@@ -116,7 +116,7 @@ def test_session_pin_validates_strokes(ocr):
     foreign = Stroke(id=0, bbox=BBox(0, 0, 5, 5))
     pin = Tree.pin_spec(strokes={0: foreign}, symbols=[("x", [0])])
     with pytest.raises(ValueError, match="references stroke id 0"):
-        session.pin(pin)
+        session.add_pin(pin)
 
 
 def test_session_unpin(ocr, sample_strokes):
@@ -126,8 +126,8 @@ def test_session_unpin(ocr, sample_strokes):
         strokes={sid: session._strokes[sid]},
         symbols=[("x", [sid])],
     )
-    session.pin(pin)
-    session.unpin(pin)
+    session.add_pin(pin)
+    session.remove_pin(pin)
     assert session.pins == ()
 
 
@@ -139,7 +139,7 @@ def test_session_unpin_unknown_raises(ocr, sample_strokes):
         symbols=[("x", [sid])],
     )
     with pytest.raises(ValueError, match="not found"):
-        session.unpin(pin)
+        session.remove_pin(pin)
 
 
 def test_session_clear_pins(ocr, sample_strokes):
@@ -149,7 +149,7 @@ def test_session_clear_pins(ocr, sample_strokes):
         strokes={sid: session._strokes[sid]},
         symbols=[("x", [sid])],
     )
-    session.pin(pin)
+    session.add_pin(pin)
     session.clear_pins()
     assert session.pins == ()
 
@@ -162,7 +162,7 @@ def test_remove_stroke_drops_referencing_pin(ocr, sample_strokes):
         strokes={sid: session._strokes[sid]},
         symbols=[("x", [sid])],
     )
-    session.pin(pin)
+    session.add_pin(pin)
     session.remove_stroke(sid)
     assert session.pins == ()
 
@@ -179,8 +179,8 @@ def test_remove_stroke_keeps_unrelated_pins(ocr, sample_strokes):
         strokes={sid_b: session._strokes[sid_b]},
         symbols=[("y", [sid_b])],
     )
-    session.pin(pin_a)
-    session.pin(pin_b)
+    session.add_pin(pin_a)
+    session.add_pin(pin_b)
     session.remove_stroke(sid_a)
     assert session.pins == (pin_b,)
 
@@ -192,7 +192,7 @@ def test_session_clear_also_drops_pins(ocr, sample_strokes):
         strokes={sid: session._strokes[sid]},
         symbols=[("x", [sid])],
     )
-    session.pin(pin)
+    session.add_pin(pin)
     session.clear()
     assert session.pins == ()
 
@@ -207,7 +207,7 @@ def test_session_detect_with_pins_runs(ocr, sample_strokes):
         strokes={sid_first: session._strokes[sid_first]},
         symbols=[("x", [sid_first])],
     )
-    session.pin(pin)
+    session.add_pin(pin)
     expr = session.detect()
     assert bool(expr)
 
@@ -227,3 +227,59 @@ def test_subtree_pin_passes_validation(ocr, sample_strokes):
     )
     expr = ocr.detect(list(session._strokes.values()), pins=[pin])
     assert bool(expr)
+
+
+# ── Cross-pin disjointness ──────────────────────────────────────────────
+
+
+def test_overlapping_pins_at_detect_raises(ocr, sample_strokes):
+    """Two pins claiming the same stroke must raise at detect time."""
+    session = ocr.session()
+    sid = session.add_stroke(sample_strokes[0])
+    p1 = Tree.pin_spec(
+        strokes={sid: session._strokes[sid]},
+        symbols=[("x", [sid])],
+    )
+    p2 = Tree.pin_spec(
+        strokes={sid: session._strokes[sid]},
+        symbols=[("y", [sid])],
+    )
+    with pytest.raises(ValueError, match=f"stroke {sid} is claimed by both"):
+        ocr.detect(list(session._strokes.values()), pins=[p1, p2])
+
+
+def test_session_pin_rejects_overlap_with_existing(ocr, sample_strokes):
+    """Session.pin() should reject a pin that overlaps with an already-active pin."""
+    session = ocr.session()
+    sid = session.add_stroke(sample_strokes[0])
+    p1 = Tree.pin_spec(
+        strokes={sid: session._strokes[sid]},
+        symbols=[("x", [sid])],
+    )
+    p2 = Tree.pin_spec(
+        strokes={sid: session._strokes[sid]},
+        symbols=[("y", [sid])],
+    )
+    session.add_pin(p1)
+    with pytest.raises(ValueError, match=f"stroke {sid} is claimed by both"):
+        session.add_pin(p2)
+    # And the overlapping pin should NOT be added
+    assert session.pins == (p1,)
+
+
+def test_session_pin_allows_disjoint_pins(ocr, sample_strokes):
+    """Two pins on disjoint strokes should both be added."""
+    session = ocr.session()
+    sid_a = session.add_stroke(sample_strokes[0])
+    sid_b = session.add_stroke(sample_strokes[1])
+    p1 = Tree.pin_spec(
+        strokes={sid_a: session._strokes[sid_a]},
+        symbols=[("x", [sid_a])],
+    )
+    p2 = Tree.pin_spec(
+        strokes={sid_b: session._strokes[sid_b]},
+        symbols=[("y", [sid_b])],
+    )
+    session.add_pin(p1)
+    session.add_pin(p2)
+    assert session.pins == (p1, p2)
