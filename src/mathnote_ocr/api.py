@@ -149,6 +149,7 @@ class MathOCR:
             cache=cache,
             source_size=cs,
             top_k=k,
+            pins=list(pins) if pins else None,
         )
         if not partitions:
             return Expression(strokes=stroke_objs, symbols={}, tree=None, confidence=0.0)

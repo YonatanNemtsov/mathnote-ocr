@@ -15,6 +15,7 @@ from mathnote_ocr.classifier.inference import ClassificationResult, SymbolClassi
 from mathnote_ocr.engine.renderer import render_strokes
 from mathnote_ocr.engine.stroke import BBox, Stroke, compute_bbox
 from mathnote_ocr.expression import DetectedSymbol
+from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Tree
 
 # ── Default config values (can be overridden via GrouperParams) ──────
 
@@ -445,11 +446,18 @@ def _find_best_partitions(
     scored_groups: list[tuple[frozenset[int], float, DetectedSymbol]],
     top_k: int,
     max_results: int = 100,
+    *,
+    initial_covered: frozenset[int] = frozenset(),
+    initial_symbols: list[DetectedSymbol] | None = None,
 ) -> list[tuple[float, list[DetectedSymbol]]]:
     """Find top-k non-overlapping covers of all n strokes.
 
     Algorithm X style: pick the most constrained uncovered stroke
     (fewest valid groups), try each group, recurse.
+
+    *initial_covered* and *initial_symbols* let the caller pre-fix part
+    of the partition (used by pin support — pinned strokes are already
+    resolved before exact cover runs).
     """
     # stroke → list of scored_group indices
     stroke_to_groups: dict[int, list[int]] = {i: [] for i in range(n)}
@@ -504,7 +512,8 @@ def _find_best_partitions(
             search(uncovered - indices, symbols, score * conf)
             symbols.pop()
 
-    search(frozenset(range(n)), [], 1.0)
+    seed_symbols = list(initial_symbols) if initial_symbols else []
+    search(frozenset(range(n)) - initial_covered, seed_symbols, 1.0)
     results.sort(
         key=lambda x: x[0] ** (1.0 / max(len(x[1]), 1)),
         reverse=True,
@@ -562,6 +571,7 @@ def group_and_classify(
     source_size: float,
     top_k: int = 1,
     debug: bool = False,
+    pins: list[Tree] | None = None,
 ) -> list[list[DetectedSymbol]]:
     """Detect symbols in a set of strokes.
 
@@ -572,6 +582,10 @@ def group_and_classify(
     The *cache* is reused across calls on overlapping stroke sets —
     callers that want one-shot detection should construct a fresh
     ``GrouperCache()`` at the call site.
+
+    When *pins* are provided, each pinned symbol's strokes are pre-grouped
+    with its forced label (classification is skipped). Exact cover then
+    runs only over the unpinned strokes.
     """
     if not strokes:
         return [[]]
@@ -584,6 +598,38 @@ def group_and_classify(
 
     def _pos_to_ids(pos_set: frozenset[int]) -> frozenset[int]:
         return frozenset(stroke_ids[p] for p in pos_set)
+
+    # Resolve pins: turn each pinned symbol into a DetectedSymbol with
+    # forced label and confidence=1.0. Pinned positions are excluded from
+    # the candidate enumeration.
+    pinned_positions: set[int] = set()
+    pinned_symbols: list[DetectedSymbol] = []
+    if pins:
+        pos_by_id = {sid: i for i, sid in enumerate(stroke_ids)}
+        for pin_idx, pin in enumerate(pins):
+            for sid_node, node in pin.nodes.items():
+                if sid_node == ROOT_ID:
+                    continue
+                sym = node.symbol
+                positions = []
+                for sid in sym.stroke_ids:
+                    if sid not in pos_by_id:
+                        raise ValueError(
+                            f"pin {pin_idx} references stroke id {sid} which is not in the input"
+                        )
+                    positions.append(pos_by_id[sid])
+                pinned_positions.update(positions)
+                group_strokes = [strokes[p] for p in positions]
+                pinned_symbols.append(
+                    DetectedSymbol(
+                        name=sym.name,
+                        bbox=compute_bbox(group_strokes),
+                        strokes=group_strokes,
+                        confidence=1.0,
+                        prototype_distance=0.0,
+                        alternatives=[],
+                    )
+                )
 
     def _classify_uncached(groups: list[frozenset[int]]) -> int:
         """Classify every group in *groups* that isn't already in the cache,
@@ -623,9 +669,12 @@ def group_and_classify(
     )
     t_geo = time.perf_counter() - t0
 
-    # 2. Classify singletons first (needed for pattern matching in enumeration)
+    # 2. Classify singletons first (needed for pattern matching in enumeration).
+    #    Pinned positions are skipped — we already know their labels.
     t0 = time.perf_counter()
-    _classify_uncached([frozenset([i]) for i in range(n)])
+    _classify_uncached(
+        [frozenset([i]) for i in range(n) if i not in pinned_positions]
+    )
     t_singletons = time.perf_counter() - t0
 
     # 3. Enumerate candidate groups (singletons + multi-stroke)
@@ -641,6 +690,12 @@ def group_and_classify(
         min_merge_distance=params.min_merge_distance,
         max_group_diameter_ratio=params.max_group_diameter_ratio,
     )
+    if pinned_positions:
+        # Drop any candidate group that touches a pinned stroke — those
+        # positions are already claimed by the pin.
+        candidate_groups = [
+            g for g in candidate_groups if not (g & pinned_positions)
+        ]
     t_enum = time.perf_counter() - t0
 
     # 4. Classify remaining uncached multi-stroke groups
@@ -724,9 +779,16 @@ def group_and_classify(
             f"rejected: ood={rejected_ood} low_conf={rejected_conf}"
         )
 
-    # 5. Find best non-overlapping partitions (exact cover)
+    # 5. Find best non-overlapping partitions (exact cover).
+    #    Pinned strokes are pre-covered; pinned symbols seed every partition.
     t0 = time.perf_counter()
-    partitions = _find_best_partitions(n, scored_groups, top_k)
+    partitions = _find_best_partitions(
+        n,
+        scored_groups,
+        top_k,
+        initial_covered=frozenset(pinned_positions),
+        initial_symbols=pinned_symbols,
+    )
     t_cover = time.perf_counter() - t0
 
     print(
