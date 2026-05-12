@@ -75,7 +75,7 @@ class Expression:
 
     @cached_property
     def latex(self) -> str:
-        return tree_to_latex(self.tree) if self.tree else ""
+        return self.tree.to_latex() if self.tree else ""
 
     # ── Query ────────────────────────────────────────────────────────
 

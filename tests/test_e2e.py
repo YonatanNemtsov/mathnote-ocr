@@ -224,3 +224,13 @@ def test_session_remove_stroke(ocr, sample_strokes):
     expr_partial = session.detect()
     # Removing a stroke should reduce stroke count by exactly one
     assert len(expr_partial.strokes) == len(expr_full.strokes) - 1
+
+
+def test_session_add_stroke_accepts_dict_points(ocr, sample_dict_strokes):
+    """Session.add_stroke should accept {x, y} dicts (matches one-shot detect)."""
+    session = ocr.session()
+    for s in sample_dict_strokes:
+        session.add_stroke(s)
+    expr = session.detect()
+    assert bool(expr)
+    assert expr.latex

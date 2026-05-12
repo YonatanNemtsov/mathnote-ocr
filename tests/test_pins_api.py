@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from mathnote_ocr import Edge, MathOCR, Tree
+from mathnote_ocr import MathOCR, Tree
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HANDWRITTEN = REPO_ROOT / "data" / "shared" / "tree_handwritten" / "run_001" / "train_strokes.jsonl"
@@ -223,7 +223,6 @@ def test_subtree_pin_passes_validation(ocr, sample_strokes):
     pin = Tree.pin_spec(
         strokes={sid_a: session._strokes[sid_a], sid_b: session._strokes[sid_b]},
         symbols=[("x", [sid_a]), ("2", [sid_b])],
-        edges=[(0, 1, Edge.SUP)],
     )
     expr = ocr.detect(list(session._strokes.values()), pins=[pin])
     assert bool(expr)

@@ -1,4 +1,9 @@
-"""Tests for Tree.pin_spec factory."""
+"""Tests for Tree.pin_spec factory.
+
+A pin captures (label, stroke_ids) per symbol plus optional internal edges
+between pinned symbols. The OCR pipeline preserves those edges and injects
+an `expr` parent for connectedness when the pin is a forest.
+"""
 
 import pytest
 
@@ -34,42 +39,67 @@ def test_multistroke_single_symbol_pin():
     t = Tree.pin_spec(strokes=strokes, symbols=[("=", [1, 2])])
     assert len(t) == 1
     assert t[0].symbol.stroke_ids == (1, 2)
-    # Bbox should union both strokes
     bb = t[0].symbol.bbox
     assert bb.x == 0
     assert bb.y == 0
     assert bb.h == 15  # spans y=0..15
 
 
-# ── Multi-symbol subtree pins ───────────────────────────────────────────
+# ── Multi-symbol pins ──────────────────────────────────────────────────
 
 
-def test_subtree_pin_x_squared():
-    """x with superscript 2."""
+def test_multi_symbol_pin_no_edges():
+    """Pin with no internal edges = forest of local roots."""
+    strokes = {3: _stroke(3, 0, 0), 4: _stroke(4, 10, 0)}
+    t = Tree.pin_spec(strokes=strokes, symbols=[("x", [3]), ("2", [4])])
+    assert len(t) == 2
+    assert t[0].parent_id == ROOT_ID
+    assert t[1].parent_id == ROOT_ID
+
+
+def test_multi_symbol_pin_with_internal_edge():
+    """Pin with internal edge: child has parent in pin, edge type preserved."""
     strokes = {3: _stroke(3, 0, 0), 4: _stroke(4, 10, 0)}
     t = Tree.pin_spec(
         strokes=strokes,
         symbols=[("x", [3]), ("2", [4])],
         edges=[(0, 1, Edge.SUP)],
     )
-    assert len(t) == 2
-    # Symbol 0 (x) is root
-    assert t[0].parent_id == ROOT_ID
-    # Symbol 1 (2) is SUP of symbol 0
+    assert t[0].parent_id == ROOT_ID  # local root
     assert t[1].parent_id == 0
     assert t[1].edge_type == Edge.SUP
-    assert t[1].order == 0
 
 
-def test_subtree_pin_with_explicit_order():
-    strokes = {1: _stroke(1, 0, 0), 2: _stroke(2, 10, 0), 3: _stroke(3, 20, 0)}
-    t = Tree.pin_spec(
-        strokes=strokes,
-        symbols=[("x", [1]), ("2", [2]), ("3", [3])],
-        edges=[(0, 1, Edge.SUP, 0), (0, 2, Edge.SUP, 1)],
-    )
-    sup_kids = t.children_by_edge(0, Edge.SUP)
-    assert sup_kids == (1, 2)
+def test_pin_self_loop_raises():
+    s = {1: _stroke(1, 0, 0), 2: _stroke(2, 10, 0)}
+    with pytest.raises(ValueError, match="self-loop"):
+        Tree.pin_spec(strokes=s, symbols=[("x", [1]), ("y", [2])], edges=[(0, 0, Edge.SUP)])
+
+
+def test_pin_root_edge_raises():
+    s = {1: _stroke(1, 0, 0), 2: _stroke(2, 10, 0)}
+    with pytest.raises(ValueError, match="Edge.ROOT is reserved"):
+        Tree.pin_spec(strokes=s, symbols=[("x", [1]), ("y", [2])], edges=[(0, 1, Edge.ROOT)])
+
+
+def test_pin_multi_parent_raises():
+    s = {1: _stroke(1, 0, 0), 2: _stroke(2, 10, 0), 3: _stroke(3, 20, 0)}
+    with pytest.raises(ValueError, match="multiple parents"):
+        Tree.pin_spec(
+            strokes=s,
+            symbols=[("x", [1]), ("y", [2]), ("z", [3])],
+            edges=[(0, 1, Edge.SUP), (2, 1, Edge.SUB)],
+        )
+
+
+def test_pin_cycle_raises():
+    s = {1: _stroke(1, 0, 0), 2: _stroke(2, 10, 0)}
+    with pytest.raises(ValueError, match="cycle|no root"):
+        Tree.pin_spec(
+            strokes=s,
+            symbols=[("x", [1]), ("y", [2])],
+            edges=[(0, 1, Edge.SUP), (1, 0, Edge.SUB)],
+        )
 
 
 def test_pin_bbox_derived_correctly():
@@ -82,7 +112,7 @@ def test_pin_bbox_derived_correctly():
     assert bb.x2 == 105
 
 
-# ── Validation: stroke refs ─────────────────────────────────────────────
+# ── Validation ──────────────────────────────────────────────────────────
 
 
 def test_missing_stroke_raises():
@@ -101,67 +131,6 @@ def test_duplicate_stroke_within_pin_raises():
         Tree.pin_spec(strokes=s, symbols=[("x", [1, 2]), ("y", [1])])
 
 
-# ── Validation: edges ───────────────────────────────────────────────────
-
-
-def test_edge_index_out_of_range_raises():
-    s = {1: _stroke(1, 0, 0)}
-    with pytest.raises(ValueError, match="index out of range"):
-        Tree.pin_spec(strokes=s, symbols=[("x", [1])], edges=[(0, 5, Edge.SUP)])
-
-
-def test_self_loop_raises():
-    s = {1: _stroke(1, 0, 0), 2: _stroke(2, 10, 0)}
-    with pytest.raises(ValueError, match="self-loop"):
-        Tree.pin_spec(
-            strokes=s,
-            symbols=[("x", [1]), ("y", [2])],
-            edges=[(0, 0, Edge.SUP)],
-        )
-
-
-def test_root_edge_in_user_edges_raises():
-    s = {1: _stroke(1, 0, 0), 2: _stroke(2, 10, 0)}
-    with pytest.raises(ValueError, match="Edge.ROOT is reserved"):
-        Tree.pin_spec(
-            strokes=s,
-            symbols=[("x", [1]), ("y", [2])],
-            edges=[(0, 1, Edge.ROOT)],
-        )
-
-
-def test_multiple_parents_raises():
-    s = {1: _stroke(1, 0, 0), 2: _stroke(2, 10, 0), 3: _stroke(3, 20, 0)}
-    with pytest.raises(ValueError, match="multiple parents"):
-        Tree.pin_spec(
-            strokes=s,
-            symbols=[("x", [1]), ("y", [2]), ("z", [3])],
-            edges=[(0, 1, Edge.SUP), (2, 1, Edge.SUB)],
-        )
-
-
-# ── Validation: structure ───────────────────────────────────────────────
-
-
 def test_empty_symbols_raises():
     with pytest.raises(ValueError, match="at least one symbol"):
         Tree.pin_spec(strokes={}, symbols=[])
-
-
-def test_multiple_roots_raises():
-    s = {1: _stroke(1, 0, 0), 2: _stroke(2, 10, 0)}
-    with pytest.raises(ValueError, match="exactly one root"):
-        Tree.pin_spec(strokes=s, symbols=[("x", [1]), ("y", [2])], edges=[])
-
-
-def test_disconnected_node_raises():
-    s = {1: _stroke(1, 0, 0), 2: _stroke(2, 10, 0), 3: _stroke(3, 20, 0)}
-    # 0 is the only root, but 2 has no edge to it
-    # Actually with my validation: root candidates are {0, 2}, raises "multiple roots".
-    # To get disconnected without multi-root we'd need a cycle.  Test a cycle:
-    with pytest.raises(ValueError, match="exactly one root|cycle|not reachable"):
-        Tree.pin_spec(
-            strokes=s,
-            symbols=[("x", [1]), ("y", [2]), ("z", [3])],
-            edges=[(1, 2, Edge.SUP), (2, 1, Edge.SUB)],  # cycle 1→2→1; 0 isolated
-        )

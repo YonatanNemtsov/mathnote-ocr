@@ -303,7 +303,7 @@ class Session:
         elif id in self._strokes:
             raise ValueError(f"Stroke id {id} already exists")
         self._strokes[id] = Stroke.from_points(
-            [StrokePoint(*p) for p in points], id=id, width=width
+            [_to_point(p) for p in points], id=id, width=width
         )
         return id
 
@@ -325,7 +325,7 @@ class Session:
             raise KeyError(f"Stroke id {stroke_id} not found")
         old = self._strokes[stroke_id]
         self._strokes[stroke_id] = Stroke.from_points(
-            [StrokePoint(*p) for p in points], id=stroke_id, width=old.width
+            [_to_point(p) for p in points], id=stroke_id, width=old.width
         )
         self._cache.invalidate_stroke(stroke_id)
 

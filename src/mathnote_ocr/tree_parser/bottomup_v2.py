@@ -15,46 +15,114 @@ from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Symbol, SymbolId, Tree
 log = logging.getLogger(__name__)
 
 
-def _apply_pins_to_initial_tree(
-    tree: Tree,
-    variant: list[Symbol],
+def _collapse_pins(
+    symbols: list[Symbol],
     pins: list[Tree],
-) -> tuple[Tree, set[SymbolId]]:
-    """Pre-apply each pin's internal edges to *tree*.
+    next_id_start: int,
+) -> tuple[list[Symbol], dict[SymbolId, Tree]]:
+    """Collapse each pin into a single atom symbol in the variant.
 
-    Returns the modified tree and the set of variant indices whose parent
-    is now pinned (these are added to the beam's *resolved* set so the
-    search won't reassign them).
+    For each pin:
+      - **Single free root** (one pinned symbol has no in-pin parent):
+        the natural root *stays* in the variant. The pin's other symbols
+        (descendants via internal edges) are *removed* from the variant.
+        After beam search, the natural root is replaced by the stashed
+        subtree (root + descendants).
+      - **Multi free root** (the pin is a forest, e.g. multi-top-level
+        selection): a synthetic ``expr`` symbol is *added* as the atom.
+        All pinned symbols are *removed* from the variant. After beam
+        search, the expr is expanded to itself + the pinned children.
 
-    Each pinned non-root symbol is mapped to a variant symbol by exact
-    stroke-id match. Raises ValueError if a pin references stroke sets
-    that don't match any variant symbol (e.g. EXPR collapse changed them).
+    The atom is what the beam search sees. The algorithm picks where
+    the atom attaches, and ``expand`` (from tree_ops) restores the full
+    pinned subtree at that location.
+
+    Returns the modified variant (with pinned descendants removed and any
+    expr atoms appended) and a dict ``stored_subtrees[atom_id] = subtree``.
     """
+    from mathnote_ocr.bbox import BBox
+    from mathnote_ocr.tree_parser.tree_v2 import Edge as _Edge
+    from mathnote_ocr.tree_parser.tree_v2 import Node as _Node
+
     sids_to_idx: dict[tuple[int, ...], int] = {
-        tuple(sorted(s.stroke_ids)): i for i, s in enumerate(variant)
+        tuple(sorted(s.stroke_ids)): i for i, s in enumerate(symbols)
     }
-    resolved: set[SymbolId] = set()
+    indices_to_remove: set[int] = set()
+    new_atoms: list[Symbol] = []
+    stored: dict[SymbolId, Tree] = {}
+    next_id = next_id_start
+
     for pin_idx, pin in enumerate(pins):
-        # Map each pin-local symbol id to its variant index.
-        local_to_idx: dict[SymbolId, int] = {}
-        for sid_node, node in pin.nodes.items():
-            if sid_node == ROOT_ID:
+        pin_local_to_pos: dict[SymbolId, int] = {}
+        for nid, n in pin.nodes.items():
+            if nid == ROOT_ID:
                 continue
-            key = tuple(sorted(node.symbol.stroke_ids))
+            key = tuple(sorted(n.symbol.stroke_ids))
             if key not in sids_to_idx:
                 raise ValueError(
                     f"pin {pin_idx} symbol with strokes {key} not found among detected symbols"
                 )
-            local_to_idx[sid_node] = sids_to_idx[key]
-        # Apply each non-root internal edge.
-        for sid_node, node in pin.nodes.items():
-            if sid_node == ROOT_ID or node.parent_id == ROOT_ID:
-                continue  # pin's root attaches freely to the surrounding tree
-            child_idx = local_to_idx[sid_node]
-            parent_idx = local_to_idx[node.parent_id]
-            tree = tree.move_node(child_idx, parent_idx, node.edge_type, node.order)
-            resolved.add(child_idx)
-    return tree, resolved
+            pin_local_to_pos[nid] = sids_to_idx[key]
+
+        free_roots = [
+            nid for nid in pin_local_to_pos
+            if pin.nodes[nid].parent_id == ROOT_ID
+        ]
+
+        if len(free_roots) == 1:
+            atom_pos = pin_local_to_pos[free_roots[0]]
+            atom_sym = symbols[atom_pos]
+            atom_id = atom_sym.id
+            for pos in pin_local_to_pos.values():
+                if pos != atom_pos:
+                    indices_to_remove.add(pos)
+        else:
+            atom_bbox = BBox.union_all(
+                [symbols[p].bbox for p in pin_local_to_pos.values()]
+            )
+            atom_strokes = tuple(
+                sid for p in pin_local_to_pos.values() for sid in symbols[p].stroke_ids
+            )
+            atom_sym = Symbol(next_id, "expr", atom_bbox, atom_strokes)
+            atom_id = next_id
+            next_id += 1
+            new_atoms.append(atom_sym)
+            for pos in pin_local_to_pos.values():
+                indices_to_remove.add(pos)
+
+        # Build the stashed subtree (will be expanded after beam).
+        subtree_nodes: list[_Node] = []
+        if len(free_roots) > 1:
+            subtree_nodes.append(_Node(atom_sym, ROOT_ID, _Edge.ROOT, 0))
+            for nid, pos in pin_local_to_pos.items():
+                pin_node = pin.nodes[nid]
+                real_sym = symbols[pos]
+                if pin_node.parent_id == ROOT_ID:
+                    subtree_nodes.append(
+                        _Node(real_sym, atom_id, _Edge.ROOT, pin_node.order)
+                    )
+                else:
+                    parent_real_id = symbols[pin_local_to_pos[pin_node.parent_id]].id
+                    subtree_nodes.append(
+                        _Node(real_sym, parent_real_id, pin_node.edge_type, pin_node.order)
+                    )
+        else:
+            for nid, pos in pin_local_to_pos.items():
+                pin_node = pin.nodes[nid]
+                real_sym = symbols[pos]
+                if pin_node.parent_id == ROOT_ID:
+                    subtree_nodes.append(_Node(real_sym, ROOT_ID, _Edge.ROOT, 0))
+                else:
+                    parent_real_id = symbols[pin_local_to_pos[pin_node.parent_id]].id
+                    subtree_nodes.append(
+                        _Node(real_sym, parent_real_id, pin_node.edge_type, pin_node.order)
+                    )
+
+        stored[atom_id] = Tree(tuple(subtree_nodes))
+
+    new_symbols = [s for i, s in enumerate(symbols) if i not in indices_to_remove]
+    new_symbols.extend(new_atoms)
+    return new_symbols, stored
 
 
 def resolve_frac_bars(
@@ -747,11 +815,31 @@ def build(
     """
     from mathnote_ocr.tree_parser.tree_v2 import Edge, Node
 
+    if not symbols:
+        return Tree(())
+    if len(symbols) == 1:
+        return Tree((Node(symbols[0], ROOT_ID, Edge.ROOT, 0),))
+
+    # Pre-collapse pins into atoms before the beam sees them. The beam search
+    # treats each pinned subtree as one symbol; expansion happens at the end.
+    stored_pin_subtrees: dict[SymbolId, Tree] = {}
+    if pins:
+        symbols, stored_pin_subtrees = _collapse_pins(
+            symbols, pins, next_id_start=max(s.id for s in symbols) + 1
+        )
+
     N = len(symbols)
     if N == 0:
         return Tree(())
     if N == 1:
-        return Tree((Node(symbols[0], ROOT_ID, Edge.ROOT, 0),))
+        # Single atom remains — possibly an expr representing the whole pinned set.
+        only = Tree((Node(symbols[0], ROOT_ID, Edge.ROOT, 0),))
+        if stored_pin_subtrees:
+            from mathnote_ocr.tree_parser.tree_ops import expand
+            for atom_id, sub in stored_pin_subtrees.items():
+                if atom_id in only.nodes:
+                    only = expand(only, atom_id, sub)
+        return reorder_siblings(only)
 
     # Resolve frac bars — may produce multiple variants to try
     symbol_variants = resolve_frac_bars(symbols, run_subsets_fn, make_subsets_fn)
@@ -773,12 +861,7 @@ def build(
             tta_size=tta_size,
         )
         initial_tree = Tree(tuple(Node(s, ROOT_ID, Edge.ROOT, i) for i, s in enumerate(variant)))
-        pinned_resolved: set[SymbolId] = set()
-        if pins:
-            initial_tree, pinned_resolved = _apply_pins_to_initial_tree(
-                initial_tree, variant, pins
-            )
-        beam.append((initial_tree, pinned_resolved, variant, evidence, 0.0, 0))
+        beam.append((initial_tree, set(), variant, evidence, 0.0, 0))
 
     for iteration in range(max_iterations):
         next_beam: list[tuple[Tree, set[SymbolId], list[Symbol], dict, float, int]] = []
@@ -866,6 +949,13 @@ def build(
         best_tree = beam[0][0]
     else:
         best_tree = Tree(tuple(Node(s, ROOT_ID, Edge.ROOT, i) for i, s in enumerate(symbols)))
+
+    # Expand any pre-collapsed pins back into their full subtree structure.
+    if stored_pin_subtrees:
+        from mathnote_ocr.tree_parser.tree_ops import expand
+        for atom_id, sub in stored_pin_subtrees.items():
+            if atom_id in best_tree.nodes:
+                best_tree = expand(best_tree, atom_id, sub)
     return reorder_siblings(best_tree)
 
 
@@ -1026,11 +1116,27 @@ def build_with_collapse(
     from mathnote_ocr.tree_parser.tree_ops import expand
     from mathnote_ocr.tree_parser.tree_v2 import Edge, Node
 
+    if not symbols:
+        return Tree(())
+    if len(symbols) == 1:
+        return Tree((Node(symbols[0], ROOT_ID, Edge.ROOT, 0),))
+
+    # Pre-collapse pins into atoms before any beam search or iterative collapse.
+    initial_pin_subtrees: dict[SymbolId, Tree] = {}
+    if pins:
+        symbols, initial_pin_subtrees = _collapse_pins(
+            symbols, pins, next_id_start=max(s.id for s in symbols) + 1
+        )
+
     N = len(symbols)
     if N == 0:
         return Tree(())
     if N == 1:
-        return Tree((Node(symbols[0], ROOT_ID, Edge.ROOT, 0),))
+        only = Tree((Node(symbols[0], ROOT_ID, Edge.ROOT, 0),))
+        for atom_id, sub in initial_pin_subtrees.items():
+            if atom_id in only.nodes:
+                only = expand(only, atom_id, sub)
+        return reorder_siblings(only)
 
     # Resolve frac bars
     symbol_variants = resolve_frac_bars(symbols, run_subsets_fn, make_subsets_fn)
@@ -1053,10 +1159,9 @@ def build_with_collapse(
             tta_size=tta_size,
         )
         tree = Tree(tuple(Node(s, ROOT_ID, Edge.ROOT, i) for i, s in enumerate(variant)))
-        pinned_resolved: set[SymbolId] = set()
-        if pins:
-            tree, pinned_resolved = _apply_pins_to_initial_tree(tree, variant, pins)
-        beam.append((tree, pinned_resolved, variant, evidence, {}))
+        # Seed the beam's stored_subtrees with pin subtrees so they expand
+        # alongside any iterative collapses at the end of the routine.
+        beam.append((tree, set(), variant, evidence, dict(initial_pin_subtrees)))
 
     next_expr_id = max(s.id for s in symbols) + 1000
 

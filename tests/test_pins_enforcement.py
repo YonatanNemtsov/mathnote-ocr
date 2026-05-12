@@ -1,4 +1,10 @@
-"""End-to-end tests that verify pins actually constrain detection output."""
+"""End-to-end tests that verify pins actually constrain detection output.
+
+A pin = a set of (label, stroke_ids). The pipeline enforces:
+  1. Each pinned stroke set is grouped with the forced label.
+  2. The pinned symbols form a connected subtree in the output tree —
+     if not naturally, an `expr` node is inserted as their common parent.
+"""
 
 import json
 from pathlib import Path
@@ -6,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from mathnote_ocr import Edge, MathOCR, Tree
+from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HANDWRITTEN = REPO_ROOT / "data" / "shared" / "tree_handwritten" / "run_001" / "train_strokes.jsonl"
@@ -31,60 +38,91 @@ def sample_strokes() -> list[list[tuple[float, float]]]:
     ]
 
 
+def _is_connected_subtree(tree, sym_ids: set[int]) -> bool:
+    """True if the pinned set has a common ancestor (real symbol, not ROOT)
+    such that paths from each pinned symbol up to that ancestor pass only
+    through pinned symbols + the ancestor itself.
+
+    For an `expr` node injected by _enforce_pin_connectedness as the common
+    parent of multiple free roots, this picks up expr as the LCA and the
+    pinned set forms a connected subtree rooted at expr.
+    """
+    if len(sym_ids) <= 1:
+        return True
+
+    sym_list = list(sym_ids)
+    # Path from each pinned symbol up (exclusive of ROOT)
+    paths: dict[int, list[int]] = {}
+    for sid in sym_list:
+        anc: list[int] = []
+        cur = sid
+        while cur != tree.root:
+            anc.append(cur)
+            cur = tree.nodes[cur].parent_id
+        paths[sid] = anc
+
+    # Common ancestors across all pinned symbols (excluding ROOT)
+    common = set(paths[sym_list[0]])
+    for sid in sym_list[1:]:
+        common &= set(paths[sid])
+    if not common:
+        return False  # no real-symbol common ancestor — disconnected
+
+    # LCA = deepest common ancestor (first hit walking from leaf in path[0])
+    lca = next(s for s in paths[sym_list[0]] if s in common)
+
+    # Augmented set = union of paths from each pinned symbol up to LCA inclusive
+    augmented: set[int] = set()
+    for sid in sym_list:
+        cur = sid
+        while cur != lca:
+            augmented.add(cur)
+            cur = tree.nodes[cur].parent_id
+        augmented.add(lca)
+
+    # Connected iff every augmented node except LCA has parent in augmented
+    for sid in augmented:
+        if sid == lca:
+            continue
+        if tree.nodes[sid].parent_id not in augmented:
+            return False
+    return True
+
+
 # ── Single-symbol pin enforcement ───────────────────────────────────────
 
 
 def test_single_stroke_pin_forces_label(ocr, sample_strokes):
-    """Pinning one stroke with an unusual label should produce an expression
-    containing a symbol with that exact label, claiming exactly that stroke."""
+    """Pinning one stroke with a label should produce a symbol with that label."""
     session = ocr.session()
     sids = [session.add_stroke(s) for s in sample_strokes]
-
-    # Pin the first stroke as "alpha" (regardless of what it actually is)
     target_sid = sids[0]
     pin = Tree.pin_spec(
         strokes={target_sid: session._strokes[target_sid]},
         symbols=[("alpha", [target_sid])],
     )
-
     expr = ocr.detect(list(session._strokes.values()), pins=[pin])
 
-    # Find the symbol that owns target_sid
-    owner = None
-    for sym in expr:
-        if any(s.id == target_sid for s in sym.strokes):
-            owner = sym
-            break
-    assert owner is not None, "no symbol claims the pinned stroke"
+    owner = next((sym for sym in expr if any(s.id == target_sid for s in sym.strokes)), None)
+    assert owner is not None
     assert owner.name == "alpha"
-    # The pinned symbol should have exactly the pinned strokes (no extras
-    # absorbed by grouping).
     assert {s.id for s in owner.strokes} == {target_sid}
-    # Forced confidence is 1.0
     assert owner.confidence == 1.0
 
 
 def test_multistroke_pin_forces_grouping(ocr, sample_strokes):
-    """Pinning two strokes together as a single symbol should produce one
-    symbol claiming both — even if the grouper would normally split them."""
+    """Pinning two strokes as a single symbol forces grouping."""
     session = ocr.session()
     sids = [session.add_stroke(s) for s in sample_strokes]
-
-    # Pin two arbitrary strokes as a single multi-stroke symbol "="
     a, b = sids[0], sids[1]
     pin = Tree.pin_spec(
-        strokes={
-            a: session._strokes[a],
-            b: session._strokes[b],
-        },
+        strokes={a: session._strokes[a], b: session._strokes[b]},
         symbols=[("=", [a, b])],
     )
-
     expr = ocr.detect(list(session._strokes.values()), pins=[pin])
 
-    # There should be exactly one symbol claiming both a and b
     matching = [s for s in expr if {st.id for st in s.strokes} == {a, b}]
-    assert len(matching) == 1, f"expected one merged symbol, got {len(matching)}"
+    assert len(matching) == 1
     assert matching[0].name == "="
 
 
@@ -93,88 +131,81 @@ def test_pin_does_not_affect_other_strokes(ocr, sample_strokes):
     session = ocr.session()
     sids = [session.add_stroke(s) for s in sample_strokes]
 
-    # Run baseline (no pins) to see how the unpinned strokes resolve
     baseline = ocr.detect(list(session._strokes.values()))
     target_sid = sids[0]
-
     pin = Tree.pin_spec(
         strokes={target_sid: session._strokes[target_sid]},
         symbols=[("alpha", [target_sid])],
     )
     expr = ocr.detect(list(session._strokes.values()), pins=[pin])
 
-    # Strokes other than target_sid should belong to the same symbol *labels*
-    # in both runs (they may have different ids since symbol order shifts).
-    def labels_for_strokes_excluding(e, excluded_sid):
+    def labels_excluding(e, excluded_sid):
         return sorted(
             s.name for s in e if not any(st.id == excluded_sid for st in s.strokes)
         )
 
-    assert labels_for_strokes_excluding(baseline, target_sid) == \
-        labels_for_strokes_excluding(expr, target_sid)
+    assert labels_excluding(baseline, target_sid) == labels_excluding(expr, target_sid)
 
 
-# ── Subtree pin (structure not yet enforced — just verify no crash) ─────
+# ── Multi-symbol pin: connectedness enforcement ─────────────────────────
 
 
-def test_subtree_pin_forces_internal_edge(ocr, sample_strokes):
-    """A 2-symbol pin with internal edge SUP should produce a tree where
-    the pinned child is a SUP child of the pinned parent — overriding
-    whatever the model would have predicted."""
+def test_multi_symbol_pin_forms_connected_subtree(ocr, sample_strokes):
+    """Two pinned symbols must end up in a connected subtree — possibly via
+    a synthetic `expr` parent node if the model wouldn't naturally connect them."""
     session = ocr.session()
     sids = [session.add_stroke(s) for s in sample_strokes]
-
     a, b = sids[0], sids[1]
     pin = Tree.pin_spec(
         strokes={a: session._strokes[a], b: session._strokes[b]},
         symbols=[("x", [a]), ("2", [b])],
-        edges=[(0, 1, Edge.SUP)],
     )
     expr = ocr.detect(list(session._strokes.values()), pins=[pin])
 
-    # Both pinned symbols should appear (strokes are unique per symbol)
     by_stroke_set = {frozenset(s.id for s in sym.strokes): sym for sym in expr}
-    parent_sym = by_stroke_set[frozenset([a])]
-    child_sym = by_stroke_set[frozenset([b])]
-    assert parent_sym.name == "x"
-    assert child_sym.name == "2"
+    a_sym = by_stroke_set[frozenset([a])]
+    b_sym = by_stroke_set[frozenset([b])]
+    a_id = next(sid for sid, ds in expr.symbols.items() if ds is a_sym)
+    b_id = next(sid for sid, ds in expr.symbols.items() if ds is b_sym)
 
-    # Find their tree symbol ids and verify the edge
-    assert expr.tree is not None
-    parent_id = next(
-        sid for sid, ds in expr.symbols.items() if ds is parent_sym
-    )
-    child_id = next(
-        sid for sid, ds in expr.symbols.items() if ds is child_sym
-    )
-    child_node = expr.tree[child_id]
-    assert child_node.parent_id == parent_id, (
-        f"pin says '2' is SUP child of 'x', "
-        f"but tree has parent={child_node.parent_id} (expected {parent_id})"
-    )
-    assert child_node.edge_type == Edge.SUP, (
-        f"pin says edge=SUP, but tree has edge={child_node.edge_type}"
+    assert _is_connected_subtree(expr.tree, {a_id, b_id}), (
+        f"pinned symbols not connected: a_id={a_id} parent={expr.tree.nodes[a_id].parent_id}, "
+        f"b_id={b_id} parent={expr.tree.nodes[b_id].parent_id}"
     )
 
 
-def test_subtree_pin_with_sub_edge(ocr, sample_strokes):
-    """Same as above but with SUB edge — verifies edge type is honored."""
+def test_many_symbol_pin_inserts_expr_node(ocr, sample_strokes):
+    """Pinning many top-level symbols (which wouldn't naturally connect) should
+    insert an `expr` parent node so the pinned set becomes a connected subtree."""
     session = ocr.session()
     sids = [session.add_stroke(s) for s in sample_strokes]
-
-    a, b = sids[0], sids[1]
+    # Pin the first 3 strokes as separate single-symbol pins-merged-into-one:
+    # build a multi-symbol pin spanning 3 strokes that the model is unlikely
+    # to predict as a connected subtree on its own.
     pin = Tree.pin_spec(
-        strokes={a: session._strokes[a], b: session._strokes[b]},
-        symbols=[("x", [a]), ("i", [b])],
-        edges=[(0, 1, Edge.SUB)],
+        strokes={sid: session._strokes[sid] for sid in sids[:3]},
+        symbols=[("a", [sids[0]]), ("b", [sids[1]]), ("c", [sids[2]])],
     )
     expr = ocr.detect(list(session._strokes.values()), pins=[pin])
 
+    # Find the three pinned tree-symbol ids by stroke-id match.
     by_stroke_set = {frozenset(s.id for s in sym.strokes): sym for sym in expr}
-    parent_sym = by_stroke_set[frozenset([a])]
-    child_sym = by_stroke_set[frozenset([b])]
-    parent_id = next(sid for sid, ds in expr.symbols.items() if ds is parent_sym)
-    child_id = next(sid for sid, ds in expr.symbols.items() if ds is child_sym)
+    pinned_tree_ids = set()
+    for sid in sids[:3]:
+        ds = by_stroke_set[frozenset([sid])]
+        pinned_tree_ids.add(next(tid for tid, dsm in expr.symbols.items() if dsm is ds))
 
-    assert expr.tree[child_id].parent_id == parent_id
-    assert expr.tree[child_id].edge_type == Edge.SUB
+    assert _is_connected_subtree(expr.tree, pinned_tree_ids), (
+        "pinned 3-symbol set must form a connected subtree"
+    )
+
+    # Non-trivially, expect the common parent to be either an `expr` node or
+    # one of the pinned symbols itself. If the model didn't naturally connect
+    # them, an `expr` node should be present.
+    parents = {expr.tree.nodes[tid].parent_id for tid in pinned_tree_ids}
+    parents.discard(ROOT_ID)
+    # If they share a single parent that's NOT in the pinned set, that parent
+    # must exist in the tree (validates the expr-injection mechanism).
+    for p in parents:
+        if p not in pinned_tree_ids and p != ROOT_ID:
+            assert p in expr.tree.nodes

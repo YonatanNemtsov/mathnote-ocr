@@ -183,33 +183,38 @@ class Tree:
     ) -> Tree:
         """Build a Tree describing a pin (constraint subtree).
 
-        The pin user describes the structure they want — labels, which
-        strokes belong to each symbol, and how the symbols relate
-        internally — and the factory derives bboxes from the strokes.
+        A pin captures a set of (label, stroke_ids) and the internal edges
+        between them (when their parent is also in the pin). The OCR
+        pipeline enforces:
+          1. Each pinned symbol's strokes group with the given label.
+          2. Each internal edge in the pin is preserved in the output tree.
+          3. The pinned symbols form a **connected subtree** — if internal
+             edges leave the pin as a forest (e.g. multi-top-level
+             selection), a synthetic ``expr`` node is inserted as their
+             common parent.
 
         Args:
             strokes: Mapping from stroke id to Stroke. Used to compute
                 each symbol's bbox by union over its strokes.
             symbols: List of ``(label, stroke_ids)`` tuples. Each entry's
-                position in this list serves as its local id in the
-                returned tree (and as its index in ``edges``).
+                position in this list becomes its local id in the tree
+                (and serves as its index in ``edges``).
             edges: Internal tree edges as ``(parent, child, edge)`` or
                 ``(parent, child, edge, order)`` tuples. Indices reference
-                positions in ``symbols``. The pin's root — the unique
-                symbol with no parent — gets ROOT/Edge.ROOT automatically.
+                positions in ``symbols``. May leave the pin as a forest
+                (multiple local roots).
 
         Returns:
             A Tree with ``len(symbols)`` non-root nodes, ids 0..N-1.
 
         Raises:
             ValueError: empty symbols, missing/duplicate stroke refs,
-                edge index out of range, multiple parents, multiple roots,
-                cycles or disconnected nodes, or use of Edge.ROOT in user edges.
+                empty label, edge index out of range, multiple parents,
+                cycles, or use of Edge.ROOT in user edges.
         """
         if not symbols:
             raise ValueError("pin must have at least one symbol")
 
-        # Validate stroke references and disjointness within the pin
         seen_strokes: set[int] = set()
         for i, (label, sids) in enumerate(symbols):
             if not label:
@@ -221,7 +226,6 @@ class Tree:
                     raise ValueError(f"stroke {sid} appears in multiple symbols")
                 seen_strokes.add(sid)
 
-        # Normalize edges to 4-tuples and validate
         norm_edges: list[tuple[int, int, EdgeType, int]] = []
         children_seen: set[int] = set()
         N = len(symbols)
@@ -244,37 +248,34 @@ class Tree:
             children_seen.add(c)
             norm_edges.append((p, c, et, order))
 
-        # Find the unique root: the one symbol that's not a child
+        # Cycle / connectivity check — pin may be a forest, but each component
+        # must be acyclic and reachable from a local root.
         roots = [i for i in range(N) if i not in children_seen]
-        if len(roots) != 1:
-            raise ValueError(
-                f"pin must have exactly one root, found {len(roots)}: {roots}"
-            )
-        root = roots[0]
-
-        # Connectivity / cycle check: DFS from root must reach all symbols
+        if not roots:
+            raise ValueError("pin has no root — likely a cycle in edges")
         adj: dict[int, list[int]] = {}
         for p, c, _, _ in norm_edges:
             adj.setdefault(p, []).append(c)
         visited: set[int] = set()
-        stack = [root]
-        while stack:
-            cur = stack.pop()
-            if cur in visited:
-                raise ValueError(f"cycle through symbol {cur}")
-            visited.add(cur)
-            stack.extend(adj.get(cur, []))
+        for r in roots:
+            stack = [r]
+            while stack:
+                cur = stack.pop()
+                if cur in visited:
+                    raise ValueError(f"cycle through symbol {cur}")
+                visited.add(cur)
+                stack.extend(adj.get(cur, []))
         if len(visited) != N:
-            raise ValueError(f"symbols {set(range(N)) - visited} not reachable from root")
+            raise ValueError(f"symbols {set(range(N)) - visited} not reachable from any root")
 
-        # Build nodes
         edge_info = {c: (p, et, o) for p, c, et, o in norm_edges}
+        root_set = set(roots)
         nodes: list[Node] = []
         for i, (label, sids) in enumerate(symbols):
             sid_t = tuple(sids)
             bbox = BBox.union_all([strokes[sid].bbox for sid in sid_t])
             sym = Symbol(id=i, name=label, bbox=bbox, stroke_ids=sid_t)
-            if i == root:
+            if i in root_set:
                 nodes.append(Node(sym, ROOT_ID, Edge.ROOT, 0))
             else:
                 p, et, order = edge_info[i]
@@ -300,6 +301,11 @@ class Tree:
         if node.parent_id == self.root:
             return (entry,)
         return self.path(node.parent_id) + (entry,)
+
+    def to_latex(self) -> str:
+        """Render this tree to a LaTeX string."""
+        from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
+        return tree_to_latex(self)
 
     # ── Comparison ───────────────────────────────────────────────────
 

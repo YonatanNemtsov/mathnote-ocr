@@ -210,6 +210,13 @@ def _render_limits(tree: Tree, sid: SymbolId, base: str) -> str:
 def _render_node(tree: Tree, sid: SymbolId) -> str:
     name = tree[sid].symbol.name
 
+    # Synthetic `expr` node — transparent group. Render children inline.
+    # Used by the pin connectedness enforcement to attach a common parent
+    # to a forest of pinned symbols.
+    if name == "expr":
+        child_ids = tuple(cid for cid, _, _ in tree.children_of(sid))
+        return _render_siblings(tree, child_ids)
+
     # Binom: ( with NUM, DEN, MATCH children
     if (
         name == "("
