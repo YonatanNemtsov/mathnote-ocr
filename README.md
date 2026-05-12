@@ -1,6 +1,12 @@
 # MathNote OCR
 
-Stroke-based handwritten math to LaTeX OCR.
+A stroke-based recognizer for handwritten math expressions. Input is a list of strokes (sequences of `(x, y)` points); output is the recognized LaTeX, the parsed expression tree, and per-symbol confidence.
+
+Supports incremental detection: strokes can be added or removed and previous classification work is reused.
+
+Supports pinning: a subtree of the expression (its symbols and internal edges) can be fixed and is preserved across subsequent detections.
+
+Runs on CPU.
 
 
 https://github.com/user-attachments/assets/9d3e37ca-8e27-4d48-9351-22ee9f3a0744
