@@ -137,7 +137,7 @@ strokes → groups of strokes → classified symbols → expression tree → LaT
 
 **Grouper** partitions the strokes into symbols. One symbol can span multiple strokes (e.g. "T" has two, "\Pi" might have 2 or 3 etc). The grouper enumerates plausible groupings based on spatial proximity and returns the top-K candidates.
 
-**Classifier** is a 128×128 CNN that labels each candidate symbol. It also computes a prototype distance for every class, which flags nonsense groupings as out-of-distribution — this lets the grouper reject bad partitions.
+**Classifier** is a 32×32 CNN that labels each candidate symbol. It also computes a prototype distance for every class, which flags nonsense groupings as out-of-distribution — this lets the grouper reject bad partitions.
 
 **Tree Parser** builds a structured expression tree from the labeled symbols. Each node has a parent, an edge type (superscript, subscript, numerator, denominator, etc.), and a sibling order. Internally:
 
