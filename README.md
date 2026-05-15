@@ -1,41 +1,13 @@
 # MathNote OCR
 
-A stroke-based recognizer for handwritten math expressions. Input is a list of strokes (sequences of `(x, y)` points); output is the recognized LaTeX, the parsed expression tree, and per-symbol confidence.
+A handwriting (stroke data) to latex recognition system, designed for real-time interactive use. It supports incremental prediction, where strokes can be added or removed, and previous classification work is reused. It also supports interactive correction: a subexpression (subtree) can be "pinned", so the subsequent prediction keeps that subtree structure and builds on top of it.
 
-Supports incremental detection: strokes can be added or removed and previous classification work is reused.
-
-Supports pinning: a subtree of the expression (its symbols and internal edges) can be fixed and is preserved across subsequent detections.
-
-Runs on CPU.
+Total model size in the current default configuration is ~1.2M parameters: a 0.65M symbol classifier (CNN), a 0.43M transformer that runs on subsets of input strokes, and a 0.13M GNN that refines the evidence from the transformer. Runs on CPU.
 
 
 https://github.com/user-attachments/assets/9d3e37ca-8e27-4d48-9351-22ee9f3a0744
 
 
-
-## Installation
-
-Requires Python 3.10+.
-
-```bash
-git clone https://github.com/YonatanNemtsov/mathnote-ocr.git
-cd mathnote-ocr
-pip install -e .
-```
-
-For development setup with linting:
-
-```bash
-uv sync --group dev        # or: pip install -e .[dev]
-```
-
-To also get the tool servers (web UI, data collection):
-
-```bash
-pip install -e .[tools]
-```
-
-Default production weights (mixed_v10 subset + GNN, v9_combined classifier) are bundled with the package — no download needed.
 
 ## Usage
 
@@ -86,6 +58,32 @@ expr = session.detect()
 
 The session keeps an incremental cache so repeated `detect()` calls on overlapping stroke sets are fast.
 
+#### Pinning a subtree
+
+Given a set of strokes for detection, a subset of those strokes can be "pinned" to a specific subexpression (subtree), so that subsequent detections keep that subtree structure fixed. This is usefull for interactive correction, for example, locking in a correctly recognized fraction while continuing to draw the rest of the expression.
+
+
+```python
+from mathnote_ocr import PinnedTree, PinSymbol, PinEdge, Edge
+
+session = ocr.session()
+session.add_stroke([(10, 20), (15, 25)])      # the "x"
+session.add_stroke([(30, 10), (35, 15)])      # the "2"
+
+pin = PinnedTree.build(
+    symbols=[
+        PinSymbol("x", [session.strokes[0]]),
+        PinSymbol("2", [session.strokes[1]]),
+    ],
+    edges=[PinEdge(parent=0, child=1, edge=Edge.SUP)],
+)
+session.add_pin(pin)
+
+expr = session.detect()   # the x^2 subtree is preserved
+```
+
+Pin indices in `edges` refer to positions in the `symbols` list. Pins may leave the symbol set as a forest (no edges, or multiple local roots); in that case a synthetic `expr` node is inserted as their common parent.
+
 ### Web interface
 
 The bundled demo:
@@ -99,10 +97,36 @@ Open [http://localhost:8080](http://localhost:8080). Draw math expressions; get 
 ### Collect handwritten training data
 
 ```bash
-python tools/collect_expr_server.py
+python web_tools/collect_expr_server.py
 ```
 
-Open `tools/collect_expr.html` in your browser (pure WebSocket server on port 8770). Draw expressions matching sampled LaTeX prompts; data saves to `data/shared/tree_handwritten/`.
+Open `web_tools/collect_expr.html` in your browser (pure WebSocket server on port 8770). Draw expressions matching sampled LaTeX prompts; data saves to `data/shared/tree_handwritten/`.
+
+## Installation
+
+Requires Python 3.10+.
+
+```bash
+git clone https://github.com/YonatanNemtsov/mathnote-ocr.git
+cd mathnote-ocr
+pip install -e .
+```
+
+For development setup with linting:
+
+```bash
+uv sync --group dev        # or: pip install -e .[dev]
+```
+
+To also get the tool servers (web UI, data collection):
+
+```bash
+pip install -e .[tools]
+```
+
+Default production weights (mixed_v10 subset + GNN, v9_combined classifier) are bundled with the package — no download needed.
+
+
 
 ## Architecture
 
@@ -111,7 +135,7 @@ strokes → groups of strokes → classified symbols → expression tree → LaT
             Grouper               Classifier          Tree Parser
 ```
 
-**Grouper** partitions the strokes into symbols. One symbol can span multiple strokes (e.g. `=` has two). The grouper enumerates plausible groupings based on spatial proximity and returns the top-K candidates.
+**Grouper** partitions the strokes into symbols. One symbol can span multiple strokes (e.g. "T" has two, "\Pi" might have 2 or 3 etc). The grouper enumerates plausible groupings based on spatial proximity and returns the top-K candidates.
 
 **Classifier** is a 128×128 CNN that labels each candidate symbol. It also computes a prototype distance for every class, which flags nonsense groupings as out-of-distribution — this lets the grouper reject bad partitions.
 
@@ -126,7 +150,11 @@ The tree is then rendered to LaTeX.
 
 ## Configuration
 
-The pipeline is configured via YAML files. `MathOCR()` uses the bundled `default.yaml`. To use a different config:
+The pipeline is configured via YAML files. `MathOCR()` uses the bundled `default.yaml`.
+
+Note: it is advised to use the default config if you are not experimenting or trying to modify and extend the project. Most of the non-default config options are experimental, and are a result of trying different tree building algorithms and hyperparameters. They are not end user configs.
+
+To use a different config:
 
 ```python
 ocr = MathOCR(config="configs/mixed_v9_backtrack.yaml")
