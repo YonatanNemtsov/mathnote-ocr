@@ -19,9 +19,10 @@ from mathnote_ocr.engine.grouper import (
 )
 from mathnote_ocr.engine.stroke import Stroke, StrokePoint
 from mathnote_ocr.expression import DetectedSymbol, Expression, empty_expression
+from mathnote_ocr.pin import PinnedTree
 from mathnote_ocr.pipeline_config import get, load_config
 from mathnote_ocr.tree_parser.inference import SubsetTreeParser
-from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Tree
+from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID
 
 # Input types accepted by detect()
 PointInput = tuple[float, float] | tuple[float, float, float] | dict
@@ -93,7 +94,7 @@ class MathOCR:
         *,
         canvas_size: int | None = None,
         top_k: int = 1,
-        pins: Sequence[Tree] | None = None,
+        pins: Sequence[PinnedTree] | None = None,
     ) -> Expression:
         """Detect a math expression from strokes.
 
@@ -106,7 +107,7 @@ class MathOCR:
             top_k: How many candidate partitions to consider. Extras are
                 placed on ``expr.alternatives``.
             pins: Optional list of constraint pins. Build each with
-                ``Tree.pin_spec(...)``. Pin stroke ids must reference
+                ``PinnedTree.build(...)``. Pin stroke ids must reference
                 strokes in the input.
 
         Returns:
@@ -128,7 +129,7 @@ class MathOCR:
         *,
         canvas_size: int | None = None,
         top_k: int = 1,
-        pins: Sequence[Tree] | None = None,
+        pins: Sequence[PinnedTree] | None = None,
     ) -> Expression:
         """Detection with an explicit cache. Used by Session to reuse
         classification results across calls. Not part of the public API."""
@@ -209,7 +210,7 @@ def _to_point(p) -> StrokePoint:
     return StrokePoint(*p)
 
 
-def _validate_pin_strokes(pins: Sequence[Tree], available_stroke_ids: set[int]) -> None:
+def _validate_pin_strokes(pins: Sequence[PinnedTree], available_stroke_ids: set[int]) -> None:
     """Every pin's stroke ids must reference an available stroke. Stroke
     sets across pins must be disjoint (no stroke can belong to two pins)."""
     claimed: dict[int, int] = {}  # stroke_id -> pin_index that claimed it
@@ -229,7 +230,7 @@ def _validate_pin_strokes(pins: Sequence[Tree], available_stroke_ids: set[int]) 
                 claimed[sid] = i
 
 
-def _pin_uses_stroke(pin: Tree, stroke_id: int) -> bool:
+def _pin_uses_stroke(pin: PinnedTree, stroke_id: int) -> bool:
     """True if any symbol in *pin* references *stroke_id*."""
     for sid_node, node in pin.nodes.items():
         if sid_node == ROOT_ID:
@@ -273,7 +274,7 @@ class Session:
         self._ocr = ocr
         self._strokes: dict[int, Stroke] = {}
         self._cache = GrouperCache()
-        self._pins: list[Tree] = []
+        self._pins: list[PinnedTree] = []
         self.canvas_size = canvas_size
 
     @property
@@ -338,20 +339,20 @@ class Session:
     # ── Pins ─────────────────────────────────────────────────────────
 
     @property
-    def pins(self) -> tuple[Tree, ...]:
+    def pins(self) -> tuple[PinnedTree, ...]:
         """Active pins, in insertion order."""
         return tuple(self._pins)
 
-    def add_pin(self, tree: Tree) -> None:
+    def add_pin(self, pin: PinnedTree) -> None:
         """Add a constraint pin. The pin's stroke ids must reference strokes
         currently in this session, and must not overlap with any existing pin."""
-        _validate_pin_strokes([*self._pins, tree], set(self._strokes.keys()))
-        self._pins.append(tree)
+        _validate_pin_strokes([*self._pins, pin], set(self._strokes.keys()))
+        self._pins.append(pin)
 
-    def remove_pin(self, tree: Tree) -> None:
+    def remove_pin(self, pin: PinnedTree) -> None:
         """Remove a pin (matched by structural equality). Raises if not found."""
         try:
-            self._pins.remove(tree)
+            self._pins.remove(pin)
         except ValueError as e:
             raise ValueError("pin not found in session") from e
 

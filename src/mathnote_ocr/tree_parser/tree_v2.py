@@ -11,16 +11,12 @@ in the tree.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import IntEnum
 from functools import cached_property
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TypeAlias
 
 from mathnote_ocr.bbox import BBox
-
-if TYPE_CHECKING:
-    from mathnote_ocr.engine.stroke import Stroke
 
 
 class Edge(IntEnum):
@@ -171,117 +167,6 @@ class Tree:
             ),
             self.root,
         )
-
-    # ── Factories ────────────────────────────────────────────────────
-
-    @classmethod
-    def pin_spec(
-        cls,
-        strokes: dict[int, Stroke],
-        symbols: Sequence[tuple[str, Sequence[int]]],
-        edges: Sequence[tuple[int, int, EdgeType] | tuple[int, int, EdgeType, int]] = (),
-    ) -> Tree:
-        """Build a Tree describing a pin (constraint subtree).
-
-        A pin captures a set of (label, stroke_ids) and the internal edges
-        between them (when their parent is also in the pin). The OCR
-        pipeline enforces:
-          1. Each pinned symbol's strokes group with the given label.
-          2. Each internal edge in the pin is preserved in the output tree.
-          3. The pinned symbols form a **connected subtree** — if internal
-             edges leave the pin as a forest (e.g. multi-top-level
-             selection), a synthetic ``expr`` node is inserted as their
-             common parent.
-
-        Args:
-            strokes: Mapping from stroke id to Stroke. Used to compute
-                each symbol's bbox by union over its strokes.
-            symbols: List of ``(label, stroke_ids)`` tuples. Each entry's
-                position in this list becomes its local id in the tree
-                (and serves as its index in ``edges``).
-            edges: Internal tree edges as ``(parent, child, edge)`` or
-                ``(parent, child, edge, order)`` tuples. Indices reference
-                positions in ``symbols``. May leave the pin as a forest
-                (multiple local roots).
-
-        Returns:
-            A Tree with ``len(symbols)`` non-root nodes, ids 0..N-1.
-
-        Raises:
-            ValueError: empty symbols, missing/duplicate stroke refs,
-                empty label, edge index out of range, multiple parents,
-                cycles, or use of Edge.ROOT in user edges.
-        """
-        if not symbols:
-            raise ValueError("pin must have at least one symbol")
-
-        seen_strokes: set[int] = set()
-        for i, (label, sids) in enumerate(symbols):
-            if not label:
-                raise ValueError(f"symbol {i}: label must be non-empty")
-            for sid in sids:
-                if sid not in strokes:
-                    raise ValueError(f"symbol {i}: stroke {sid} not in strokes")
-                if sid in seen_strokes:
-                    raise ValueError(f"stroke {sid} appears in multiple symbols")
-                seen_strokes.add(sid)
-
-        norm_edges: list[tuple[int, int, EdgeType, int]] = []
-        children_seen: set[int] = set()
-        N = len(symbols)
-        for e in edges:
-            if len(e) == 3:
-                p, c, et = e
-                order = 0
-            elif len(e) == 4:
-                p, c, et, order = e
-            else:
-                raise ValueError(f"edge {e}: expected 3 or 4 elements")
-            if not (0 <= p < N and 0 <= c < N):
-                raise ValueError(f"edge {e}: index out of range [0, {N})")
-            if p == c:
-                raise ValueError(f"edge {e}: self-loop")
-            if et == Edge.ROOT:
-                raise ValueError(f"edge {e}: Edge.ROOT is reserved for the pin root")
-            if c in children_seen:
-                raise ValueError(f"symbol {c} has multiple parents")
-            children_seen.add(c)
-            norm_edges.append((p, c, et, order))
-
-        # Cycle / connectivity check — pin may be a forest, but each component
-        # must be acyclic and reachable from a local root.
-        roots = [i for i in range(N) if i not in children_seen]
-        if not roots:
-            raise ValueError("pin has no root — likely a cycle in edges")
-        adj: dict[int, list[int]] = {}
-        for p, c, _, _ in norm_edges:
-            adj.setdefault(p, []).append(c)
-        visited: set[int] = set()
-        for r in roots:
-            stack = [r]
-            while stack:
-                cur = stack.pop()
-                if cur in visited:
-                    raise ValueError(f"cycle through symbol {cur}")
-                visited.add(cur)
-                stack.extend(adj.get(cur, []))
-        if len(visited) != N:
-            raise ValueError(f"symbols {set(range(N)) - visited} not reachable from any root")
-
-        edge_info = {c: (p, et, o) for p, c, et, o in norm_edges}
-        root_set = set(roots)
-        nodes: list[Node] = []
-        for i, (label, sids) in enumerate(symbols):
-            sid_t = tuple(sids)
-            bbox = BBox.union_all([strokes[sid].bbox for sid in sid_t])
-            sym = Symbol(id=i, name=label, bbox=bbox, stroke_ids=sid_t)
-            if i in root_set:
-                nodes.append(Node(sym, ROOT_ID, Edge.ROOT, 0))
-            else:
-                p, et, order = edge_info[i]
-                nodes.append(Node(sym, p, et, order))
-
-        return cls(tuple(nodes))
 
     # ── Traversal ────────────────────────────────────────────────────
 
