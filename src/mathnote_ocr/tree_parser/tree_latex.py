@@ -207,6 +207,22 @@ def _render_limits(tree: Tree, sid: SymbolId, base: str) -> str:
     return result
 
 
+def _render_unhandled(tree: Tree, sid: SymbolId, consumed: set[int]) -> str:
+    """Render any children whose edge isn't in *consumed*, inline.
+
+    Safety net so a malformed parse (e.g. a closing paren ending up as a
+    parent via NUM/DEN/etc.) doesn't silently drop content from the LaTeX
+    output.
+    """
+    extras = [cid for cid, edge, _ in tree.children_of(sid) if edge not in consumed]
+    if not extras:
+        return ""
+    return " " + _render_siblings(tree, tuple(extras))
+
+
+_SUP_SUB = {Edge.SUP, Edge.SUB}
+
+
 def _render_node(tree: Tree, sid: SymbolId) -> str:
     name = tree[sid].symbol.name
 
@@ -229,7 +245,7 @@ def _render_node(tree: Tree, sid: SymbolId) -> str:
         result = f"\\binom{{{num}}}{{{den}}}"
         for m in _kids(tree, sid, Edge.MATCH):
             result = _render_sup_sub(tree, m, result)
-        return result
+        return result + _render_unhandled(tree, sid, {Edge.NUM, Edge.DEN, Edge.MATCH})
 
     # Fraction bar (complete or partial)
     if name in ("-", "frac_bar") and (
@@ -245,27 +261,32 @@ def _render_node(tree: Tree, sid: SymbolId) -> str:
             if _has_kids(tree, sid, Edge.DEN)
             else ""
         )
-        return _render_sup_sub(tree, sid, f"\\frac{{{num}}}{{{den}}}")
+        rendered = _render_sup_sub(tree, sid, f"\\frac{{{num}}}{{{den}}}")
+        return rendered + _render_unhandled(tree, sid, _SUP_SUB | {Edge.NUM, Edge.DEN})
 
     # Sqrt
     if name == "sqrt" and _has_kids(tree, sid, Edge.SQRT):
         content = _render_siblings(tree, _kids(tree, sid, Edge.SQRT))
-        return _render_sup_sub(tree, sid, f"\\sqrt{{{content}}}")
+        rendered = _render_sup_sub(tree, sid, f"\\sqrt{{{content}}}")
+        return rendered + _render_unhandled(tree, sid, _SUP_SUB | {Edge.SQRT})
 
     # Big operator
     if name in _BIG_OPS:
         latex = _sym_to_latex(name)
         latex = _render_limits(tree, sid, latex)
-        return _render_sup_sub(tree, sid, latex)
+        rendered = _render_sup_sub(tree, sid, latex)
+        return rendered + _render_unhandled(tree, sid, _SUP_SUB | {Edge.LOWER, Edge.UPPER})
 
     # Symbol with limits (shouldn't normally happen outside big ops/funcs)
     if _has_kids(tree, sid, Edge.LOWER) or _has_kids(tree, sid, Edge.UPPER):
         latex = _sym_to_latex(name)
         latex = _render_limits(tree, sid, latex)
-        return _render_sup_sub(tree, sid, latex)
+        rendered = _render_sup_sub(tree, sid, latex)
+        return rendered + _render_unhandled(tree, sid, _SUP_SUB | {Edge.LOWER, Edge.UPPER})
 
     # Regular symbol
-    return _render_sup_sub(tree, sid, _sym_to_latex(name))
+    rendered = _render_sup_sub(tree, sid, _sym_to_latex(name))
+    return rendered + _render_unhandled(tree, sid, _SUP_SUB)
 
 
 def _has_kids(tree: Tree, sid: SymbolId, edge: int) -> bool:
