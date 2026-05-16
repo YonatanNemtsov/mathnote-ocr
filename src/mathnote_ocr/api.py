@@ -230,16 +230,6 @@ def _validate_pin_strokes(pins: Sequence[PinnedTree], available_stroke_ids: set[
                 claimed[sid] = i
 
 
-def _pin_uses_stroke(pin: PinnedTree, stroke_id: int) -> bool:
-    """True if any symbol in *pin* references *stroke_id*."""
-    for sid_node, node in pin.nodes.items():
-        if sid_node == ROOT_ID:
-            continue
-        if stroke_id in node.symbol.stroke_ids:
-            return True
-    return False
-
-
 def _autocanvas(strokes: list[Stroke], fallback: int) -> int:
     """Infer canvas size from the max extent of stroke points."""
     coords = (c for s in strokes for p in s.points for c in (p.x, p.y))
@@ -261,8 +251,10 @@ def _geomean_confidence(detected) -> float:
 class Session:
     """Stateful stroke buffer + grouper cache. Produces Expressions on demand.
 
-    For interactive drawing UIs. Maintains a list of strokes and a
-    GrouperCache so repeated detect() calls after adding strokes are fast.
+    For interactive drawing UIs. Maintains strokes and a GrouperCache so
+    repeated detect() calls reuse classification work. Pins are *not*
+    stored on the session; they are constraints passed per detect call
+    (see :meth:`detect`).
     """
 
     def __init__(
@@ -274,7 +266,6 @@ class Session:
         self._ocr = ocr
         self._strokes: dict[int, Stroke] = {}
         self._cache = GrouperCache()
-        self._pins: list[PinnedTree] = []
         self.canvas_size = canvas_size
 
     @property
@@ -284,6 +275,12 @@ class Session:
 
     def __len__(self) -> int:
         return len(self._strokes)
+
+    def __contains__(self, stroke_id: int) -> bool:
+        return stroke_id in self._strokes
+
+    def __getitem__(self, stroke_id: int) -> Stroke:
+        return self._strokes[stroke_id]
 
     def _allocate_id(self) -> int:
         """Lowest unused id, one past the current max."""
@@ -309,15 +306,12 @@ class Session:
         return id
 
     def remove_stroke(self, stroke_id: int) -> None:
-        """Drop a stroke by id. Other strokes keep their ids. Invalidates cache.
-        Pins that referenced this stroke are also dropped."""
+        """Drop a stroke by id. Other strokes keep their ids. Invalidates
+        cache entries that referenced this stroke."""
         if stroke_id not in self._strokes:
             raise KeyError(f"Stroke id {stroke_id} not found")
         del self._strokes[stroke_id]
-        # Cache keyed by stroke ids — drop entries referencing the removed one.
         self._cache.invalidate_stroke(stroke_id)
-        # Drop any pin whose symbols referenced the removed stroke.
-        self._pins = [p for p in self._pins if not _pin_uses_stroke(p, stroke_id)]
 
     def move_stroke(self, stroke_id: int, points: StrokeInput) -> None:
         """Replace a stroke's points (keeping its id). Invalidates cache entries
@@ -331,43 +325,41 @@ class Session:
         self._cache.invalidate_stroke(stroke_id)
 
     def clear(self) -> None:
-        """Reset strokes, pins, and cache."""
+        """Reset strokes and cache."""
         self._strokes.clear()
-        self._pins.clear()
         self._cache = GrouperCache()
-
-    # ── Pins ─────────────────────────────────────────────────────────
-
-    @property
-    def pins(self) -> tuple[PinnedTree, ...]:
-        """Active pins, in insertion order."""
-        return tuple(self._pins)
-
-    def add_pin(self, pin: PinnedTree) -> None:
-        """Add a constraint pin. The pin's stroke ids must reference strokes
-        currently in this session, and must not overlap with any existing pin."""
-        _validate_pin_strokes([*self._pins, pin], set(self._strokes.keys()))
-        self._pins.append(pin)
-
-    def remove_pin(self, pin: PinnedTree) -> None:
-        """Remove a pin (matched by structural equality). Raises if not found."""
-        try:
-            self._pins.remove(pin)
-        except ValueError as e:
-            raise ValueError("pin not found in session") from e
-
-    def clear_pins(self) -> None:
-        """Drop all pins."""
-        self._pins.clear()
 
     # ── Detection ────────────────────────────────────────────────────
 
-    def detect(self, *, top_k: int = 1) -> Expression:
-        """Run detection on the current strokes. Uses the session's cache and pins."""
+    def detect(
+        self,
+        *,
+        stroke_ids: Sequence[int] | None = None,
+        pins: Sequence[PinnedTree] | None = None,
+        top_k: int = 1,
+    ) -> Expression:
+        """Run detection on session strokes.
+
+        Args:
+            stroke_ids: Subset of session stroke ids to detect on. If None,
+                runs on all session strokes. Unknown ids raise ValueError.
+            pins: Optional list of constraint pins for this call. Each pin's
+                stroke ids must be in the detection subset.
+            top_k: How many candidate partitions to consider.
+        """
+        if stroke_ids is None:
+            strokes = list(self._strokes.values())
+        else:
+            strokes = []
+            for sid in stroke_ids:
+                if sid not in self._strokes:
+                    raise ValueError(f"unknown stroke id {sid}")
+                strokes.append(self._strokes[sid])
+
         return self._ocr._detect_with_cache(
-            list(self._strokes.values()),
+            strokes,
             self._cache,
             canvas_size=self.canvas_size,
             top_k=top_k,
-            pins=self._pins or None,
+            pins=pins,
         )

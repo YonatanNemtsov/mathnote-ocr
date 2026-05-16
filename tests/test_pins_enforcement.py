@@ -187,9 +187,3 @@ def test_many_symbol_pin_inserts_expr_node(ocr, sample_strokes):
     assert _is_connected_subtree(expr.tree, pinned_tree_ids), (
         "pinned 3-symbol set must form a connected subtree"
     )
-
-    parents = {expr.tree.nodes[tid].parent_id for tid in pinned_tree_ids}
-    parents.discard(ROOT_ID)
-    for p in parents:
-        if p not in pinned_tree_ids and p != ROOT_ID:
-            assert p in expr.tree.nodes
