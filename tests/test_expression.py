@@ -160,15 +160,14 @@ def test_to_dict_stroke_ids_match():
 def test_to_dict_tree_excludes_root():
     e = _xy_expr()
     d = e.to_dict()
-    ids = [row["id"] for row in d["tree"]]
-    assert ROOT_ID not in ids
+    assert ROOT_ID not in d["tree"]
 
 
 def test_to_dict_empty():
     e = empty_expression()
     d = e.to_dict()
     assert d["symbols"] == []
-    assert d["tree"] == []
+    assert d["tree"] == {}
     assert d["latex"] == ""
 
 

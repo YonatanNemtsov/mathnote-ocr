@@ -90,8 +90,8 @@ function escHtml(s) {
 const EDGE_NAMES = ['num', 'den', 'sup', 'sub', 'sqrt', 'upper', 'lower', 'match'];
 
 function treeToRelations(tree) {
-  return (tree || []).map(node => ({
-    from: node.id,
+  return Object.entries(tree || {}).map(([id, node]) => ({
+    from: Number(id),
     to: node.parent,
     type: node.parent === -1 ? 'root' : (EDGE_NAMES[node.edge_type] || 'edge'),
     prob: null,

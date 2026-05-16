@@ -26,7 +26,6 @@ from typing import TYPE_CHECKING
 from mathnote_ocr.bbox import BBox
 from mathnote_ocr.engine.stroke import Stroke
 from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
-from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID
 
 if TYPE_CHECKING:
     from mathnote_ocr.tree_parser.tree_v2 import Tree
@@ -111,19 +110,6 @@ class Expression:
     # ── Serialization ────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        tree_rows = []
-        if self.tree is not None:
-            for sid, node in self.tree.nodes.items():
-                if sid == ROOT_ID:
-                    continue
-                tree_rows.append(
-                    {
-                        "id": sid,
-                        "parent": node.parent_id,
-                        "edge_type": int(node.edge_type),
-                        "order": node.order,
-                    }
-                )
         return {
             "latex": self.latex,
             "confidence": round(self.confidence, 4),
@@ -140,7 +126,7 @@ class Expression:
                 }
                 for sid, s in self.symbols.items()
             ],
-            "tree": tree_rows,
+            "tree": self.tree.to_rows() if self.tree is not None else {},
         }
 
 

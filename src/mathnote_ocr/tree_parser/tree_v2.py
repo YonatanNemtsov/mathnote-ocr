@@ -187,6 +187,23 @@ class Tree:
             return (entry,)
         return self.path(node.parent_id) + (entry,)
 
+    def to_rows(self) -> dict[SymbolId, dict]:
+        """Serialize the tree as a dict keyed by symbol id.
+
+        Each value is ``{"parent": parent_id, "edge_type": int, "order": int}``.
+        The virtual root (ROOT_ID) is excluded. Use this whenever the tree
+        is sent across a boundary (wire format, JSON, etc).
+        """
+        return {
+            sid: {
+                "parent": node.parent_id,
+                "edge_type": int(node.edge_type),
+                "order": node.order,
+            }
+            for sid, node in self.nodes.items()
+            if sid != ROOT_ID
+        }
+
     def to_latex(self) -> str:
         """Render this tree to a LaTeX string."""
         from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
