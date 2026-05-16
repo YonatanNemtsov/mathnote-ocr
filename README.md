@@ -77,12 +77,11 @@ pin = PinnedTree.build(
     ],
     edges=[PinEdge(parent=0, child=1, edge=Edge.SUP)],
 )
-session.add_pin(pin)
 
-expr = session.detect()   # the x^2 subtree is preserved
+expr = session.detect(pins=[pin])   # the x^2 subtree is preserved
 ```
 
-Pin indices in `edges` refer to positions in the `symbols` list. Pins may leave the symbol set as a forest (no edges, or multiple local roots); in that case a synthetic `expr` node is inserted as their common parent.
+Pins are per-call inputs to `detect()`; the caller controls their lifecycle. Indices in `edges` refer to positions in the `symbols` list. Pins may leave the symbol set as a forest (no edges, or multiple local roots); in that case a synthetic `expr` node is inserted as their common parent.
 
 ### Web interface
 
