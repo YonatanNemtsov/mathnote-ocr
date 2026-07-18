@@ -52,6 +52,14 @@ Homepage = "https://github.com/YonatanNemtsov/mathnote-ocr"
 Repository = "https://github.com/YonatanNemtsov/mathnote-ocr"
 Issues = "https://github.com/YonatanNemtsov/mathnote-ocr/issues"
 
+[tool.hatch.build]
+# Internal notes — keep in the repo, out of published artifacts
+exclude = [
+    "**/TODO.md",
+    "**/problematic_expressions.txt",
+    "**/redundant_bad_patterns.txt",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/mathnote_ocr"]
 

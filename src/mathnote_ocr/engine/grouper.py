@@ -7,6 +7,7 @@ exact cover search.
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from dataclasses import dataclass
@@ -16,6 +17,8 @@ from mathnote_ocr.engine.renderer import render_strokes
 from mathnote_ocr.engine.stroke import BBox, Stroke, compute_bbox
 from mathnote_ocr.expression import DetectedSymbol
 from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Tree
+
+logger = logging.getLogger(__name__)
 
 # ── Default config values (can be overridden via GrouperParams) ──────
 
@@ -791,11 +794,12 @@ def group_and_classify(
     )
     t_cover = time.perf_counter() - t0
 
-    print(
-        f"  [grouper] {n}s {len(candidate_groups)}g {n_new}new: "
-        f"geo={t_geo * 1000:.0f}ms singles={t_singletons * 1000:.0f}ms "
-        f"enum={t_enum * 1000:.0f}ms classify={t_classify * 1000:.0f}ms "
-        f"cover={t_cover * 1000:.0f}ms"
+    logger.debug(
+        "[grouper] %ds %dg %dnew: geo=%.0fms singles=%.0fms enum=%.0fms "
+        "classify=%.0fms cover=%.0fms",
+        n, len(candidate_groups), n_new,
+        t_geo * 1000, t_singletons * 1000, t_enum * 1000,
+        t_classify * 1000, t_cover * 1000,
     )
 
     if debug:

@@ -16,6 +16,7 @@ Shared pipeline (in base class):
 
 from __future__ import annotations
 
+import logging
 import time
 from abc import ABC, abstractmethod
 from dataclasses import replace
@@ -46,6 +47,8 @@ from mathnote_ocr.tree_parser.tree_builder import (
 )
 from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
 from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Edge, Node, Symbol, Tree
+
+logger = logging.getLogger(__name__)
 
 
 class TreeParser(ABC):
@@ -302,10 +305,10 @@ class TreeParser(ABC):
 
             if (has_num and has_den) or (wide_bar and (has_num or has_den)):
                 symbols[mi] = replace(symbols[mi], name="frac_bar")
-                print(
-                    f"    promote: '-' (idx {mi}) → 'frac_bar' "
-                    f"(num={has_num} den={has_den} wide={wide_bar} "
-                    f"bar_w={bar_w:.0f} med_w={median_w:.0f})"
+                logger.debug(
+                    "promote: '-' (idx %d) → 'frac_bar' (num=%s den=%s wide=%s "
+                    "bar_w=%.0f med_w=%.0f)",
+                    mi, has_num, has_den, wide_bar, bar_w, median_w,
                 )
 
     def _promote_dot_cdot(
@@ -388,9 +391,9 @@ class TreeParser(ABC):
                 new_name = "cdot"
 
             if new_name != symbols[di].name:
-                print(
-                    f"    promote: '{symbols[di].name}' (idx {di}) → '{new_name}' "
-                    f"(dy={dy:.2f}, ref={[names[r] for r in ref]})"
+                logger.debug(
+                    "promote: '%s' (idx %d) → '%s' (dy=%.2f, ref=%s)",
+                    symbols[di].name, di, new_name, dy, [names[r] for r in ref],
                 )
                 symbols[di] = replace(symbols[di], name=new_name)
 

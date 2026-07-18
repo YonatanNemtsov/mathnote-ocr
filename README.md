@@ -106,24 +106,22 @@ Open `web_tools/collect_expr.html` in your browser (pure WebSocket server on por
 Requires Python 3.10+.
 
 ```bash
-git clone https://github.com/YonatanNemtsov/mathnote-ocr.git
-cd mathnote-ocr
-pip install -e .
-```
-
-For development setup with linting:
-
-```bash
-uv sync --group dev        # or: pip install -e .[dev]
-```
-
-To also get the tool servers (web UI, data collection):
-
-```bash
-pip install -e .[tools]
+pip install mathnote-ocr
 ```
 
 Default production weights (mixed_v10 subset + GNN, v9_combined classifier) are bundled with the package — no download needed.
+
+Note: on Linux, pip pulls the CUDA build of PyTorch (~2.5GB). The model runs on CPU — for a lighter install, get CPU-only torch first: `pip install torch --index-url https://download.pytorch.org/whl/cpu`.
+
+### From source
+
+```bash
+git clone https://github.com/YonatanNemtsov/mathnote-ocr.git
+cd mathnote-ocr
+pip install -e .           # library only
+pip install -e .[tools]    # + tool servers (web UI, data collection)
+uv sync --group dev        # development setup with linting
+```
 
 
 
