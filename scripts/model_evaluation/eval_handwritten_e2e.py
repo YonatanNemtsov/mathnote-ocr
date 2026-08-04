@@ -86,6 +86,30 @@ def strokes_from_example(ex: dict) -> list[list[tuple[float, float]]]:
     return out
 
 
+def gt_stroke_labels(ex: dict) -> dict[int, str]:
+    """Map each flat stroke index → its GT symbol name."""
+    labels = {}
+    flat = 0
+    for sym in ex["symbols"]:
+        name = sym["name"]
+        for stroke in sym["strokes"]:
+            if stroke:
+                labels[flat] = name
+            flat += 1
+    return labels
+
+
+def pred_stroke_labels(expr) -> dict[int, str]:
+    """Map each predicted stroke id → its symbol name."""
+    out = {}
+    if not expr:
+        return out
+    for sym in expr:
+        for s in sym.strokes:
+            out[s.id] = sym.name
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="default", help="Config name or path")
@@ -113,6 +137,8 @@ def main():
     grand_norm = 0
     grand_err = 0
     grand_time = 0.0
+    grand_strokes = 0
+    grand_strokes_correct = 0
     per_run_summary = []
 
     for run in args.runs:
@@ -130,6 +156,8 @@ def main():
         norm = 0
         errors: list[tuple[int, str, str]] = []
         empties = 0
+        n_strokes_total = 0
+        n_strokes_correct = 0
         run_start = time.time()
 
         for i, ex in enumerate(examples):
@@ -138,6 +166,7 @@ def main():
             if not strokes:
                 empties += 1
                 continue
+            expr = None
             try:
                 expr = ocr.detect(strokes, canvas_size=max(ex.get("canvas_width", 800), ex.get("canvas_height", 800)))
                 pred = expr.latex
@@ -151,17 +180,27 @@ def main():
             else:
                 errors.append((i, gt, pred))
 
+            # Per-stroke label accuracy
+            gt_labels = gt_stroke_labels(ex)
+            pred_labels = pred_stroke_labels(expr)
+            for sid, gt_name in gt_labels.items():
+                n_strokes_total += 1
+                if pred_labels.get(sid) == gt_name:
+                    n_strokes_correct += 1
+
             if (i + 1) % 25 == 0:
                 print(f"  {i + 1}/{n} ...")
 
         run_time = time.time() - run_start
         real_err = len(errors)
         denom = n - empties
-        per_run_summary.append((run, denom, exact, norm, real_err, run_time))
+        per_run_summary.append((run, denom, exact, norm, real_err, run_time, n_strokes_correct, n_strokes_total))
+        stroke_acc = n_strokes_correct / n_strokes_total if n_strokes_total else 0.0
         print(
             f"  exact: {exact}/{denom} = {exact / denom:.1%}    "
             f"normalized: {norm}/{denom} = {norm / denom:.1%}    "
-            f"errors: {real_err}    time: {run_time:.1f}s"
+            f"per-stroke: {n_strokes_correct}/{n_strokes_total} = {stroke_acc:.1%}    "
+            f"time: {run_time:.1f}s"
         )
 
         if args.verbose and errors:
@@ -176,20 +215,24 @@ def main():
         grand_norm += norm
         grand_err += real_err
         grand_time += run_time
+        grand_strokes += n_strokes_total
+        grand_strokes_correct += n_strokes_correct
 
-    print("─" * 64)
-    print(f"{'Run':<14} {'N':>5} {'Exact':>12} {'Normalized':>14} {'Errs':>6} {'Time':>7}")
-    print("─" * 64)
-    for run, n, ex, nm, er, t in per_run_summary:
-        print(f"{run:<14} {n:>5} {ex:>4}/{n:<3} {ex/n:>5.1%} "
-              f"  {nm:>4}/{n:<3} {nm/n:>5.1%}   {er:>4} {t:>6.1f}s")
+    print("─" * 78)
+    print(f"{'Run':<12} {'N':>4}  {'Exact':>11}   {'Normalized':>11}   {'Per-stroke':>12}")
+    print("─" * 78)
+    for run, n, ex, nm, er, t, sc, st in per_run_summary:
+        sa = sc / st if st else 0.0
+        print(f"{run:<12} {n:>4}  {ex:>3}/{n:<3} {ex/n:>5.1%}   "
+              f"{nm:>3}/{n:<3} {nm/n:>5.1%}   {sc:>4}/{st:<4} {sa:>5.1%}")
     if grand_total:
-        print("─" * 64)
+        print("─" * 78)
+        sa = grand_strokes_correct / grand_strokes if grand_strokes else 0.0
         print(
-            f"{'TOTAL':<14} {grand_total:>5} "
-            f"{grand_exact:>4}/{grand_total:<3} {grand_exact / grand_total:>5.1%} "
-            f"  {grand_norm:>4}/{grand_total:<3} {grand_norm / grand_total:>5.1%}"
-            f"   {grand_err:>4} {grand_time:>6.1f}s"
+            f"{'TOTAL':<12} {grand_total:>4}  "
+            f"{grand_exact:>3}/{grand_total:<3} {grand_exact / grand_total:>5.1%}   "
+            f"{grand_norm:>3}/{grand_total:<3} {grand_norm / grand_total:>5.1%}   "
+            f"{grand_strokes_correct:>4}/{grand_strokes:<4} {sa:>5.1%}"
         )
 
 
