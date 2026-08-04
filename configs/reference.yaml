@@ -66,6 +66,13 @@ grouper:
   # Spatial thresholds for classical grouper. Tune for your input scale.
   size_multiplier: 0.1
   min_merge_distance: 14.0
+
+  # Scales the merge-distance floor with handwriting size:
+  # floor = max(min_merge_distance, merge_distance_scale * median stroke
+  # diagonal). Keeps '=' bars mergeable at large canvas scales. 0 disables
+  # scaling (absolute min_merge_distance only).
+  merge_distance_scale: 0.35
+
   max_group_diameter_ratio: 2.2
   conflict_threshold: 0.32
 

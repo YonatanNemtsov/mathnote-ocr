@@ -57,6 +57,7 @@ class GrouperParams:
     max_strokes_per_symbol: int = 4
     size_multiplier: float = 0.1
     min_merge_distance: float = 14.0
+    merge_distance_scale: float = 0.35
     max_group_diameter_ratio: float = 2.2
     conflict_threshold: float = 0.32
     min_confidence: float = 0.15
@@ -76,6 +77,7 @@ class GrouperParams:
             max_strokes_per_symbol=get(cfg, "grouper.max_strokes_per_symbol", 4),
             size_multiplier=get(cfg, "grouper.size_multiplier", 0.1),
             min_merge_distance=get(cfg, "grouper.min_merge_distance", 14.0),
+            merge_distance_scale=get(cfg, "grouper.merge_distance_scale", 0.35),
             max_group_diameter_ratio=get(cfg, "grouper.max_group_diameter_ratio", 2.2),
             conflict_threshold=get(cfg, "grouper.conflict_threshold", 0.32),
             min_confidence=get(cfg, "classifier.min_confidence", 0.15),
@@ -307,6 +309,24 @@ def _max_merge_distance(
     """Max bbox gap for two strokes to be considered neighbours."""
     bigger = max(_stroke_diagonal(s1), _stroke_diagonal(s2))
     return max(size_mult * bigger, min_merge_distance)
+
+
+def _effective_min_merge_distance(
+    strokes: list[Stroke],
+    min_merge_distance: float,
+    merge_distance_scale: float,
+) -> float:
+    """Merge-distance floor scaled to the expression's writing size.
+
+    An absolute floor breaks at large canvas scales: the two bars of an
+    '=' drawn ~25px apart never become merge candidates. Scale the floor
+    by the median stroke diagonal so proximity follows handwriting size;
+    min_merge_distance stays the lower bound at small scales.
+    """
+    if not strokes or merge_distance_scale <= 0:
+        return min_merge_distance
+    diags = sorted(s.bbox.diagonal for s in strokes)
+    return max(min_merge_distance, merge_distance_scale * diags[len(diags) // 2])
 
 
 def _compute_neighbors(
@@ -663,12 +683,15 @@ def group_and_classify(
 
     # 1. Distances + neighbours
     t0 = time.perf_counter()
+    eff_min_merge = _effective_min_merge_distance(
+        strokes, params.min_merge_distance, params.merge_distance_scale
+    )
     distances = _compute_distance_matrix(strokes)
     neighbors = _compute_neighbors(
         strokes,
         distances,
         params.size_multiplier,
-        min_merge_distance=params.min_merge_distance,
+        min_merge_distance=eff_min_merge,
     )
     t_geo = time.perf_counter() - t0
 
@@ -690,7 +713,7 @@ def group_and_classify(
         params.max_strokes_per_symbol,
         params.size_multiplier,
         cache=cache,
-        min_merge_distance=params.min_merge_distance,
+        min_merge_distance=eff_min_merge,
         max_group_diameter_ratio=params.max_group_diameter_ratio,
     )
     if pinned_positions:
@@ -877,24 +900,52 @@ def _postprocess(symbols: list[DetectedSymbol]) -> list[DetectedSymbol]:
     return symbols
 
 
+def _nothing_between(a: DetectedSymbol, b: DetectedSymbol, symbols: list[DetectedSymbol]) -> bool:
+    """No other symbol occupies the vertical band between two stacked bars.
+
+    Distinguishes the two bars of an '=' (empty between) from a fraction's
+    bar plus another bar (numerator/denominator content between).
+    """
+    lo_cy, hi_cy = sorted((a.bbox.cy, b.bbox.cy))
+    left = min(a.bbox.x, b.bbox.x)
+    right = max(a.bbox.x2, b.bbox.x2)
+    for s in symbols:
+        if s is a or s is b:
+            continue
+        if lo_cy < s.bbox.cy < hi_cy and s.bbox.x < right and s.bbox.x2 > left:
+            return False
+    return True
+
+
 def _merge_equal(symbols: list[DetectedSymbol]) -> list[DetectedSymbol]:
-    """Two stacked '-' → '='."""
-    minuses = _by_symbol(symbols, "-")
-    if len(minuses) < 2:
+    """Two stacked bars → '='.
+
+    Accepts 'frac_bar' labels as bars too — a lone bar of an '=' frequently
+    classifies as frac_bar (measured 27% of '-' samples). _nothing_between
+    keeps genuine fraction bars (which always have content between) out.
+    """
+    bars = _by_symbol(symbols, "-") + _by_symbol(symbols, "frac_bar")
+    if len(bars) < 2:
         return symbols
+    bars.sort(key=lambda t: t[0])
     used: set[int] = set()
     merged: list[DetectedSymbol] = []
-    for ai in range(len(minuses)):
-        if minuses[ai][0] in used:
+    for ai in range(len(bars)):
+        if bars[ai][0] in used:
             continue
-        for bi in range(ai + 1, len(minuses)):
-            if minuses[bi][0] in used:
+        for bi in range(ai + 1, len(bars)):
+            if bars[bi][0] in used:
                 continue
-            a, b = minuses[ai][1], minuses[bi][1]
-            if _similar_width(a, b) and _horizontally_aligned(a, b) and _vertically_stacked(a, b):
+            a, b = bars[ai][1], bars[bi][1]
+            if (
+                _similar_width(a, b)
+                and _horizontally_aligned(a, b)
+                and _vertically_stacked(a, b)
+                and _nothing_between(a, b, symbols)
+            ):
                 merged.append(_merged_symbol([a, b], "="))
-                used.add(minuses[ai][0])
-                used.add(minuses[bi][0])
+                used.add(bars[ai][0])
+                used.add(bars[bi][0])
                 break
     if not used:
         return symbols
