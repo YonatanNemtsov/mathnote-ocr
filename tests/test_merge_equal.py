@@ -8,7 +8,11 @@ merge-distance floor.
 import pytest
 
 from mathnote_ocr.bbox import BBox
-from mathnote_ocr.engine.grouper import _effective_min_merge_distance, _merge_equal
+from mathnote_ocr.engine.grouper import (
+    _effective_min_merge_distance,
+    _merge_equal,
+    _merge_pm,
+)
 from mathnote_ocr.engine.stroke import Stroke, StrokePoint
 from mathnote_ocr.expression import DetectedSymbol
 
@@ -101,3 +105,32 @@ def test_e2e_equals_with_wide_gap():
     ocr = MathOCR()
     expr = ocr.detect([_hline(100), _hline(124)])
     assert expr.latex.strip() == "="
+
+
+# ── _merge_pm ────────────────────────────────────────────────────────
+
+
+def plus(x: float, y: float, w: float = 40.0) -> DetectedSymbol:
+    return DetectedSymbol(name="+", bbox=BBox(x, y, w, w), strokes=[], confidence=0.9)
+
+
+def test_merge_pm_minus():
+    out = _merge_pm([plus(0, 0), bar("-", 2, 50, 38)])
+    assert names(out) == ["pm"]
+
+
+def test_merge_pm_fracbar():
+    # The fix: the bar of a drawn 'pm' misclassified as frac_bar
+    out = _merge_pm([plus(0, 0), bar("frac_bar", 2, 50, 38)])
+    assert names(out) == ["pm"]
+
+
+def test_no_merge_pm_with_content_between():
+    content = DetectedSymbol(name="x", bbox=BBox(10, 45, 20, 25), strokes=[], confidence=0.9)
+    out = _merge_pm([plus(0, 0), content, bar("frac_bar", 2, 75, 38)])
+    assert "pm" not in names(out)
+
+
+def test_no_merge_pm_bar_above():
+    out = _merge_pm([bar("-", 2, 0, 38), plus(0, 10)])
+    assert "pm" not in names(out)

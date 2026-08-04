@@ -1027,15 +1027,20 @@ def _merge_neq(symbols: list[DetectedSymbol]) -> list[DetectedSymbol]:
 
 
 def _merge_pm(symbols: list[DetectedSymbol]) -> list[DetectedSymbol]:
-    """'+' with '-' below → 'pm'."""
+    """'+' with a bar below → 'pm'.
+
+    The bar accepts 'frac_bar' labels too (same misclassification as in
+    _merge_equal); _nothing_between keeps real fraction bars out.
+    """
     pluses = _by_symbol(symbols, "+")
-    minuses = _by_symbol(symbols, "-")
-    if not pluses or not minuses:
+    bars = _by_symbol(symbols, "-") + _by_symbol(symbols, "frac_bar")
+    if not pluses or not bars:
         return symbols
+    bars.sort(key=lambda t: t[0])
     used: set[int] = set()
     merged: list[DetectedSymbol] = []
     for pi, plus in pluses:
-        for mi, m in minuses:
+        for mi, m in bars:
             if mi in used:
                 continue
             if (
@@ -1043,6 +1048,7 @@ def _merge_pm(symbols: list[DetectedSymbol]) -> list[DetectedSymbol]:
                 and _horizontally_aligned(plus, m)
                 and m.bbox.cy > plus.bbox.cy
                 and _vertically_stacked(plus, m, gap_tol=0.8)
+                and _nothing_between(plus, m, symbols)
             ):
                 merged.append(_merged_symbol([plus, m], "pm"))
                 used.add(pi)
