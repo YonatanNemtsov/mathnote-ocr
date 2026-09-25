@@ -1,12 +1,29 @@
 #!/usr/bin/env python3
-"""Train the symbol classifier with prototype computation."""
+"""Train the symbol classifier with prototype computation.
 
-import sys
-from pathlib import Path
+Follows the package training-script standard (subset_train, gnn/train):
+run dir with train.log + config.json, checkpoint saved on every val
+improvement (with prototypes, so any saved checkpoint is usable for
+inference), true resume with optimizer/scheduler/epoch state.
 
+Usage:
+    python3.10 -m mathnote_ocr.classifier.train --run <run_name> \
+        --data data/runs/classifier/<run_name>/pool \
+        --canvas-size 32 --use-size-feat
+    # continue an existing run for 20 more epochs:
+    python3.10 -m mathnote_ocr.classifier.train --run <run_name> \
+        --data data/runs/classifier/<run_name>/pool --resume --epochs 20
+"""
+
+import argparse
 import json
+import logging
 import math
 import random
+import time
+from collections import Counter
+from datetime import datetime, timezone
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -18,9 +35,18 @@ from torchvision import transforms
 from mathnote_ocr import config
 from mathnote_ocr.classifier.model import SymbolCNNWithPrototypes
 from mathnote_ocr.classifier.stroke_augment import augment_strokes
-from mathnote_ocr.engine.checkpoint import _checkpoint_path, load_checkpoint, save_checkpoint
+from mathnote_ocr.engine.checkpoint import _checkpoint_path, save_checkpoint
 from mathnote_ocr.engine.renderer import render_strokes
 from mathnote_ocr.engine.stroke import Stroke
+
+log = logging.getLogger(__name__)
+
+
+def _default_device() -> torch.device:
+    # No MPS: slower than CPU at this model size (launch overhead)
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
 
 
 class SymbolDataset(Dataset):
@@ -123,11 +149,10 @@ def load_data(data_dirs: list[Path] | Path):
     if isinstance(data_dirs, Path):
         data_dirs = [data_dirs]
 
-    # Collect all (class_name, png_path) pairs across directories
     class_images: dict[str, list[Path]] = {}
     for data_dir in data_dirs:
         if not data_dir.exists():
-            print(f"  Skipping {data_dir} (does not exist)")
+            log.info("  Skipping %s (does not exist)", data_dir)
             continue
         symbol_dirs = sorted([d for d in data_dir.iterdir() if d.is_dir()])
         for symbol_dir in symbol_dirs:
@@ -142,7 +167,7 @@ def load_data(data_dirs: list[Path] | Path):
     label_names = sorted(class_images.keys())
     label_to_idx = {name: idx for idx, name in enumerate(label_names)}
 
-    print(f"Found {len(label_names)} classes from {len(data_dirs)} source(s)")
+    log.info("Found %d classes from %d source(s)", len(label_names), len(data_dirs))
 
     all_images = []
     all_labels = []
@@ -150,12 +175,12 @@ def load_data(data_dirs: list[Path] | Path):
     for name in label_names:
         images = class_images[name]
         label = label_to_idx[name]
-        print(f"  {name}: {len(images)} images")
+        log.info("  %s: %d images", name, len(images))
         for img_path in images:
             all_images.append(img_path)
             all_labels.append(label)
 
-    print(f"Total: {len(all_images)} images")
+    log.info("Total: %d images", len(all_images))
     return all_images, all_labels, label_names
 
 
@@ -166,7 +191,7 @@ def split_data(images, labels, train_ratio=0.8):
     images, labels = zip(*combined)
 
     split_idx = int(len(images) * train_ratio)
-    print(f"Train: {split_idx}, Val: {len(images) - split_idx}")
+    log.info("Train: %d, Val: %d", split_idx, len(images) - split_idx)
 
     return (
         list(images[:split_idx]),
@@ -177,126 +202,72 @@ def split_data(images, labels, train_ratio=0.8):
 
 
 def train(
-    model, train_loader, val_loader, device, label_names, epochs=15, lr=0.001, use_size_feat=False
-):
-    """Train the model, return best state dict and metrics."""
-    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
-    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=5)
+    run: str,
+    data_dirs: list[str | Path],
+    weights_dir: str | Path = "weights",
+    device: torch.device | None = None,
+    epochs: int = 15,
+    batch_size: int = 8,
+    lr: float = 0.001,
+    canvas_size: int = 128,
+    use_size_feat: bool = False,
+    seed: int | None = None,
+    threads: int = 4,
+    resume: bool = False,
+    reset_val: bool = False,
+) -> Path:
+    """Train the classifier. Returns the checkpoint path.
 
-    best_val_loss = float("inf")
-    best_val_acc = 0.0
-    best_state = None
+    With ``resume``, weights/optimizer/scheduler/epoch continue from the
+    existing checkpoint and ``epochs`` means additional epochs; canvas
+    size and size-feat flag are taken from the checkpoint. If the data's
+    class set differs from the checkpoint's, falls back to a warm start
+    (shape-compatible weights only, fresh optimizer).
+    """
+    seed = config.SEED if seed is None else seed
+    random.seed(seed)
+    torch.manual_seed(seed)
+    device = device or _default_device()
+    if device.type == "cpu":
+        # All-core parallelism is pure overhead at this model size
+        torch.set_num_threads(threads)
 
-    def _unpack(batch):
-        if use_size_feat:
-            imgs, lbls, sf = batch
-            return imgs, lbls, sf.float()
-        else:
-            imgs, lbls = batch
-            return imgs, lbls, None
-
-    for epoch in range(epochs):
-        # Train
-        model.train()
-        train_loss, train_correct, train_total = 0.0, 0, 0
-
-        for batch in train_loader:
-            images, labels, size_feats = _unpack(batch)
-            images, labels = images.to(device), labels.to(device)
-            if size_feats is not None:
-                size_feats = size_feats.to(device)
-            optimizer.zero_grad()
-            logits, _ = model(images, size_feats)
-            loss = criterion(logits, labels)
-            loss.backward()
-            optimizer.step()
-
-            train_loss += loss.item()
-            _, predicted = logits.max(1)
-            train_total += labels.size(0)
-            train_correct += predicted.eq(labels).sum().item()
-
-        train_acc = 100.0 * train_correct / train_total
-
-        # Validate
-        model.eval()
-        val_loss_sum, val_correct, val_total = 0.0, 0, 0
-
-        with torch.no_grad():
-            for batch in val_loader:
-                images, labels, size_feats = _unpack(batch)
-                images, labels = images.to(device), labels.to(device)
-                if size_feats is not None:
-                    size_feats = size_feats.to(device)
-                logits, _ = model(images, size_feats)
-                val_loss_sum += criterion(logits, labels).item()
-                _, predicted = logits.max(1)
-                val_total += labels.size(0)
-                val_correct += predicted.eq(labels).sum().item()
-
-        val_acc = 100.0 * val_correct / val_total
-        val_loss = val_loss_sum / len(val_loader)
-        scheduler.step(val_loss)
-
-        print(
-            f"Epoch {epoch + 1}/{epochs}: "
-            f"train_loss={train_loss / len(train_loader):.4f} "
-            f"train_acc={train_acc:.1f}% "
-            f"val_loss={val_loss:.4f} "
-            f"val_acc={val_acc:.1f}%"
-        )
-
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_val_acc = val_acc
-            best_state = {k: v.clone() for k, v in model.state_dict().items()}
-            print(f"  -> Best so far (val_loss: {val_loss:.4f}, val_acc: {val_acc:.1f}%)")
-
-    print(f"\nBest validation loss: {best_val_loss:.4f}")
-    return best_val_loss, best_val_acc, best_state
-
-
-class _Tee:
-    """Write to both a file and the original stream."""
-
-    def __init__(self, stream, log_file):
-        self._stream = stream
-        self._log = log_file
-
-    def write(self, data):
-        self._stream.write(data)
-        self._log.write(data)
-        self._log.flush()
-
-    def flush(self):
-        self._stream.flush()
-        self._log.flush()
-
-
-def main():
-    random.seed(config.SEED)
-    torch.manual_seed(config.SEED)
-
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-    else:
-        device = torch.device("cpu")
-
-    # Set up logging
-    run_dir = _checkpoint_path("classifier", args.run, weights_dir=args.weights_dir).parent
+    ckpt_path = _checkpoint_path("classifier", run, weights_dir=weights_dir)
+    run_dir = ckpt_path.parent
     run_dir.mkdir(parents=True, exist_ok=True)
-    log_path = run_dir / "train.log"
-    log_file = open(log_path, "a")
-    sys.stdout = _Tee(sys.__stdout__, log_file)
+    fh = logging.FileHandler(run_dir / "train.log", mode="a")
+    fh.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
+    )
+    logging.getLogger().addHandler(fh)
+    logging.getLogger().setLevel(logging.INFO)
 
-    print(f"Device: {device}\n")
+    resumed = None
+    if resume:
+        if ckpt_path.exists():
+            resumed = torch.load(ckpt_path, map_location=device, weights_only=False)
+        else:
+            log.info("--resume: no checkpoint at %s, starting fresh", ckpt_path)
 
-    # Load and split data
-    data_dirs = [Path(d) for d in args.data]
-    images, labels, label_names = load_data(data_dirs)
+    log.info("Run:    %s", run)
+    log.info("Device: %s (threads=%d)", device, threads)
+    log.info("Data:   %s", ", ".join(str(d) for d in data_dirs))
+
+    images, labels, label_names = load_data([Path(d) for d in data_dirs])
+
+    warm_start = False
+    if resumed is not None:
+        if resumed["label_names"] == label_names:
+            # True resume: model shape and flags come from the checkpoint
+            canvas_size = resumed.get("canvas_size", canvas_size)
+            use_size_feat = resumed.get("use_size_feat", use_size_feat)
+        else:
+            warm_start = True
+            log.info(
+                "Class set changed (%d ckpt vs %d data) — warm start, fresh optimizer",
+                len(resumed["label_names"]), len(label_names),
+            )
+
     train_images, train_labels, val_images, val_labels = split_data(images, labels)
 
     # Transforms — geometric augmentation is done at stroke level,
@@ -316,112 +287,182 @@ def main():
         ]
     )
 
-    # Stroke width range: 1.0-4.0 (default is 2.0)
     width_range = (1.0, 4.0)
-    print(f"Stroke width range: {width_range}")
+    log.info("Stroke width range: %s", width_range)
 
-    use_size = args.use_size_feat
     train_dataset = SymbolDataset(
         train_images,
         train_labels,
         train_transform,
         width_range=width_range,
         stroke_augment=True,
-        canvas_size=args.canvas_size,
-        use_size_feat=use_size,
+        canvas_size=canvas_size,
+        use_size_feat=use_size_feat,
     )
     val_dataset = SymbolDataset(
         val_images,
         val_labels,
         val_transform,
         width_range=(2.0, 2.0),  # fixed width for consistent val renders
-        canvas_size=args.canvas_size,
-        use_size_feat=use_size,
+        canvas_size=canvas_size,
+        use_size_feat=use_size_feat,
     )
 
     # Balanced sampling: weight each sample inversely by class frequency
-    from collections import Counter
-
     class_counts = Counter(train_labels)
     sample_weights = [1.0 / class_counts[label] for label in train_labels]
     sampler = WeightedRandomSampler(sample_weights, num_samples=len(train_labels), replacement=True)
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=sampler)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, sampler=sampler)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-    # Model
     model = SymbolCNNWithPrototypes(
         num_classes=len(label_names),
-        canvas_size=args.canvas_size,
-        use_size_feat=use_size,
+        canvas_size=canvas_size,
+        use_size_feat=use_size_feat,
     ).to(device)
-    param_count = sum(p.numel() for p in model.parameters())
-    print(f"Model parameters: {param_count:,}\n")
+    log.info("Model parameters: %s", f"{sum(p.numel() for p in model.parameters()):,}")
 
-    # Resume from checkpoint if requested
-    if args.resume:
-        try:
-            ckpt = load_checkpoint(
-                "classifier", args.run, device=device, weights_dir=args.weights_dir
-            )
-            state = ckpt["model_state_dict"]
-            # Filter out keys with shape mismatches (e.g. different num_classes)
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=5)
+
+    best_val_loss = float("inf")
+    best_epoch = None
+    start_epoch = 1
+    if resumed is not None:
+        if warm_start:
+            state = resumed["model_state_dict"]
             model_state = model.state_dict()
             compatible = {
-                k: v
-                for k, v in state.items()
+                k: v for k, v in state.items()
                 if k in model_state and v.shape == model_state[k].shape
             }
             skipped = set(state.keys()) - set(compatible.keys())
             model.load_state_dict(compatible, strict=False)
             if skipped:
-                print(f"  Skipped {len(skipped)} keys (shape mismatch): {skipped}")
-            print("Resumed from existing checkpoint\n")
-        except FileNotFoundError:
-            print("No checkpoint found to resume from.\n")
+                log.info("  Skipped %d keys (shape mismatch): %s", len(skipped), skipped)
+        else:
+            model.load_state_dict(resumed["model_state_dict"])
+            if "optimizer_state_dict" in resumed:
+                optimizer.load_state_dict(resumed["optimizer_state_dict"])
+            if "scheduler_state_dict" in resumed:
+                scheduler.load_state_dict(resumed["scheduler_state_dict"])
+            start_epoch = resumed.get("epoch", 0) + 1
+            if not reset_val:
+                best_val_loss = resumed.get("best_val_loss", float("inf"))
+            log.info(
+                "Resumed from epoch %d (best val_loss %.4f)", start_epoch - 1, best_val_loss
+            )
 
-    # Train
-    best_val_loss, best_val_acc, best_state = train(
-        model,
-        train_loader,
-        val_loader,
-        device,
-        label_names,
-        epochs=args.epochs,
-        lr=args.lr,
-        use_size_feat=use_size,
-    )
+    run_config = {
+        "data": [str(d) for d in data_dirs],
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "lr": lr,
+        "canvas_size": canvas_size,
+        "use_size_feat": use_size_feat,
+        "seed": seed,
+        "device": str(device),
+        "resumed_from_epoch": start_epoch - 1 if resumed is not None else None,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+    }
+    (run_dir / "config.json").write_text(json.dumps(run_config, indent=2) + "\n")
 
-    # Compute prototypes on training data using best weights
-    print("\nComputing prototypes...")
-    model.load_state_dict(best_state)
-    model.compute_prototypes(train_loader, device)
+    def _unpack(batch):
+        if use_size_feat:
+            imgs, lbls, sf = batch
+            return imgs, lbls, sf.float()
+        imgs, lbls = batch
+        return imgs, lbls, None
 
-    filepath = save_checkpoint(
-        "classifier",
-        args.run,
-        weights_dir=args.weights_dir,
-        state_dict={
-            "model_state_dict": model.state_dict(),
-            "label_names": label_names,
-            "prototypes": model.prototypes,
-            "canvas_size": args.canvas_size,
-            "use_size_feat": use_size,
-        },
-    )
-    print(f"\nModel with prototypes saved to: {filepath}")
-    print(f"Log: {log_path}")
-    sys.stdout = sys.__stdout__
-    log_file.close()
+    for epoch in range(start_epoch, start_epoch + epochs):
+        t0 = time.time()
+        model.train()
+        train_loss, train_correct, train_total = 0.0, 0, 0
+
+        for batch in train_loader:
+            images_b, labels_b, size_feats = _unpack(batch)
+            images_b, labels_b = images_b.to(device), labels_b.to(device)
+            if size_feats is not None:
+                size_feats = size_feats.to(device)
+            optimizer.zero_grad()
+            logits, _ = model(images_b, size_feats)
+            loss = criterion(logits, labels_b)
+            loss.backward()
+            optimizer.step()
+
+            train_loss += loss.item()
+            _, predicted = logits.max(1)
+            train_total += labels_b.size(0)
+            train_correct += predicted.eq(labels_b).sum().item()
+
+        train_acc = 100.0 * train_correct / train_total
+
+        model.eval()
+        val_loss_sum, val_correct, val_total = 0.0, 0, 0
+        with torch.no_grad():
+            for batch in val_loader:
+                images_b, labels_b, size_feats = _unpack(batch)
+                images_b, labels_b = images_b.to(device), labels_b.to(device)
+                if size_feats is not None:
+                    size_feats = size_feats.to(device)
+                logits, _ = model(images_b, size_feats)
+                val_loss_sum += criterion(logits, labels_b).item()
+                _, predicted = logits.max(1)
+                val_total += labels_b.size(0)
+                val_correct += predicted.eq(labels_b).sum().item()
+
+        val_acc = 100.0 * val_correct / val_total
+        val_loss = val_loss_sum / len(val_loader)
+        scheduler.step(val_loss)
+
+        log.info(
+            "Epoch %d/%d: train_loss=%.4f train_acc=%.1f%% val_loss=%.4f val_acc=%.1f%% (%ds)",
+            epoch, start_epoch + epochs - 1,
+            train_loss / len(train_loader), train_acc, val_loss, val_acc,
+            int(time.time() - t0),
+        )
+
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_epoch = epoch
+            # Prototypes recomputed each save so the checkpoint is always
+            # inference-ready, even if the run is interrupted later.
+            model.compute_prototypes(train_loader, device)
+            save_checkpoint(
+                "classifier",
+                run,
+                weights_dir=weights_dir,
+                state_dict={
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "scheduler_state_dict": scheduler.state_dict(),
+                    "label_names": label_names,
+                    "prototypes": model.prototypes,
+                    "canvas_size": canvas_size,
+                    "use_size_feat": use_size_feat,
+                    "epoch": epoch,
+                    "best_val_loss": best_val_loss,
+                    "val_acc": val_acc,
+                },
+            )
+            log.info("  -> Best (val_loss=%.4f, val_acc=%.1f%%) -> saved", val_loss, val_acc)
+
+    run_config["best_epoch"] = best_epoch
+    run_config["best_val_loss"] = round(best_val_loss, 6)
+    run_config["finished_at"] = datetime.now(timezone.utc).isoformat()
+    (run_dir / "config.json").write_text(json.dumps(run_config, indent=2) + "\n")
+    log.info("Best val_loss %.4f (epoch %s) -> %s", best_val_loss, best_epoch, ckpt_path)
+    return ckpt_path
 
 
-if __name__ == "__main__":
-    import argparse
-
-    ap = argparse.ArgumentParser()
+def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--run", type=str, default="default", help="Run name (saves to weights/classifier/<name>/)"
     )
-    ap.add_argument("--epochs", type=int, default=15)
+    ap.add_argument("--epochs", type=int, default=15, help="Epochs (additional when resuming)")
     ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--lr", type=float, default=0.001)
     ap.add_argument(
@@ -441,6 +482,29 @@ if __name__ == "__main__":
     ap.add_argument(
         "--use-size-feat", action="store_true", help="Pass relative symbol size to model"
     )
-    ap.add_argument("--resume", action="store_true", help="Resume from existing checkpoint")
+    ap.add_argument("--resume", action="store_true", help="Continue from existing checkpoint")
+    ap.add_argument("--reset-val", action="store_true", help="Reset best val loss when resuming")
+    ap.add_argument("--seed", type=int, default=None, help="Default: config.SEED")
+    ap.add_argument("--device", default=None, help="cpu | cuda | mps (default: auto)")
+    ap.add_argument("--threads", type=int, default=4, help="CPU torch threads (heat vs speed)")
     args = ap.parse_args()
+
+    train(
+        run=args.run,
+        data_dirs=args.data,
+        weights_dir=args.weights_dir,
+        device=torch.device(args.device) if args.device else None,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        lr=args.lr,
+        canvas_size=args.canvas_size,
+        use_size_feat=args.use_size_feat,
+        seed=args.seed,
+        threads=args.threads,
+        resume=args.resume,
+        reset_val=args.reset_val,
+    )
+
+
+if __name__ == "__main__":
     main()

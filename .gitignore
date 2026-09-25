@@ -36,6 +36,8 @@ data/shared/tree_handwritten/**/*.bak*
 !data/shared/tree_handwritten/**/*.jsonl
 !data/shared/tree_handwritten/**/*.json
 !data/shared/symbols/**/*.json
+# ...and label-patch journals (curation — must be versioned)
+!data/shared/patches/*.jsonl
 
 # macOS
 .DS_Store

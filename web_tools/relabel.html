@@ -1,0 +1,174 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>crop relabel</title>
+<style>
+  body { font: 13px -apple-system, sans-serif; margin: 0; display: flex; height: 100vh; background: #fafafa; }
+  #sidebar { width: 230px; overflow-y: auto; border-right: 1px solid #ddd; background: #fff; padding: 8px; }
+  #main { flex: 1; overflow-y: auto; padding: 14px; }
+  .cls { padding: 5px 8px; border-radius: 5px; cursor: pointer; display: flex; justify-content: space-between; }
+  .cls:hover { background: #f0f0f0; }
+  .cls.active { background: #e8f0fe; }
+  .cls .meta { color: #999; }
+  .cls .flag { color: #c0392b; }
+  .cls .done { color: #27ae60; }
+  #topbar { position: sticky; top: 0; background: #fafafa; padding-bottom: 10px; display: flex; gap: 8px; align-items: center; z-index: 2; }
+  button { font: 12px -apple-system, sans-serif; padding: 5px 10px; border: 1px solid #ccc; border-radius: 5px; background: #fff; cursor: pointer; }
+  button:hover { background: #f0f0f0; }
+  button.primary { background: #2c6bed; color: #fff; border-color: #2c6bed; }
+  .grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .card { background: #fff; border: 2px solid #ddd; border-radius: 7px; padding: 6px; width: 108px; text-align: center; }
+  .card.reviewed { border-color: #27ae60; }
+  .card canvas { background: #fff; }
+  .card .cap { font-size: 11px; color: #666; margin: 3px 0; }
+  .card .sugg { color: #c0392b; font-weight: bold; }
+  .card .final { color: #27ae60; font-weight: bold; }
+  .card .btns { display: flex; gap: 3px; justify-content: center; flex-wrap: wrap; }
+  .card .btns button { padding: 2px 6px; font-size: 11px; }
+  label.chk { color: #555; }
+</style>
+</head>
+<body>
+<div id="sidebar"></div>
+<div id="main">
+  <div id="topbar">
+    <b id="title">connecting…</b>
+    <label class="chk"><input type="checkbox" id="flaggedOnly" checked> flagged only</label>
+    <button class="primary" id="acceptAll">accept suggestion for all shown</button>
+    <button id="keepAll">keep label for all shown</button>
+  </div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+const ws = new WebSocket("ws://localhost:8772");
+let classes = [], current = null, crops = [];
+
+ws.onopen = () => ws.send(JSON.stringify({type: "init"}));
+ws.onmessage = (ev) => {
+  const msg = JSON.parse(ev.data);
+  if (msg.type === "init") { classes = msg.classes; renderSidebar(); }
+  if (msg.type === "crops") { crops = msg.crops; current = msg.label; renderGrid(); renderSidebar(); }
+  if (msg.type === "ack") { classes = msg.classes; renderSidebar(); }
+};
+
+function renderSidebar() {
+  const el = document.getElementById("sidebar");
+  el.innerHTML = "";
+  for (const c of classes) {
+    if (document.getElementById("flaggedOnly").checked && c.flagged === 0) continue;
+    const row = document.createElement("div");
+    row.className = "cls" + (c.label === current ? " active" : "");
+    row.innerHTML = `<span>${c.label}</span><span class="meta">${c.n}
+      ${c.flagged ? `· <span class="flag">${c.flagged}⚑</span>` : ""}
+      ${c.reviewed ? `· <span class="done">${c.reviewed}✓</span>` : ""}</span>`;
+    row.onclick = () => loadClass(c.label);
+    el.appendChild(row);
+  }
+}
+
+function loadClass(label) {
+  ws.send(JSON.stringify({type: "get_class", label,
+    only_flagged: document.getElementById("flaggedOnly").checked}));
+}
+document.getElementById("flaggedOnly").onchange = () => { renderSidebar(); if (current) loadClass(current); };
+
+function drawCrop(canvas, strokes) {
+  const ctx = canvas.getContext("2d");
+  const W = canvas.width, H = canvas.height, pad = 10;
+  const pts = strokes.flat();
+  if (!pts.length) return;
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const x0 = Math.min(...xs), y0 = Math.min(...ys);
+  const bw = Math.max(...xs) - x0 || 1, bh = Math.max(...ys) - y0 || 1;
+  const s = Math.min((W - 2 * pad) / bw, (H - 2 * pad) / bh);
+  const ox = (W - bw * s) / 2, oy = (H - bh * s) / 2;
+  ctx.clearRect(0, 0, W, H);
+  ctx.lineWidth = 1.8; ctx.lineCap = ctx.lineJoin = "round"; ctx.strokeStyle = "#222";
+  for (const stroke of strokes) {
+    ctx.beginPath();
+    stroke.forEach((p, i) => {
+      const x = ox + (p.x - x0) * s, y = oy + (p.y - y0) * s;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    });
+    ctx.stroke();
+  }
+}
+
+function verdictHtml(v) {
+  if (!v) return "";
+  if (v.action === "relabel") return `→ <span class="final">${v.new_label}</span>`;
+  if (v.action === "garbage") return `<span class="final">🗑</span>`;
+  return `<span class="final">kept</span>`;
+}
+
+function renderGrid() {
+  document.getElementById("title").textContent = `${current} — ${crops.length} shown`;
+  const grid = document.getElementById("grid");
+  grid.innerHTML = "";
+  for (const c of crops) {
+    const card = document.createElement("div");
+    card.className = "card" + (c.verdict ? " reviewed" : "");
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = 92;
+    card.appendChild(cv);
+    const cap = document.createElement("div");
+    cap.className = "cap";
+    cap.innerHTML = `${c.file.replace(".json", "")}
+      ${c.suggestion ? `<span class="sugg">${c.suggestion}?</span>` : ""}
+      <span class="v">${verdictHtml(c.verdict)}</span>`;
+    card.appendChild(cap);
+    const btns = document.createElement("div");
+    btns.className = "btns";
+    if (c.suggestion) {
+      const b = document.createElement("button");
+      b.textContent = "→ " + c.suggestion;
+      b.onclick = () => send([{label: current, file: c.file, action: "relabel", new_label: c.suggestion}], [c]);
+      btns.appendChild(b);
+    }
+    const keep = document.createElement("button");
+    keep.textContent = "keep";
+    keep.onclick = () => send([{label: current, file: c.file, action: "keep"}], [c]);
+    btns.appendChild(keep);
+    const other = document.createElement("button");
+    other.textContent = "✎";
+    other.onclick = () => {
+      const nl = prompt("new label for " + c.file, c.suggestion || "");
+      if (nl) send([{label: current, file: c.file, action: "relabel", new_label: nl}], [c]);
+    };
+    btns.appendChild(other);
+    const trash = document.createElement("button");
+    trash.textContent = "🗑";
+    trash.onclick = () => send([{label: current, file: c.file, action: "garbage"}], [c]);
+    btns.appendChild(trash);
+    card.appendChild(btns);
+    grid.appendChild(card);
+    drawCrop(cv, c.strokes);
+    c._card = card; c._cap = cap;
+  }
+}
+
+function send(items, affected) {
+  ws.send(JSON.stringify({type: "verdicts", items}));
+  for (let i = 0; i < items.length; i++) {
+    const c = affected[i];
+    c.verdict = items[i];
+    c._card.classList.add("reviewed");
+    c._cap.querySelector(".v").innerHTML = verdictHtml(items[i]);
+  }
+}
+
+document.getElementById("acceptAll").onclick = () => {
+  const todo = crops.filter(c => c.suggestion && !c.verdict);
+  if (todo.length && confirm(`relabel ${todo.length} crops to their suggestions?`))
+    send(todo.map(c => ({label: current, file: c.file, action: "relabel", new_label: c.suggestion})), todo);
+};
+document.getElementById("keepAll").onclick = () => {
+  const todo = crops.filter(c => !c.verdict);
+  if (todo.length && confirm(`mark ${todo.length} crops as keep?`))
+    send(todo.map(c => ({label: current, file: c.file, action: "keep"})), todo);
+};
+</script>
+</body>
+</html>
