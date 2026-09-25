@@ -6,6 +6,9 @@ Usage:
     python3.10 scripts/model_evaluation/eval_handwritten_e2e.py
     python3.10 scripts/model_evaluation/eval_handwritten_e2e.py --config default
     python3.10 scripts/model_evaluation/eval_handwritten_e2e.py --runs run_001 run_002 --verbose
+    # save predictions to compare two code versions:
+    python3.10 scripts/model_evaluation/eval_handwritten_e2e.py --dump tmp/before.jsonl
+    python3.10 scripts/diagnostics/diff_stroke_flips.py --dump-a tmp/before.jsonl --dump-b tmp/after.jsonl
 """
 
 import argparse
@@ -126,7 +129,12 @@ def main():
     )
     ap.add_argument("--verbose", action="store_true", help="Print every mismatch")
     ap.add_argument("--limit", type=int, default=0, help="Cap examples per run (0 = all)")
+    ap.add_argument("--dump", default=None, help="Write per-example predictions to this JSONL")
     args = ap.parse_args()
+    dump = None
+    if args.dump:
+        Path(args.dump).parent.mkdir(parents=True, exist_ok=True)
+        dump = open(args.dump, "w")
 
     print(f"Loading MathOCR(config={args.config!r}) ...")
     ocr = MathOCR(config=args.config)
@@ -187,6 +195,11 @@ def main():
                 n_strokes_total += 1
                 if pred_labels.get(sid) == gt_name:
                     n_strokes_correct += 1
+            if dump:
+                dump.write(json.dumps({
+                    "run": run, "idx": i, "gt": gt, "pred": pred,
+                    "strokes": {str(k): v for k, v in pred_labels.items()},
+                }) + "\n")
 
             if (i + 1) % 25 == 0:
                 print(f"  {i + 1}/{n} ...")

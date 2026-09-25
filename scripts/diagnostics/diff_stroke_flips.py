@@ -7,9 +7,13 @@ versa (wins), aggregated by GT class and by (GT -> wrong-pred) pair.
 Usage:
     python3.10 scripts/diagnostics/diff_stroke_flips.py \
         --config-a <a.yaml> --config-b <b.yaml> [--runs run_001 ...]
+    # or compare two code versions via eval_handwritten_e2e.py --dump files:
+    python3.10 scripts/diagnostics/diff_stroke_flips.py \
+        --dump-a before.jsonl --dump-b after.jsonl
 """
 
 import argparse
+import json
 import sys
 from collections import Counter
 from pathlib import Path
@@ -18,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "model_evaluatio
 from eval_handwritten_e2e import (  # noqa: E402
     gt_stroke_labels,
     load_examples,
+    normalize_latex,
     pred_stroke_labels,
     strokes_from_example,
 )
@@ -27,16 +32,27 @@ from mathnote_ocr import MathOCR  # noqa: E402
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--config-a", required=True, help="Baseline config (name or path)")
-    ap.add_argument("--config-b", required=True, help="Candidate config (name or path)")
+    ap.add_argument("--config-a", help="Baseline config (name or path)")
+    ap.add_argument("--config-b", help="Candidate config (name or path)")
+    ap.add_argument("--dump-a", help="Baseline predictions (eval_handwritten_e2e.py --dump)")
+    ap.add_argument("--dump-b", help="Candidate predictions (eval_handwritten_e2e.py --dump)")
     ap.add_argument("--runs", nargs="+", default=["run_001", "run_002", "run_003"])
     ap.add_argument("--data-dir", default="data/shared/tree_handwritten")
     ap.add_argument("--limit", type=int, default=0)
     args = ap.parse_args()
 
-    print(f"A = {args.config_a}\nB = {args.config_b}")
-    ocr_a = MathOCR(config=args.config_a)
-    ocr_b = MathOCR(config=args.config_b)
+    use_dumps = bool(args.dump_a and args.dump_b)
+    if not use_dumps and not (args.config_a and args.config_b):
+        ap.error("give --config-a/--config-b or --dump-a/--dump-b")
+    if use_dumps:
+        print(f"A = {args.dump_a}\nB = {args.dump_b}")
+        dumps = {tag: {(r["run"], r["idx"]): r for r in map(json.loads, open(path))}
+                 for tag, path in (("a", args.dump_a), ("b", args.dump_b))}
+    else:
+        print(f"A = {args.config_a}\nB = {args.config_b}")
+        ocr_a = MathOCR(config=args.config_a)
+        ocr_b = MathOCR(config=args.config_b)
+    expr_flips = []                # (run, idx, gt, a_pred, b_pred, a_ok, b_ok)
 
     per_class = Counter()          # gt -> total strokes
     a_ok = Counter()               # gt -> strokes A correct
@@ -60,11 +76,21 @@ def main() -> None:
             gt = gt_stroke_labels(ex)
             canvas = max(ex.get("canvas_width", 800), ex.get("canvas_height", 800))
             preds = {}
-            for tag, ocr in (("a", ocr_a), ("b", ocr_b)):
-                try:
-                    preds[tag] = pred_stroke_labels(ocr.detect(strokes, canvas_size=canvas))
-                except Exception:
-                    preds[tag] = {}
+            if use_dumps:
+                recs = {tag: dumps[tag].get((run, i)) for tag in ("a", "b")}
+                if not all(recs.values()):
+                    continue
+                for tag, r in recs.items():
+                    preds[tag] = {int(k): v for k, v in r["strokes"].items()}
+                ok = {tag: normalize_latex(r["pred"]) == normalize_latex(r["gt"]) for tag, r in recs.items()}
+                if ok["a"] != ok["b"]:
+                    expr_flips.append((run, i, ex["latex"], recs["a"]["pred"], recs["b"]["pred"], ok["a"], ok["b"]))
+            else:
+                for tag, ocr in (("a", ocr_a), ("b", ocr_b)):
+                    try:
+                        preds[tag] = pred_stroke_labels(ocr.detect(strokes, canvas_size=canvas))
+                    except Exception:
+                        preds[tag] = {}
             for sid, sym in gt.items():
                 pa = preds["a"].get(sid)
                 pb = preds["b"].get(sid)
@@ -97,6 +123,14 @@ def main() -> None:
     print("\ntop wins (gt -> A's wrong read):")
     for (sym, pa), c in win.most_common(10):
         print(f"  {c:4d}  {sym} -> {pa}")
+
+    if expr_flips:
+        fixed = sum(1 for f in expr_flips if f[6])
+        print(f"\nexpressions flipped (normalized match): {fixed} fixed by B, "
+              f"{len(expr_flips) - fixed} broken by B")
+        for run, i, gt, pa, pb, _oa, ob in expr_flips:
+            print(f"  {'FIXED ' if ob else 'BROKEN'} {run}#{i}  gt: {gt}\n"
+                  f"         A: {pa}\n         B: {pb}")
 
 
 if __name__ == "__main__":
