@@ -226,6 +226,31 @@ def _singleton_geo_mean(
     return product ** (1.0 / len(confs))
 
 
+def _singletons_can_coexist(
+    group: frozenset[int],
+    strokes: list[Stroke],
+    stroke_ids: list[int],
+    cache: "GrouperCache",
+) -> bool:
+    """True if *group*'s strokes could stand as separate symbols in one partition.
+
+    The singleton gate rejects a merge in favour of reading the strokes
+    separately — only meaningful when those separate symbols don't
+    conflict, since exact cover forbids conflicting symbols. The '-' and
+    '|' of a '+' cross at the same centre: rejecting '+' for them leaves
+    no cover at all. Uses the cover's own conflict rule.
+    """
+    members = []
+    for si in group:
+        sr = cache.get(frozenset([stroke_ids[si]]))
+        members.append((sr.symbol if sr else None, compute_bbox([strokes[si]])))
+    for a in range(len(members)):
+        for b in range(a + 1, len(members)):
+            if _symbols_clash(*members[a], *members[b]):
+                return False
+    return True
+
+
 class GrouperCache:
     """Classification cache keyed by stroke-id sets.
 
@@ -520,15 +545,7 @@ def _find_best_partitions(
             indices, conf, sym = scored_groups[gi]
 
             # Early conflict check against already-chosen symbols
-            # Skip for sqrt — its bbox naturally encloses the radicand
-            conflict = False
-            for existing in symbols:
-                if sym.name == "sqrt" or existing.name == "sqrt":
-                    continue
-                if _symbols_conflict(sym.bbox, existing.bbox):
-                    conflict = True
-                    break
-            if conflict:
+            if any(_symbols_clash(sym.name, sym.bbox, e.name, e.bbox) for e in symbols):
                 continue
 
             symbols.append(sym)
@@ -556,15 +573,38 @@ def _symbols_conflict(
     bbox1: BBox,
     bbox2: BBox,
     threshold: float = 0.32,
+    *,
+    scale_by_smaller: bool = False,
 ) -> bool:
-    """True if two symbol bboxes overlap AND centres are too close."""
+    """True if two symbol bboxes overlap AND centres are too close.
+
+    "Too close" is relative to the symbols' size: the average diagonal, or
+    with *scale_by_smaller* the smaller symbol's diagonal.
+    """
     if not _bboxes_overlap(bbox1, bbox2):
         return False
     dist = ((bbox1.cx - bbox2.cx) ** 2 + (bbox1.cy - bbox2.cy) ** 2) ** 0.5
-    avg_diag = (bbox1.diagonal + bbox2.diagonal) / 2
-    if avg_diag == 0:
+    if scale_by_smaller:
+        size = min(bbox1.diagonal, bbox2.diagonal)
+    else:
+        size = (bbox1.diagonal + bbox2.diagonal) / 2
+    if size == 0:
         return False
-    return (dist / avg_diag) < threshold
+    return (dist / size) < threshold
+
+
+def _symbols_clash(name_a: str | None, bbox_a: BBox, name_b: str | None, bbox_b: BBox) -> bool:
+    """Exact-cover rule: can these two symbols not both be in one partition?
+
+    sqrt never clashes — its bbox naturally encloses the radicand. With a
+    frac_bar, closeness is judged against the smaller symbol: a long bar's
+    diagonal inflates the average, so a small symbol touching the bar's
+    middle would otherwise clash (measured: GT unreachable in 15/285
+    handwritten exprs; scripts/diagnostics/conflict_rule_variants.py).
+    """
+    if "sqrt" in (name_a, name_b):
+        return False
+    return _symbols_conflict(bbox_a, bbox_b, scale_by_smaller="frac_bar" in (name_a, name_b))
 
 
 def _size_feat(group_strokes: list[Stroke], source_size: float) -> float:
@@ -766,7 +806,9 @@ def group_and_classify(
         # Multi-stroke merges either match a known stroke-decomposition
         # pattern (boost), or must beat the geometric mean of the singleton
         # confidences — otherwise two confident singletons would merge into
-        # an unlikely combined symbol (e.g. s+i → 'n').
+        # an unlikely combined symbol (e.g. s+i → 'n'). The gate only applies
+        # when the singletons could coexist; if they conflict, rejecting the
+        # merge leaves no valid reading of these strokes.
         if len(group) >= 2:
             pattern = _check_stroke_pattern(group, cache, strokes)
             if pattern and result.symbol in pattern:
@@ -775,7 +817,7 @@ def group_and_classify(
                     print(
                         f"  group {set(group)} → PATTERN BOOST '{result.symbol}' to {effective_conf:.3f}"
                     )
-            else:
+            elif _singletons_can_coexist(group, strokes, stroke_ids, cache):
                 geo_mean = _singleton_geo_mean(group, stroke_ids, cache, params)
                 if geo_mean is not None and effective_conf < geo_mean:
                     if debug:
