@@ -95,3 +95,22 @@ def test_marked_cases(ocr):
     random.seed(0)
     e = ocr.detect(strokes, structures=[Structure("grid", tuple(range(len(strokes))))])
     assert e.latex == r"\begin{cases} x & x > 0 \\ 0 & x < 0 \end{cases}"
+
+
+# Real marked grids from the web app (the writer's own strokes)
+REAL = json.loads((Path(__file__).parent / "fixtures" / "grids_handwritten.json").read_text())
+
+
+@pytest.mark.parametrize("name, latex", [
+    # the median height counted the parens themselves: ")" wasn't "tall",
+    # a lone "(" meant cases
+    ("column_vector", r"\begin{pmatrix} x \\ y \end{pmatrix}"),
+    # cases were forced to 2 columns: x above y became one row "y & x"
+    ("cases_one_column", r"\begin{cases} x \\ y \end{cases}"),
+])
+def test_real_single_column(ocr, name, latex):
+    ex = REAL[name]
+    strokes = [[tuple(p) for p in s] for s in ex["strokes"]]
+    random.seed(0)
+    e = ocr.detect(strokes, structures=[Structure("grid", tuple(ex["grid"]))], canvas_size=ex["canvas_size"])
+    assert e.latex == latex

@@ -6,18 +6,21 @@ grids are ambiguous (is `x  -1` one cell or two?), so it proposes candidate
 grids and picks the most reasonable one — the same generate-and-score
 pattern as the grouper and tree parser.
 
-  1. Delimiters: the tallest bracket-class symbol on each side, taller
-     than the content's typical symbol (it spans rows).
+  1. Delimiters: the outermost bracket-class symbol on each side, spanning
+     the content's height.
   2. Units: a fraction bar with its numerator and denominator, a radical
      with what's under it — never split across cells.
   3. Candidates: R rows (cut at the R-1 largest vertical gaps between unit
      centres) x C columns (each row cut at its C-1 largest gaps, plus
      variants that move a cut across an operator). Rectangular by
-     construction; cases have exactly 2 columns.
+     construction; cases have 1 or 2 columns.
   4. Score, lexicographically: fewest ill-formed cells (math grammar: no
      cell ends with an operator, starts with a binary one, or has two
-     operators in a row), then the cleanest gap separation (smallest gap
+     operators in a row), then — cases only — two columns (value &
+     condition) over one, then the cleanest gap separation (smallest gap
      used as a cut vs largest gap left inside a cell, rows and columns).
+     Gaps alone can't tell a cases' columns apart: the gap before the
+     condition is often no wider than those around its < or =.
 
 The tree parser's confidence can't judge cells: it is 1.0 even for "x +".
 """
@@ -40,6 +43,8 @@ ENV_BY_DELIMS = {("(", ")"): "pmatrix", ("[", "]"): "bmatrix", ("|", "|"): "vmat
 MAX_ROWS = 8
 MAX_COLS = 8
 MAX_VARIANTS = 16
+# A delimiter covers at least this fraction of the content's height
+DELIM_COVER = 0.7
 
 
 @dataclass
@@ -67,25 +72,45 @@ def _box(s):
 
 
 def _find_delimiters(symbols, kind: str) -> tuple[int | None, int | None]:
-    heights = [s.bbox.h for s in symbols]
-    typical = median(heights) if heights else 0
-    xs = [s.bbox.x + s.bbox.w / 2 for s in symbols]
-    mid = median(xs) if xs else 0
+    """The delimiters enclose the content: on each side, the outermost
+    bracket-class symbol (left of / right of every other symbol's centre)
+    spanning most of the content's height.
 
-    def tallest(names, side):
+    Judged against the content itself, not a typical symbol height: with
+    few symbols the delimiters skew any median (a column vector is two
+    parens and two letters).
+    """
+    brackets = LEFT | RIGHT
+    content = [s for s in symbols if s.name not in brackets] or list(symbols)
+    top = min((s.bbox.y for s in content), default=0)
+    bottom = max((s.bbox.y + s.bbox.h for s in content), default=0)
+
+    def find(names, side):
         best = None
         for i, s in enumerate(symbols):
+            if s.name not in names:
+                continue
             cx = s.bbox.x + s.bbox.w / 2
-            on_side = cx < mid if side == "L" else cx > mid
-            # A delimiter spans rows: clearly taller than a typical symbol
-            if s.name in names and on_side and s.bbox.h > 1.5 * typical:
-                if best is None or s.bbox.h > symbols[best].bbox.h:
-                    best = i
+            others = [o.bbox.x + o.bbox.w / 2 for j, o in enumerate(symbols) if j != i]
+            if not others or (cx >= min(others) if side == "L" else cx <= max(others)):
+                continue
+            covered = min(bottom, s.bbox.y + s.bbox.h) - max(top, s.bbox.y)
+            if covered < DELIM_COVER * (bottom - top):
+                continue
+            if best is None or s.bbox.h > symbols[best].bbox.h:
+                best = i
         return best
 
-    left = tallest(LEFT, "L")
-    right = None if kind == "cases" else tallest(RIGHT, "R")
+    left = find(LEFT, "L")
+    right = None if kind == "cases" else find(RIGHT, "R")
     return left, right
+
+
+def _spans_rows(symbols, i: int) -> bool:
+    """Clearly taller than the content's typical symbol."""
+    brackets = LEFT | RIGHT
+    heights = [s.bbox.h for j, s in enumerate(symbols) if j != i and s.name not in brackets]
+    return bool(heights) and symbols[i].bbox.h > 1.5 * median(heights)
 
 
 # ── 2. Units ─────────────────────────────────────────────────────────
@@ -180,7 +205,8 @@ def _row_splits(row: list[int], boxes, n_cols: int, names) -> list[list[list[int
         options.append(sorted(alts))
     splits = []
     for combo in itertools.islice(itertools.product(*options), MAX_VARIANTS):
-        if len(set(combo)) != len(combo):
+        # Cells sit side by side: a cut where units overlap isn't a column break
+        if len(set(combo)) != len(combo) or any(width[k] <= 0 for k in combo):
             continue
         cells, start = [], 0
         for k in sorted(combo):
@@ -260,11 +286,16 @@ def split_grid(symbols, kind: str = "auto", n_alternatives: int | None = 5) -> G
     is None).
     """
     if kind == "auto":
-        # A left delimiter with no right partner can only be cases — whatever
-        # the classifier called it (a tall hand-drawn { is often read as |)
+        # A left delimiter with no right partner is cases — whatever the
+        # classifier called it (a tall hand-drawn { is often read as |) —
+        # if it is a brace or spans rows; a bracket of row height with no
+        # partner is just content (|x| at the start of a row)
         left, right = _find_delimiters(symbols, "matrix")
-        kind = "cases" if left is not None and right is None else "matrix"
+        lone = left is not None and right is None
+        kind = "cases" if lone and (symbols[left].name == "lbrace" or _spans_rows(symbols, left)) else "matrix"
     left, right = _find_delimiters(symbols, kind)
+    if kind != "cases" and (left is None) != (right is None):
+        left = right = None   # a matrix's delimiters come in pairs
     content = [i for i in range(len(symbols)) if i not in (left, right)]
     units = _units(symbols, content)
     boxes = [_unit_box(symbols, u) for u in units]
@@ -287,7 +318,7 @@ def split_grid(symbols, kind: str = "auto", n_alternatives: int | None = 5) -> G
     for rows in _row_candidates(boxes) if boxes else [[]]:
         rows = [r for r in rows if r]
         max_c = min(len(r) for r in rows) if rows else 1
-        col_counts = [2] if kind == "cases" else range(1, min(MAX_COLS, max_c) + 1)
+        col_counts = range(1, min(2 if kind == "cases" else MAX_COLS, max_c) + 1)
         for n_cols in col_counts:
             per_row = [_row_splits(r, boxes, n_cols, unit_name) for r in rows]
             if any(not p for p in per_row):
@@ -299,12 +330,13 @@ def split_grid(symbols, kind: str = "auto", n_alternatives: int | None = 5) -> G
                 seen.add(key)
                 grid_rows = [list(row) for row in choice]
                 bad = sum(not _well_formed(seq(c)) for row in grid_rows for c in row)
-                candidates.append((bad, _separation(grid_rows, boxes), grid_rows))
+                one_col = kind == "cases" and n_cols == 1
+                candidates.append((bad, one_col, _separation(grid_rows, boxes), grid_rows))
 
-    candidates.sort(key=lambda c: (c[0], -c[1]))
+    candidates.sort(key=lambda c: (c[0], c[1], -c[2]))
 
     def to_grid(cand) -> Grid:
-        bad, sep, grid_rows = cand
+        bad, _one_col, sep, grid_rows = cand
         cells = [[sorted(i for u in cell for i in units[u]) for cell in row] for row in grid_rows]
         return Grid(env=env, left=left, right=right, cells=cells, ill_formed=bad, separation=sep)
 
