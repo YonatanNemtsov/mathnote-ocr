@@ -13,6 +13,8 @@ latex_to_tree: clean LaTeX string → Tree
 
 from __future__ import annotations
 
+from contextvars import ContextVar
+
 from mathnote_ocr.bbox import BBox
 from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Edge, Node, Symbol, SymbolId, Tree
 
@@ -122,9 +124,22 @@ def _sym_to_latex(name: str) -> str:
 # ── Tree → LaTeX ────────────────────────────────────────────────────
 
 
-def tree_to_latex(tree: Tree) -> str:
-    """Convert a tree to a clean LaTeX string."""
-    return _render_siblings(tree, tree.root_ids())
+# LaTeX of atom nodes (e.g. a marked matrix, node name "grid") for the
+# render in progress — set by tree_to_latex, read by _render_node.
+_ATOMS: ContextVar[dict] = ContextVar("tree_latex_atoms", default={})
+
+
+def tree_to_latex(tree: Tree, atoms: dict[SymbolId, str] | None = None) -> str:
+    """Convert a tree to a clean LaTeX string.
+
+    *atoms* maps atom node ids (nodes named "grid") to the LaTeX they stand
+    for, e.g. a \\begin{pmatrix}...\\end{pmatrix} block.
+    """
+    token = _ATOMS.set(atoms or {})
+    try:
+        return _render_siblings(tree, tree.root_ids())
+    finally:
+        _ATOMS.reset(token)
 
 
 def _find_matched_parens(tree: Tree, ids: tuple[SymbolId, ...]) -> set[int]:
@@ -225,6 +240,12 @@ _SUP_SUB = {Edge.SUP, Edge.SUB}
 
 def _render_node(tree: Tree, sid: SymbolId) -> str:
     name = tree[sid].symbol.name
+
+    # Atom standing for a separately parsed block (a marked matrix/cases):
+    # its LaTeX comes from the caller; it can still carry sup/sub (A^{T}).
+    if name == "grid":
+        rendered = _render_sup_sub(tree, sid, _ATOMS.get().get(sid, ""))
+        return rendered + _render_unhandled(tree, sid, _SUP_SUB)
 
     # Synthetic `expr` node — transparent group. Render children inline.
     # Used by the pin connectedness enforcement to attach a common parent

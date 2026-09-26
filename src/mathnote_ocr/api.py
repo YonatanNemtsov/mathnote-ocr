@@ -17,10 +17,12 @@ from mathnote_ocr.engine.grouper import (
     GrouperParams,
     group_and_classify,
 )
-from mathnote_ocr.engine.stroke import Stroke, StrokePoint
-from mathnote_ocr.expression import DetectedSymbol, Expression, empty_expression
+from mathnote_ocr.engine.stroke import Stroke, StrokePoint, compute_bbox
+from mathnote_ocr.expression import DetectedSymbol, Expression, GridBlock, empty_expression
 from mathnote_ocr.pin import PinnedTree
 from mathnote_ocr.pipeline_config import get, load_config
+from mathnote_ocr.structures import Structure
+from mathnote_ocr.structures.grid import split_grid
 from mathnote_ocr.tree_parser.inference import SubsetTreeParser
 from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID
 
@@ -95,6 +97,7 @@ class MathOCR:
         canvas_size: int | None = None,
         top_k: int = 1,
         pins: Sequence[PinnedTree] | None = None,
+        structures: Sequence[Structure] | None = None,
     ) -> Expression:
         """Detect a math expression from strokes.
 
@@ -109,6 +112,10 @@ class MathOCR:
             pins: Optional list of constraint pins. Build each with
                 ``PinnedTree.build(...)``. Pin stroke ids must reference
                 strokes in the input.
+            structures: Optional user-marked regions, e.g.
+                ``Structure("grid", stroke_ids)`` for a matrix / cases:
+                split into cells and treated as one atom in the expression
+                (see Expression.grids).
 
         Returns:
             An Expression. Empty Expression (``len(expr) == 0``) when
@@ -120,6 +127,7 @@ class MathOCR:
             canvas_size=canvas_size,
             top_k=top_k,
             pins=pins,
+            structures=structures,
         )
 
     def _detect_with_cache(
@@ -130,6 +138,7 @@ class MathOCR:
         canvas_size: int | None = None,
         top_k: int = 1,
         pins: Sequence[PinnedTree] | None = None,
+        structures: Sequence[Structure] | None = None,
     ) -> Expression:
         """Detection with an explicit cache. Used by Session to reuse
         classification results across calls. Not part of the public API."""
@@ -142,6 +151,8 @@ class MathOCR:
 
         cs = canvas_size if canvas_size is not None else _autocanvas(stroke_objs, self._default_canvas_size)
         k = max(1, top_k)
+        if structures:
+            return self._detect_with_structures(stroke_objs, cache, cs, pins, structures)
 
         partitions = group_and_classify(
             stroke_objs,
@@ -188,7 +199,119 @@ class MathOCR:
         )
 
 
+    def _detect_with_structures(
+        self,
+        stroke_objs: list[Stroke],
+        cache: GrouperCache,
+        cs: float,
+        pins: Sequence[PinnedTree] | None,
+        structures: Sequence[Structure],
+    ) -> Expression:
+        """Detection with marked regions (grids).
+
+        Each region's strokes are grouped and classified on their own (no
+        symbol straddles its border), split into cells, and every cell is
+        parsed. The rest is parsed with each region as one "expression"
+        atom — the parser's token for a collapsed sub-expression — renamed
+        "grid" in the result and rendered from its GridBlock. Alternative
+        splits of the first region become Expression.alternatives.
+        """
+        by_id = {s.id: s for s in stroke_objs}
+        claimed: set[int] = set()
+        regions = []
+        for st in structures:
+            unknown = [i for i in st.stroke_ids if i not in by_id]
+            if unknown:
+                raise ValueError(f"structure references unknown stroke ids {unknown}")
+            ids = [i for i in st.stroke_ids if i not in claimed]
+            if ids:
+                claimed.update(ids)
+                regions.append((st, ids))
+        pin_list = list(pins) if pins else []
+
+        def pins_within(idset: set[int]):
+            inside = [p for p in pin_list if _pin_stroke_ids(p) <= idset]
+            return inside or None
+
+        def best_partition(strokes_: list[Stroke]) -> list[DetectedSymbol]:
+            if not strokes_:
+                return []
+            parts = group_and_classify(
+                strokes_, self.classifier, params=self.grouper_params, cache=cache,
+                source_size=cs, top_k=1, pins=pins_within({s.id for s in strokes_}),
+            )
+            return list(parts[0]) if parts else []
+
+        # Each region: its symbols and its ranked grid splits
+        region_data = []
+        for st, ids in regions:
+            syms = best_partition([by_id[i] for i in ids])
+            kind = st.kind if st.kind in ("matrix", "cases") else "auto"
+            g = split_grid(syms, kind=kind, n_alternatives=2)
+            region_data.append((ids, syms, [g] + g.alternatives))
+
+        outer = [s for s in stroke_objs if s.id not in claimed]
+        outer_syms = best_partition(outer)
+        outer_pins = pins_within({s.id for s in outer})
+        cell_cache: dict = {}
+
+        def cell_latex(r: int, syms: list[DetectedSymbol], cell: list[int]) -> str:
+            key = (r, tuple(sorted(cell)))
+            if key not in cell_cache:
+                cs_ = sorted((syms[j] for j in cell), key=lambda s: s.bbox.x)
+                cell_cache[key] = self.tree_parser.parse_with_tree(cs_, None)[0] if cs_ else ""
+            return cell_cache[key]
+
+        def build(variant: int) -> Expression:
+            atoms = [
+                DetectedSymbol(name="expression", bbox=compute_bbox([by_id[i] for i in ids]),
+                               strokes=[by_id[i] for i in ids], confidence=1.0)
+                for ids, _syms, _grids in region_data
+            ]
+            parser_input = sorted(outer_syms + atoms, key=lambda s: s.bbox.x)
+            _latex, parse_conf, tree, _ev = self.tree_parser.parse_with_tree(parser_input, outer_pins)
+            atom_pos = {id(a): i for i, a in enumerate(parser_input) if any(a is b for b in atoms)}
+            symbols = {i: s for i, s in enumerate(parser_input) if id(s) not in atom_pos}
+            next_id = len(parser_input)
+            grids: dict[int, GridBlock] = {}
+            for r, (atom, (ids, syms, splits)) in enumerate(zip(atoms, region_data)):
+                aid = atom_pos[id(atom)]
+                tree = tree.rename_node(aid, "grid")
+                local = {}
+                for j, sym in enumerate(syms):
+                    symbols[next_id] = sym
+                    local[j] = next_id
+                    next_id += 1
+                g = splits[min(variant, len(splits) - 1)] if r == 0 else splits[0]
+                grids[aid] = GridBlock(
+                    env=g.env,
+                    cells=tuple(tuple(tuple(local[j] for j in cell) for cell in row) for row in g.cells),
+                    cell_latex=tuple(tuple(cell_latex(r, syms, cell) for cell in row) for row in g.cells),
+                    bbox=atom.bbox,
+                )
+            covered = {st.id for s in symbols.values() for st in s.strokes}
+            conf = _geomean_confidence(list(symbols.values())) * parse_conf
+            return Expression(
+                strokes=stroke_objs, symbols=symbols, tree=tree, confidence=round(conf, 4),
+                unexplained_stroke_ids=[s.id for s in stroke_objs if s.id not in covered],
+                grids=grids,
+            )
+
+        best = build(0)
+        n_variants = len(region_data[0][2]) if region_data else 1
+        best.alternatives = [build(v) for v in range(1, n_variants)]
+        return best
+
+
 # ── Helpers ──────────────────────────────────────────────────────────
+
+
+def _pin_stroke_ids(pin) -> set[int]:
+    return {
+        sid for node_id, node in pin.nodes.items() if node_id != ROOT_ID
+        for sid in node.symbol.stroke_ids
+    }
+
 
 
 def _normalize_strokes(strokes) -> list[Stroke]:
@@ -343,6 +466,7 @@ class Session:
         stroke_ids: Sequence[int] | None = None,
         pins: Sequence[PinnedTree] | None = None,
         top_k: int = 1,
+        structures: Sequence[Structure] | None = None,
     ) -> Expression:
         """Run detection on session strokes.
 
@@ -352,6 +476,8 @@ class Session:
             pins: Optional list of constraint pins for this call. Each pin's
                 stroke ids must be in the detection subset.
             top_k: How many candidate partitions to consider.
+            structures: Marked regions (e.g. Structure("grid", ids)); ids
+                must be in the detection subset.
         """
         if stroke_ids is None:
             strokes = list(self._strokes.values())
@@ -368,4 +494,5 @@ class Session:
             canvas_size=self.canvas_size,
             top_k=top_k,
             pins=pins,
+            structures=structures,
         )

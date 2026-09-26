@@ -204,10 +204,10 @@ class Tree:
             if sid != ROOT_ID
         }
 
-    def to_latex(self) -> str:
-        """Render this tree to a LaTeX string."""
+    def to_latex(self, atoms: dict | None = None) -> str:
+        """Render this tree to a LaTeX string (*atoms*: LaTeX of "grid" nodes)."""
         from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
-        return tree_to_latex(self)
+        return tree_to_latex(self, atoms)
 
     # ── Comparison ───────────────────────────────────────────────────
 

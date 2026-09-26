@@ -14,6 +14,11 @@ new symbols dict is shallow-copied, unchanged DetectedSymbol objects are reused)
 
 An "empty" Expression is returned when nothing was detected. Use
 ``if expr:`` or ``len(expr)`` to check.
+
+Marked grids (matrix / cases): ``Expression.grids`` maps a tree node named
+"grid" — an atom with no DetectedSymbol of its own — to a GridBlock. The
+symbols inside the grid are ordinary entries of ``symbols`` (so corrections
+work on them); the block records which cell each belongs to.
 """
 
 from __future__ import annotations
@@ -29,6 +34,39 @@ from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
 
 if TYPE_CHECKING:
     from mathnote_ocr.tree_parser.tree_v2 import Tree
+
+
+@dataclass(frozen=True)
+class GridBlock:
+    """A marked matrix / cases region, split into cells.
+
+    cells: rows x cols x symbol ids (keys of Expression.symbols).
+    cell_latex: each cell's LaTeX (its own parse).
+    """
+
+    env: str                               # pmatrix / bmatrix / vmatrix / matrix / cases
+    cells: tuple[tuple[tuple[int, ...], ...], ...]
+    cell_latex: tuple[tuple[str, ...], ...]
+    bbox: BBox
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        return len(self.cells), max((len(r) for r in self.cells), default=0)
+
+    @property
+    def latex(self) -> str:
+        rows = [" & ".join(row) for row in self.cell_latex]
+        return f"\\begin{{{self.env}}} " + " \\\\ ".join(rows) + f" \\end{{{self.env}}}"
+
+    def to_dict(self) -> dict:
+        return {
+            "env": self.env,
+            "shape": list(self.shape),
+            "cells": [[list(c) for c in row] for row in self.cells],
+            "cell_latex": [list(row) for row in self.cell_latex],
+            "bbox": {"x": self.bbox.x, "y": self.bbox.y, "w": self.bbox.w, "h": self.bbox.h},
+            "latex": self.latex,
+        }
 
 
 @dataclass(frozen=True)
@@ -59,6 +97,8 @@ class Expression:
     # covers every stroke: the result is then partial, and these strokes
     # are the ones the engine couldn't place.
     unexplained_stroke_ids: list[int]
+    # Marked grids: tree node id of the "grid" atom -> its block
+    grids: dict[int, GridBlock]
 
     def __init__(
         self,
@@ -68,6 +108,7 @@ class Expression:
         confidence: float = 0.0,
         alternatives: list[Expression] | None = None,
         unexplained_stroke_ids: list[int] | None = None,
+        grids: dict[int, GridBlock] | None = None,
     ) -> None:
         self.strokes = strokes
         self.symbols = symbols
@@ -75,12 +116,15 @@ class Expression:
         self.confidence = confidence
         self.alternatives = alternatives or []
         self.unexplained_stroke_ids = unexplained_stroke_ids or []
+        self.grids = grids or {}
 
     # ── Derived ──────────────────────────────────────────────────────
 
     @cached_property
     def latex(self) -> str:
-        return self.tree.to_latex() if self.tree else ""
+        if not self.tree:
+            return ""
+        return self.tree.to_latex({aid: g.latex for aid, g in self.grids.items()})
 
     # ── Query ────────────────────────────────────────────────────────
 
@@ -114,6 +158,7 @@ class Expression:
         return Expression(
             self.strokes, new_symbols, new_tree, self.confidence,
             unexplained_stroke_ids=self.unexplained_stroke_ids,
+            grids=self.grids,
         )
 
     # ── Serialization ────────────────────────────────────────────────
@@ -137,6 +182,7 @@ class Expression:
             ],
             "tree": self.tree.to_rows() if self.tree is not None else {},
             "unexplained_stroke_ids": list(self.unexplained_stroke_ids),
+            "grids": [{"atom_id": aid, **g.to_dict()} for aid, g in self.grids.items()],
         }
 
 
