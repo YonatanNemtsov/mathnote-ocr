@@ -254,15 +254,16 @@ def _separation(rows: list[list[list[int]]], boxes) -> float:
 
 def split_grid(symbols, kind: str = "auto", n_alternatives: int | None = 5) -> Grid:
     """*kind*: "matrix" (delimiters decide p/b/vmatrix), "cases", or "auto"
-    (a lone left brace means cases, anything else a matrix).
+    (a lone left delimiter means cases, anything else a matrix).
 
     The runners-up are kept in .alternatives (all of them if n_alternatives
     is None).
     """
     if kind == "auto":
+        # A left delimiter with no right partner can only be cases — whatever
+        # the classifier called it (a tall hand-drawn { is often read as |)
         left, right = _find_delimiters(symbols, "matrix")
-        lone_brace = left is not None and symbols[left].name == "lbrace" and right is None
-        kind = "cases" if lone_brace else "matrix"
+        kind = "cases" if left is not None and right is None else "matrix"
     left, right = _find_delimiters(symbols, kind)
     content = [i for i in range(len(symbols)) if i not in (left, right)]
     units = _units(symbols, content)

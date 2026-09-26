@@ -72,3 +72,26 @@ def test_unknown_structure_stroke_raises(ocr):
     strokes = matrix(200, 100, ENTRIES)
     with pytest.raises(ValueError):
         ocr.detect(strokes, structures=[Structure("grid", (999,))])
+
+
+def cases(x0, y0, rows, h=36, row=64):
+    out = glyph("lbrace", x0, y0 - 8, len(rows) * row, 0.5)
+    for r, (value, cond) in enumerate(rows):
+        cx = x0 + 45
+        for n in value:
+            out += glyph(n, cx, y0 + r * row, h)
+            cx += h * 0.8
+        cx = x0 + 190
+        for n in cond:
+            small = n in "<>"
+            out += glyph(n, cx, y0 + r * row + (8 if small else 0), h * (0.7 if small else 1))
+            cx += h * 0.9
+    return out
+
+
+def test_marked_cases(ocr):
+    """A lone left delimiter means cases — even when the tall { reads as |."""
+    strokes = cases(100, 80, [(["x"], ["x", ">", "0"]), (["0"], ["x", "<", "0"])])
+    random.seed(0)
+    e = ocr.detect(strokes, structures=[Structure("grid", tuple(range(len(strokes))))])
+    assert e.latex == r"\begin{cases} x & x > 0 \\ 0 & x < 0 \end{cases}"
