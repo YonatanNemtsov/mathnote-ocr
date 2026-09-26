@@ -55,6 +55,10 @@ class Expression:
     tree: Tree | None
     confidence: float
     alternatives: list[Expression]
+    # Stroke ids no symbol accounts for. Non-empty only when no reading
+    # covers every stroke: the result is then partial, and these strokes
+    # are the ones the engine couldn't place.
+    unexplained_stroke_ids: list[int]
 
     def __init__(
         self,
@@ -63,12 +67,14 @@ class Expression:
         tree: Tree | None,
         confidence: float = 0.0,
         alternatives: list[Expression] | None = None,
+        unexplained_stroke_ids: list[int] | None = None,
     ) -> None:
         self.strokes = strokes
         self.symbols = symbols
         self.tree = tree
         self.confidence = confidence
         self.alternatives = alternatives or []
+        self.unexplained_stroke_ids = unexplained_stroke_ids or []
 
     # ── Derived ──────────────────────────────────────────────────────
 
@@ -105,7 +111,10 @@ class Expression:
         )
         new_symbols = {**self.symbols, sym_id: new_sym}
         new_tree = self.tree.rename_node(sym_id, new_name) if self.tree else None
-        return Expression(self.strokes, new_symbols, new_tree, self.confidence)
+        return Expression(
+            self.strokes, new_symbols, new_tree, self.confidence,
+            unexplained_stroke_ids=self.unexplained_stroke_ids,
+        )
 
     # ── Serialization ────────────────────────────────────────────────
 
@@ -127,6 +136,7 @@ class Expression:
                 for sid, s in self.symbols.items()
             ],
             "tree": self.tree.to_rows() if self.tree is not None else {},
+            "unexplained_stroke_ids": list(self.unexplained_stroke_ids),
         }
 
 

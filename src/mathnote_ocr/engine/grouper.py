@@ -163,6 +163,12 @@ _STROKE_PATTERNS: dict[tuple[str, ...], set[str]] = {
 
 _HEURISTIC_BOOST = 0.85
 
+# Exact-cover fallback: when no partition covers every stroke, retry
+# allowing up to this many strokes to stay unexplained (fewest first).
+# Bounds the fallback's search cost; measured on the 19 pre-fix empty
+# detections, 1 skip always sufficed (median 0.3 ms, max 7 ms).
+_MAX_SKIPS = 3
+
 
 def _check_stroke_pattern(
     group: frozenset[int],
@@ -503,6 +509,11 @@ def _find_best_partitions(
     Algorithm X style: pick the most constrained uncovered stroke
     (fewest valid groups), try each group, recurse.
 
+    If no full cover exists, falls back to covers that leave strokes
+    unexplained — the fewest possible (1, then 2, ... up to _MAX_SKIPS),
+    ranked by score as usual. Skipped strokes are simply absent from the
+    returned symbols; callers derive them from what the symbols cover.
+
     *initial_covered* and *initial_symbols* let the caller pre-fix part
     of the partition (used by pin support — pinned strokes are already
     resolved before exact cover runs).
@@ -519,6 +530,7 @@ def _find_best_partitions(
         uncovered: frozenset[int],
         symbols: list[DetectedSymbol],
         score: float,
+        skips_left: int,
     ) -> None:
         if len(results) >= max_results:
             return
@@ -527,16 +539,15 @@ def _find_best_partitions(
             return
 
         # Pick stroke with fewest valid groups (most constrained first)
+        best_s = -1
         best_valid: list[int] = []
         best_count = len(scored_groups) + 1
         for s in uncovered:
             valid = [g for g in stroke_to_groups[s] if scored_groups[g][0] <= uncovered]
             if len(valid) < best_count:
+                best_s = s
                 best_count = len(valid)
                 best_valid = valid
-
-        if not best_valid:
-            return  # dead end
 
         # Try groups in descending confidence order
         best_valid.sort(key=lambda g: scored_groups[g][1], reverse=True)
@@ -549,11 +560,21 @@ def _find_best_partitions(
                 continue
 
             symbols.append(sym)
-            search(uncovered - indices, symbols, score * conf)
+            search(uncovered - indices, symbols, score * conf, skips_left)
             symbols.pop()
 
+        # Fallback only: leave this stroke unexplained
+        if skips_left > 0:
+            search(uncovered - {best_s}, symbols, score, skips_left - 1)
+
     seed_symbols = list(initial_symbols) if initial_symbols else []
-    search(frozenset(range(n)) - initial_covered, seed_symbols, 1.0)
+    start = frozenset(range(n)) - initial_covered
+    # Iterative deepening: the first budget that yields any cover gives the
+    # fewest unexplained strokes (every cover at a lower budget failed).
+    for budget in range(min(_MAX_SKIPS, len(start)) + 1):
+        search(start, seed_symbols, 1.0, budget)
+        if results:
+            break
     results.sort(
         key=lambda x: x[0] ** (1.0 / max(len(x[1]), 1)),
         reverse=True,

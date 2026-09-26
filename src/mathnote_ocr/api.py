@@ -153,7 +153,10 @@ class MathOCR:
             pins=list(pins) if pins else None,
         )
         if not partitions:
-            return Expression(strokes=stroke_objs, symbols={}, tree=None, confidence=0.0)
+            return Expression(
+                strokes=stroke_objs, symbols={}, tree=None, confidence=0.0,
+                unexplained_stroke_ids=[s.id for s in stroke_objs],
+            )
 
         results: list[Expression] = []
         pin_list = list(pins) if pins else None
@@ -162,12 +165,14 @@ class MathOCR:
             _latex, parse_conf, tree, _ev = self.tree_parser.parse_with_tree(detected, pin_list)
             symbols = {i: s for i, s in enumerate(detected)}
             sym_conf = _geomean_confidence(detected)
+            covered = {st.id for s in detected for st in s.strokes}
             results.append(
                 Expression(
                     strokes=stroke_objs,
                     symbols=symbols,
                     tree=tree,
                     confidence=round(sym_conf * parse_conf, 4),
+                    unexplained_stroke_ids=[s.id for s in stroke_objs if s.id not in covered],
                 )
             )
 
@@ -179,6 +184,7 @@ class MathOCR:
             tree=best.tree,
             confidence=best.confidence,
             alternatives=results[1:] if k > 1 else [],
+            unexplained_stroke_ids=best.unexplained_stroke_ids,
         )
 
 

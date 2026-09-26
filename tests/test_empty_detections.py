@@ -105,3 +105,70 @@ def test_e2e_symbol_on_frac_bar_not_empty():
     strokes = [[(p["x"], p["y"]) for p in s] for sym in ex["symbols"] for s in sym["strokes"] if s]
     expr = MathOCR().detect(strokes, canvas_size=max(ex["canvas_width"], ex["canvas_height"]))
     assert len(expr.symbols) > 0
+
+
+# ── Skip fallback: partial result + unexplained strokes ──────────────
+
+
+def _sym(name: str, x: float, y: float, sids: list[int], w: float = 20.0, h: float = 30.0):
+    from mathnote_ocr.bbox import BBox
+    from mathnote_ocr.expression import DetectedSymbol
+
+    strokes = [Stroke(id=i) for i in sids]
+    return DetectedSymbol(name=name, bbox=BBox(x, y, w, h), strokes=strokes, confidence=0.9)
+
+
+def _covered(partition) -> set[int]:
+    return {st.id for sym in partition for st in sym.strokes}
+
+
+def test_full_cover_uses_no_skips():
+    from mathnote_ocr.engine.grouper import _find_best_partitions
+
+    groups = [(frozenset([0]), 0.9, _sym("a", 0, 0, [0])), (frozenset([1]), 0.9, _sym("b", 40, 0, [1]))]
+    (score, partition), = _find_best_partitions(2, groups, top_k=1)
+    assert _covered(partition) == {0, 1}
+
+
+def test_clashing_strokes_fall_back_to_one_skip():
+    # strokes 0 and 1 only have candidates that clash (same place);
+    # stroke 2 is fine. No full cover exists -> best cover skips one.
+    from mathnote_ocr.engine.grouper import _find_best_partitions
+
+    groups = [
+        (frozenset([0]), 0.9, _sym("a", 0, 0, [0])),
+        (frozenset([1]), 0.8, _sym("b", 1, 1, [1])),
+        (frozenset([2]), 0.9, _sym("c", 60, 0, [2])),
+    ]
+    results = _find_best_partitions(3, groups, top_k=3)
+    assert results
+    for _score, partition in results:
+        assert len(_covered(partition)) == 2
+        assert 2 in _covered(partition)
+
+
+def test_stroke_without_candidates_is_skipped():
+    from mathnote_ocr.engine.grouper import _find_best_partitions
+
+    groups = [(frozenset([0]), 0.9, _sym("a", 0, 0, [0])), (frozenset([2]), 0.9, _sym("c", 60, 0, [2]))]
+    (score, partition), = _find_best_partitions(3, groups, top_k=1)
+    assert _covered(partition) == {0, 2}
+
+
+def test_api_reports_unexplained_strokes(monkeypatch):
+    """The partial result keeps the explained symbols and names the rest."""
+    from mathnote_ocr import MathOCR, api
+
+    ocr = MathOCR()
+    strokes = [[(0, 0), (20, 30)], [(300, 0), (320, 30)], [(600, 0), (620, 30)]]  # far apart: 3 symbols
+    real = api.group_and_classify
+
+    def drop_middle(stroke_objs, *args, **kwargs):
+        partitions = real(stroke_objs, *args, **kwargs)
+        return [[s for s in p if all(st.id != 1 for st in s.strokes)] for p in partitions]
+
+    monkeypatch.setattr(api, "group_and_classify", drop_middle)
+    expr = ocr.detect(strokes)
+    assert expr.unexplained_stroke_ids == [1]
+    assert all(st.id != 1 for s in expr for st in s.strokes)
+    assert expr.to_dict()["unexplained_stroke_ids"] == [1]
