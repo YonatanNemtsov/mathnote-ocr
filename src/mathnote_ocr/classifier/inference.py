@@ -17,6 +17,7 @@ class ClassificationResult:
     prototype_distance: float
     is_ood: bool
     alternatives: list[tuple[str, float]] = None  # [(symbol, confidence), ...]
+    probs: object = None  # full distribution over label_names (np.ndarray), batch path only
 
 
 _transform = transforms.Compose(
@@ -146,6 +147,7 @@ class SymbolClassifier:
         # Top-N alternatives per sample
         top_n = min(5, probs.shape[1])
         top_confs, top_indices = probs.topk(top_n, dim=1)
+        probs_np = probs.cpu().numpy()
 
         results = []
         for i in range(len(images)):
@@ -169,6 +171,7 @@ class SymbolClassifier:
                     prototype_distance=distance,
                     is_ood=is_ood,
                     alternatives=alternatives,
+                    probs=probs_np[i],
                 )
             )
         return results

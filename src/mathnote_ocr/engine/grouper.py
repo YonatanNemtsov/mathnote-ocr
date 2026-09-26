@@ -646,6 +646,120 @@ def _size_feat(group_strokes: list[Stroke], source_size: float) -> float:
 # ── Top-level ────────────────────────────────────────────────────────
 
 
+def classify_groups(
+    strokes: list[Stroke],
+    groups: list[frozenset[int]],
+    classifier: SymbolClassifier,
+    *,
+    cache: GrouperCache,
+    source_size: float,
+) -> int:
+    """Classify every group (position set) not yet in *cache*; returns how
+    many were classified. The cache is keyed by stroke-id sets."""
+    stroke_ids = [s.id for s in strokes]
+    key = lambda g: frozenset(stroke_ids[p] for p in g)
+    uncached = [g for g in groups if key(g) not in cache]
+    if not uncached:
+        return 0
+    use_size = classifier.use_size_feat
+    images = []
+    size_feats = []
+    for group in uncached:
+        group_strokes = [strokes[i] for i in group]
+        images.append(
+            render_strokes(
+                group_strokes,
+                canvas_size=classifier.canvas_size,
+                source_size=source_size,
+            )
+        )
+        size_feats.append(
+            _size_feat(group_strokes, source_size) if use_size else 0.5
+        )
+    sf = size_feats if use_size else None
+    results = classifier.classify_batch(images, size_feats=sf)
+    for group, result in zip(uncached, results):
+        cache[key(group)] = result
+    return len(uncached)
+
+
+def generate_candidates(
+    strokes: list[Stroke],
+    classifier: SymbolClassifier,
+    *,
+    params: GrouperParams,
+    cache: GrouperCache,
+    source_size: float,
+    exclude: frozenset[int] = frozenset(),
+) -> tuple[list[frozenset[int]], dict]:
+    """Every candidate stroke group, each classified into *cache*.
+
+    Groups are position sets into *strokes*; the cache is keyed by stroke
+    ids. No filtering (confidence, singleton gate, conflicts) happens here —
+    that is group_and_classify's job — so alignment can see every candidate.
+    Positions in *exclude* (pinned strokes) are left out entirely.
+    Returns (groups, stats) with timings and the number newly classified.
+    """
+    n = len(strokes)
+
+    def _classify_uncached(groups: list[frozenset[int]]) -> int:
+        return classify_groups(strokes, groups, classifier, cache=cache, source_size=source_size)
+
+    # 1. Distances + neighbours
+    t0 = time.perf_counter()
+    eff_min_merge = _effective_min_merge_distance(
+        strokes, params.min_merge_distance, params.merge_distance_scale
+    )
+    distances = _compute_distance_matrix(strokes)
+    neighbors = _compute_neighbors(
+        strokes,
+        distances,
+        params.size_multiplier,
+        min_merge_distance=eff_min_merge,
+    )
+    t_geo = time.perf_counter() - t0
+
+    # 2. Classify singletons first (needed for pattern matching in enumeration).
+    #    Excluded (pinned) positions are skipped — their labels are known.
+    t0 = time.perf_counter()
+    _classify_uncached(
+        [frozenset([i]) for i in range(n) if i not in exclude]
+    )
+    t_singletons = time.perf_counter() - t0
+
+    # 3. Enumerate candidate groups (singletons + multi-stroke)
+    #    Pattern matching uses singleton classifications from step 2.
+    t0 = time.perf_counter()
+    candidate_groups = _enumerate_candidate_groups(
+        strokes,
+        distances,
+        neighbors,
+        params.max_strokes_per_symbol,
+        params.size_multiplier,
+        cache=cache,
+        min_merge_distance=eff_min_merge,
+        max_group_diameter_ratio=params.max_group_diameter_ratio,
+    )
+    if exclude:
+        # Drop any candidate group that touches an excluded (pinned) stroke —
+        # those positions are already claimed.
+        candidate_groups = [
+            g for g in candidate_groups if not (g & exclude)
+        ]
+    t_enum = time.perf_counter() - t0
+
+    # 4. Classify remaining uncached multi-stroke groups
+    t0 = time.perf_counter()
+    n_new = _classify_uncached(candidate_groups)
+    t_classify = time.perf_counter() - t0
+
+    stats = {
+        "geo": t_geo, "singletons": t_singletons, "enum": t_enum,
+        "classify": t_classify, "n_new": n_new,
+    }
+    return candidate_groups, stats
+
+
 def group_and_classify(
     strokes: list[Stroke],
     classifier: SymbolClassifier,
@@ -715,80 +829,13 @@ def group_and_classify(
                     )
                 )
 
-    def _classify_uncached(groups: list[frozenset[int]]) -> int:
-        """Classify every group in *groups* that isn't already in the cache,
-        store results, and return how many were classified."""
-        uncached = [g for g in groups if _pos_to_ids(g) not in cache]
-        if not uncached:
-            return 0
-        use_size = classifier.use_size_feat
-        images = []
-        size_feats = []
-        for group in uncached:
-            group_strokes = [strokes[i] for i in group]
-            images.append(
-                render_strokes(
-                    group_strokes,
-                    canvas_size=classifier.canvas_size,
-                    source_size=source_size,
-                )
-            )
-            size_feats.append(
-                _size_feat(group_strokes, source_size) if use_size else 0.5
-            )
-        sf = size_feats if use_size else None
-        results = classifier.classify_batch(images, size_feats=sf)
-        for group, result in zip(uncached, results):
-            cache[_pos_to_ids(group)] = result
-        return len(uncached)
-
-    # 1. Distances + neighbours
-    t0 = time.perf_counter()
-    eff_min_merge = _effective_min_merge_distance(
-        strokes, params.min_merge_distance, params.merge_distance_scale
+    # 1-4. Candidate groups (geometry, enumeration), each classified into the cache
+    candidate_groups, stats = generate_candidates(
+        strokes, classifier, params=params, cache=cache, source_size=source_size,
+        exclude=frozenset(pinned_positions),
     )
-    distances = _compute_distance_matrix(strokes)
-    neighbors = _compute_neighbors(
-        strokes,
-        distances,
-        params.size_multiplier,
-        min_merge_distance=eff_min_merge,
-    )
-    t_geo = time.perf_counter() - t0
-
-    # 2. Classify singletons first (needed for pattern matching in enumeration).
-    #    Pinned positions are skipped — we already know their labels.
-    t0 = time.perf_counter()
-    _classify_uncached(
-        [frozenset([i]) for i in range(n) if i not in pinned_positions]
-    )
-    t_singletons = time.perf_counter() - t0
-
-    # 3. Enumerate candidate groups (singletons + multi-stroke)
-    #    Pattern matching uses singleton classifications from step 2.
-    t0 = time.perf_counter()
-    candidate_groups = _enumerate_candidate_groups(
-        strokes,
-        distances,
-        neighbors,
-        params.max_strokes_per_symbol,
-        params.size_multiplier,
-        cache=cache,
-        min_merge_distance=eff_min_merge,
-        max_group_diameter_ratio=params.max_group_diameter_ratio,
-    )
-    if pinned_positions:
-        # Drop any candidate group that touches a pinned stroke — those
-        # positions are already claimed by the pin.
-        candidate_groups = [
-            g for g in candidate_groups if not (g & pinned_positions)
-        ]
-    t_enum = time.perf_counter() - t0
-
-    # 4. Classify remaining uncached multi-stroke groups
-    t0 = time.perf_counter()
-    n_new = _classify_uncached(candidate_groups)
-    t_classify = time.perf_counter() - t0
+    t_geo, t_singletons, t_enum = stats["geo"], stats["singletons"], stats["enum"]
+    t_classify, n_new = stats["classify"], stats["n_new"]
 
     # 4. Filter valid groups
     t0 = time.perf_counter()
