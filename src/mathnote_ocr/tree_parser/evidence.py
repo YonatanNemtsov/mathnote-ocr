@@ -224,7 +224,9 @@ def jitter_bboxes(
         new_h = max(0.001, h * sh)
         cx = x + w / 2 + dx
         cy = y + h / 2 + dy
-        result.append([max(0, cx - new_w / 2), max(0, cy - new_h / 2), new_w, new_h])
+        # No clamping at 0: ink above or left of the canvas origin (a panned
+        # view) has negative coordinates, and clamping moved it across others
+        result.append([cx - new_w / 2, cy - new_h / 2, new_w, new_h])
     return result
 
 
