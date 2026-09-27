@@ -22,6 +22,7 @@ from mathnote_ocr.expression import DetectedSymbol, Expression, GridBlock, empty
 from mathnote_ocr.pin import PinnedTree
 from mathnote_ocr.pipeline_config import get, load_config
 from mathnote_ocr.structures import Structure
+from mathnote_ocr.grammar import Grammar, repair
 from mathnote_ocr.vocabulary import Vocabulary
 from mathnote_ocr.structures.grid import split_grid
 from mathnote_ocr.tree_parser.inference import SubsetTreeParser
@@ -47,6 +48,7 @@ class MathOCR:
         weights_dir: str | None = None,
         canvas_size: int = 800,
         vocabulary: Vocabulary | None = None,
+        grammar: Grammar | None = None,
     ) -> None:
         self._default_canvas_size = canvas_size
         cfg = load_config(config)
@@ -66,6 +68,8 @@ class MathOCR:
         self.grouper_params = GrouperParams.from_config(cfg)
         # What symbols are read as (mathnote_ocr.vocabulary); the default changes nothing
         self.vocabulary = vocabulary or Vocabulary()
+        # What a well-formed reading is (mathnote_ocr.grammar); None: any reading
+        self.grammar = grammar
         self.vocabulary.check(self.classifier.label_names)
         self._top_k_default = get(cfg, "grouper.top_k", 1)
 
@@ -109,6 +113,7 @@ class MathOCR:
         pins: Sequence[PinnedTree] | None = None,
         structures: Sequence[Structure] | None = None,
         vocabulary: Vocabulary | None = None,
+        grammar: Grammar | None = None,
     ) -> Expression:
         """Detect a math expression from strokes.
 
@@ -129,6 +134,9 @@ class MathOCR:
                 (see Expression.grids).
             vocabulary: What symbols may be read as, for this call (default:
                 this instance's; see mathnote_ocr.vocabulary).
+            grammar: What a well-formed reading is, for this call (default:
+                this instance's; see mathnote_ocr.grammar). A reading that
+                breaks it is re-read with a flagged symbol's alternatives.
 
         Returns:
             An Expression. Empty Expression (``len(expr) == 0``) when
@@ -142,6 +150,7 @@ class MathOCR:
             pins=pins,
             structures=structures,
             vocabulary=vocabulary,
+            grammar=grammar,
         )
 
     def _detect_with_cache(
@@ -154,9 +163,39 @@ class MathOCR:
         pins: Sequence[PinnedTree] | None = None,
         structures: Sequence[Structure] | None = None,
         vocabulary: Vocabulary | None = None,
+        grammar: Grammar | None = None,
     ) -> Expression:
-        """Detection with an explicit cache. Used by Session to reuse
-        classification results across calls. Not part of the public API."""
+        """Detection with an explicit cache (used by Session to reuse
+        classification results across calls), then — with a grammar — the
+        repair of a reading that breaks it: re-read with a flagged symbol's
+        alternatives; the pins given (the user's corrections) are never
+        changed. Not part of the public API."""
+        stroke_objs = _normalize_strokes(strokes)
+
+        def read(extra_pins=()):
+            return self._read(stroke_objs, cache, canvas_size=canvas_size, top_k=top_k,
+                              pins=(list(pins or []) + list(extra_pins)) or None,
+                              structures=structures, vocabulary=vocabulary)
+
+        expr = read()
+        g = self.grammar if grammar is None else grammar
+        if g is None or not expr or expr.tree is None:
+            return expr
+        keep = frozenset(i for p in (pins or []) for i in _pin_stroke_ids(p))
+        return repair(expr, read, g, keep=keep)
+
+    def _read(
+        self,
+        strokes: StrokesInput,
+        cache: GrouperCache,
+        *,
+        canvas_size: int | None = None,
+        top_k: int = 1,
+        pins: Sequence[PinnedTree] | None = None,
+        structures: Sequence[Structure] | None = None,
+        vocabulary: Vocabulary | None = None,
+    ) -> Expression:
+        """One reading (no grammar). Not part of the public API."""
         stroke_objs = _normalize_strokes(strokes)
         if not stroke_objs:
             return empty_expression()
@@ -495,6 +534,7 @@ class Session:
         top_k: int = 1,
         structures: Sequence[Structure] | None = None,
         vocabulary: Vocabulary | None = None,
+        grammar: Grammar | None = None,
     ) -> Expression:
         """Run detection on session strokes.
 
@@ -507,6 +547,8 @@ class Session:
             structures: Marked regions (e.g. Structure("grid", ids)); ids
                 must be in the detection subset.
             vocabulary: What symbols may be read as, for this call (default:
+                the MathOCR's).
+            grammar: What a well-formed reading is, for this call (default:
                 the MathOCR's).
         """
         if stroke_ids is None:
@@ -526,4 +568,5 @@ class Session:
             pins=pins,
             structures=structures,
             vocabulary=vocabulary,
+            grammar=grammar,
         )

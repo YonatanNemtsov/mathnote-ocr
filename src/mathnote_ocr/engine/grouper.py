@@ -620,6 +620,9 @@ def _symbols_conflict(
     return (dist / size) < threshold
 
 
+_DELIMITERS = {"(", ")", "[", "]", "|", "lbrace", "rbrace"}
+
+
 def _symbols_clash(name_a: str | None, bbox_a: BBox, name_b: str | None, bbox_b: BBox) -> bool:
     """Exact-cover rule: can these two symbols not both be in one partition?
 
@@ -631,7 +634,11 @@ def _symbols_clash(name_a: str | None, bbox_a: BBox, name_b: str | None, bbox_b:
     """
     if "sqrt" in (name_a, name_b):
         return False
-    return _symbols_conflict(bbox_a, bbox_b, scale_by_smaller="frac_bar" in (name_a, name_b))
+    # Long thin symbols — a fraction bar, a tall bracket — would inflate the
+    # average size: judged against the smaller symbol (a digit touching a
+    # matrix's bracket doesn't clash with it)
+    thin = {"frac_bar"} | _DELIMITERS
+    return _symbols_conflict(bbox_a, bbox_b, scale_by_smaller=bool(thin & {name_a, name_b}))
 
 
 def _size_feat(group_strokes: list[Stroke], source_size: float) -> float:
