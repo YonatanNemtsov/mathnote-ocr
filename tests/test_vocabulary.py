@@ -26,9 +26,10 @@ def result(probs, top_n=3):
                                 is_ood=False, alternatives=[(LABELS[i], float(p[i])) for i in order], probs=p)
 
 
-def test_excluded_symbol_is_never_the_answer_and_the_rest_is_rescaled():
+def test_excluded_symbol_is_never_the_answer_and_the_rest_keep_their_probability():
+    # not rescaled: a stroke most likely a slash is no confident comma (0.2, not 2/3)
     r = Vocabulary(exclude={"slash"}).apply(result([0.7, 0.2, 0.1, 0, 0, 0]), LABELS)
-    assert r.symbol == "," and r.confidence == pytest.approx(2 / 3)
+    assert r.symbol == "," and r.confidence == pytest.approx(0.2)
     assert [n for n, _ in r.alternatives] == [",", "1"]
     assert r.prototype_distance == 1.0 and not r.is_ood
 
@@ -44,7 +45,7 @@ def test_default_changes_nothing_and_without_full_probs_uses_alternatives():
     assert Vocabulary().apply(r0, LABELS) is r0
     partial = ClassificationResult("slash", 0.7, 1.0, False, [("slash", 0.7), (",", 0.2), ("1", 0.1)], None)
     r = Vocabulary(exclude={"slash"}).apply(partial, LABELS)
-    assert r.symbol == "," and r.confidence == pytest.approx(2 / 3)
+    assert r.symbol == "," and r.confidence == pytest.approx(0.2)
 
 
 def test_inconsistent_vocabularies_are_refused():

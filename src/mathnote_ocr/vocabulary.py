@@ -10,8 +10,9 @@ hurried comma looks like) or doesn't tell some apart says so once:
 It shapes the engine's guesses — what a group of strokes is read as, and
 the alternatives offered with it:
 
-  exclude   never guessed: its probability is removed and the rest
-            rescaled ("given it isn't a slash, what is it?")
+  exclude   never guessed: its probability is removed, the rest keep
+            theirs (not rescaled: a group that was most likely an excluded
+            symbol doesn't become a confident something else)
   aliases   read as the target: its probability is added to the target's
 
 Two things it leaves alone:
@@ -97,10 +98,12 @@ class Vocabulary:
                 pooled[name] = pooled.get(name, 0.0) + conf
             names = list(pooled)
             p = np.array([pooled[n] for n in names], dtype=np.float64)
-        total = p.sum()
-        if total <= 0:
+        # Not renormalised: an excluded reading's probability is gone, not given
+        # to the others — a stroke the classifier took for a prime is no surer
+        # a | once primes are excluded (renormalised, such a stroke outbid the
+        # two-stroke T it belongs to in the grouper)
+        if p.sum() <= 0:
             return dataclasses.replace(result, confidence=0.0, alternatives=[], probs=None)
-        p = p / total
         n_alt = max(len(result.alternatives or []), 1)
         order = np.argsort(-p)[:n_alt]
         alternatives = [(names[i], float(p[i])) for i in order if p[i] > 0]
