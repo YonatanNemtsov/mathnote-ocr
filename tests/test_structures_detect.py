@@ -114,3 +114,14 @@ def test_real_single_column(ocr, name, latex):
     random.seed(0)
     e = ocr.detect(strokes, structures=[Structure("grid", tuple(ex["grid"]))], canvas_size=ex["canvas_size"])
     assert e.latex == latex
+
+
+def test_grid_keeps_each_cells_tree(ocr):
+    """A CAS computes with the cells: each cell's parse tree comes with the grid."""
+    strokes = matrix(200, 100, ENTRIES)
+    random.seed(0)
+    e = ocr.detect(strokes, structures=[Structure("grid", tuple(range(len(strokes))))])
+    (g,) = e.grids.values()
+    names = [[[n.symbol.name for n in t.nodes.values() if n.symbol is not None and n.symbol.name != "ROOT"] for t in row] for row in g.cell_trees]
+    assert names == [[["1"], ["2"]], [["3"], ["4"]]]
+    assert "cell_trees" not in g.to_dict()

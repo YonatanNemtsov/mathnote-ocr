@@ -255,11 +255,16 @@ class MathOCR:
         outer_pins = pins_within({s.id for s in outer})
         cell_cache: dict = {}
 
-        def cell_latex(r: int, syms: list[DetectedSymbol], cell: list[int]) -> str:
+        def cell_parse(r: int, syms: list[DetectedSymbol], cell: list[int]) -> tuple:
+            """(LaTeX, tree) of one cell, parsed on its own."""
             key = (r, tuple(sorted(cell)))
             if key not in cell_cache:
                 cs_ = sorted((syms[j] for j in cell), key=lambda s: s.bbox.x)
-                cell_cache[key] = self.tree_parser.parse_with_tree(cs_, None)[0] if cs_ else ""
+                if cs_:
+                    latex, _conf, cell_tree, _ev = self.tree_parser.parse_with_tree(cs_, None)
+                    cell_cache[key] = (latex, cell_tree)
+                else:
+                    cell_cache[key] = ("", None)
             return cell_cache[key]
 
         def build(variant: int) -> Expression:
@@ -283,11 +288,13 @@ class MathOCR:
                     local[j] = next_id
                     next_id += 1
                 g = splits[min(variant, len(splits) - 1)] if r == 0 else splits[0]
+                parsed = [[cell_parse(r, syms, cell) for cell in row] for row in g.cells]
                 grids[aid] = GridBlock(
                     env=g.env,
                     cells=tuple(tuple(tuple(local[j] for j in cell) for cell in row) for row in g.cells),
-                    cell_latex=tuple(tuple(cell_latex(r, syms, cell) for cell in row) for row in g.cells),
+                    cell_latex=tuple(tuple(latex for latex, _t in row) for row in parsed),
                     bbox=atom.bbox,
+                    cell_trees=tuple(tuple(t for _l, t in row) for row in parsed),
                 )
             covered = {st.id for s in symbols.values() for st in s.strokes}
             conf = _geomean_confidence(list(symbols.values())) * parse_conf

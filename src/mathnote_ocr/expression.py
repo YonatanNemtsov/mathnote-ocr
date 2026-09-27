@@ -42,12 +42,15 @@ class GridBlock:
 
     cells: rows x cols x symbol ids (keys of Expression.symbols).
     cell_latex: each cell's LaTeX (its own parse).
+    cell_trees: each cell's parse tree (None for an empty cell) — what a CAS
+        needs to compute with the cells; not part of to_dict().
     """
 
     env: str                               # pmatrix / bmatrix / vmatrix / matrix / cases
     cells: tuple[tuple[tuple[int, ...], ...], ...]
     cell_latex: tuple[tuple[str, ...], ...]
     bbox: BBox
+    cell_trees: tuple = field(default=(), compare=False, repr=False)
 
     @property
     def shape(self) -> tuple[int, int]:

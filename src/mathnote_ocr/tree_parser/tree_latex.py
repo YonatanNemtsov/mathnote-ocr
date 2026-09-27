@@ -97,6 +97,7 @@ _FUNC_SEQUENCES = {
     ("l", "o", "g"): r"\log",
     ("l", "n"): r"\ln",
     ("l", "i", "m"): r"\lim",
+    ("d", "e", "t"): r"\det",
 }
 
 
@@ -506,6 +507,7 @@ def _parse_term(tokens: list[str], pos: int) -> tuple[_ParseNode | None, int]:
         r"\log": list("log"),
         r"\ln": list("ln"),
         r"\lim": list("lim"),
+        r"\det": list("det"),
     }
     # Functions that use LOWER/UPPER limits instead of SUB/SUP
     _FUNC_WITH_LIMITS = {r"\lim"}
