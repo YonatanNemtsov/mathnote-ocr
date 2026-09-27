@@ -53,6 +53,37 @@ def test_unknown_symbol_raises(names):
         latex_to_labels(r"\aleph", names)
 
 
+# The study vocabulary: trained classes + additions without a model yet
+ADDITIONS = ["zeta", "varepsilon", "Theta_cap", "subseteq", "notin", "mapsto", "vdots", "bb_R", "bb_Q",
+             "accent_hat", "accent_bar", "accent_vec", "accent_dot", "accent_tilde"]
+
+
+@pytest.mark.parametrize("latex, expected", [
+    (r"\hat{\theta}", ["accent_hat", "theta"]),
+    (r"\bar{x} = 1", ["accent_bar", "x", "=", "1"]),
+    (r"\vec{v} \cdot \vec{w}", ["accent_vec", "v", "cdot", "accent_vec", "w"]),
+    (r"\dot{x} + \tilde{f}", ["accent_dot", "x", "+", "accent_tilde", "f"]),
+    (r"\mathbb{R}^n", ["bb_R", "n"]),
+    (r"x \notin \mathbb{Q}", ["x", "notin", "bb_Q"]),
+    (r"\zeta(2)", ["zeta", "(", "2", ")"]),
+    (r"f: A \to B", ["f", "colon", "A_cap", "rightarrow", "B_cap"]),
+    (r"\sqrt{x} \in [0, 1]", ["sqrt", "x", "in", "[", "0", ",", "1", "]"]),
+])
+def test_study_vocabulary(names, latex, expected):
+    assert Counter(latex_to_labels(latex, list(names) + ADDITIONS)) == Counter(expected)
+
+
+def test_additions_need_their_class(names):
+    for latex in (r"\hat{x}", r"\mathbb{R}", r"\zeta"):
+        with pytest.raises(UnknownSymbol):
+            latex_to_labels(latex, names)          # the trained vocabulary alone
+
+
+def test_root_index_is_refused_not_mislabelled(names):
+    with pytest.raises(UnknownSymbol):
+        latex_to_labels(r"\sqrt[3]{x}", names)
+
+
 def test_equivalent_classes():
     assert same_symbol("sum", "Sigma_up") and same_symbol("Pi_up", "prod")
     assert not same_symbol("sum", "prod")

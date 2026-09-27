@@ -352,4 +352,14 @@ SYMBOL_TO_LATEX: dict[str, str] = {
     "colon": ":",
     # Prime
     "prime": r"\prime",
+    # Vocabulary additions (docs/vocabulary.md, 2026-09): no trained class yet
+    **{n: "\\" + n for n in ("zeta", "eta", "kappa", "nu", "xi", "rho", "tau", "chi",
+                              "varepsilon", "varphi", "vartheta")},
+    "Theta_cap": r"\Theta",
+    "Lambda_cap": r"\Lambda",
+    "Xi_cap": r"\Xi",
+    **{n: "\\" + n for n in ("approx", "sim", "equiv", "propto", "subseteq", "supseteq", "supset",
+                              "notin", "emptyset", "setminus", "Rightarrow", "Leftrightarrow",
+                              "mapsto", "vdots")},
+    **{f"bb_{c}": rf"\mathbb{{{c}}}" for c in "RNZQC"},
 }

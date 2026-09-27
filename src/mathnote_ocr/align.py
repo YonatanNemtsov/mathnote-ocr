@@ -22,6 +22,13 @@ from mathnote_ocr.latex_utils.glyphs import SYMBOL_TO_LATEX
 _INVISIBLE = {"\\,", "\\;", "\\:", "\\!", "\\quad", "\\qquad", "\\ ", "\\EXPR"}
 # Brace commands and their class names
 _BRACES = {"\\{": "lbrace", "\\}": "rbrace", "\\lbrace": "lbrace", "\\rbrace": "rbrace"}
+# Commands written with another class's glyph
+_ALIASES = {"\\to": "\\rightarrow", "\\gets": "\\leftarrow", "\\lvert": "|", "\\rvert": "|"}
+# Accents: a mark written above the base symbol, labelled by meaning. The
+# parser reads \hat{x} as "\hat" followed by its argument, so the mark
+# is one more symbol and the argument is walked as usual.
+ACCENTS = {"\\hat": "accent_hat", "\\bar": "accent_bar", "\\vec": "accent_vec",
+           "\\dot": "accent_dot", "\\tilde": "accent_tilde"}
 # Function names, handwritten letter by letter. Only these are spelled out:
 # any other unknown command must fail, not silently become letters.
 _FUNCTIONS = {
@@ -29,6 +36,20 @@ _FUNCTIONS = {
     "\\arcsin", "\\arccos", "\\arctan", "\\log", "\\ln", "\\exp", "\\lim", "\\max", "\\min",
     "\\sup", "\\inf", "\\det", "\\arg", "\\gcd", "\\deg", "\\dim", "\\ker",
 }
+
+
+# Matrix / cases environments, for their symbols: the delimiters and the
+# cells ("&" and "\\\\" are layout, not ink)
+_ENVIRONMENTS = {
+    "pmatrix": (r"\left(", r"\right)"), "bmatrix": (r"\left[", r"\right]"),
+    "vmatrix": ("|", "|"), "Bmatrix": (r"\{", r"\}"), "matrix": ("", ""), "cases": (r"\{", ""),
+}
+
+
+def _flatten_environments(latex: str) -> str:
+    for env, (left, right) in _ENVIRONMENTS.items():
+        latex = latex.replace(f"\\begin{{{env}}}", f" {left} ").replace(f"\\end{{{env}}}", f" {right} ")
+    return latex.replace("\\\\", " ").replace("&", " ")
 
 
 class UnknownSymbol(ValueError):
@@ -56,23 +77,40 @@ def latex_to_labels(latex: str, label_names: list[str]) -> list[str]:
     Raises UnknownSymbol for LaTeX the parser can't read or symbols outside
     the classifier's vocabulary.
     """
-    tree = parse_latex(latex)
+    tree = parse_latex(_flatten_environments(latex))
     if tree is None:
         raise UnknownSymbol(f"could not parse {latex!r}")
     to_class = _latex_to_class(label_names)
     out: list[str] = []
+    blackboard = False      # \mathbb seen: the next letter is ℝ, ℕ, …
 
     def walk(node: LNode) -> None:
+        nonlocal blackboard
         if node.kind == "char":
             if node.text.isspace():
+                return
+            if blackboard:
+                blackboard = False
+                name = f"bb_{node.text}" if f"bb_{node.text}" in label_names else None
+                if name is None:
+                    raise UnknownSymbol(f"no class for \\mathbb{{{node.text}}}")
+                out.append(name)
                 return
             name = to_class.get(node.text)
             if name is None:
                 raise UnknownSymbol(f"no class for {node.text!r}")
             out.append(name)
         elif node.kind == "command":
-            cmd = node.text
+            cmd = _ALIASES.get(node.text, node.text)
             if cmd in _INVISIBLE:
+                return
+            if cmd == "\\mathbb":
+                blackboard = True
+                return
+            if cmd in ACCENTS:
+                if ACCENTS[cmd] not in label_names:
+                    raise UnknownSymbol(f"no class for {cmd!r}")
+                out.append(ACCENTS[cmd])
                 return
             if cmd in _BRACES:
                 out.append(_BRACES[cmd])
@@ -91,6 +129,11 @@ def latex_to_labels(latex: str, label_names: list[str]) -> list[str]:
             for child in node.children:
                 walk(child)
         elif node.kind == "sqrt":
+            # \sqrt[n]{x}: the parser keeps the index's "]" inside the root
+            # as a symbol (not supported yet)
+            inner = [c for child in node.children for c in ([child] + list(child.children))]
+            if any(c.kind == "char" and c.text == "]" for c in inner):
+                raise UnknownSymbol("\\sqrt with an index")
             out.append("sqrt")
             for child in node.children:
                 walk(child)
