@@ -12,8 +12,11 @@ from mathnote_ocr.align import (
     align,
     labels_match,
     latex_to_labels,
+    AlignedSymbol,
+    _assign_bars,
     same_symbol,
 )
+from mathnote_ocr.bbox import BBox
 
 ROOT = Path(__file__).resolve().parent.parent
 FONT = ROOT.parent / "math_ocr_web" / "tests" / "fixtures" / "hand_written_font"
@@ -88,6 +91,24 @@ def test_equivalent_classes():
     assert same_symbol("sum", "Sigma_up") and same_symbol("Pi_up", "prod")
     assert not same_symbol("sum", "prod")
     assert labels_match(["sum", "x"], ["Sigma_up", "x"])
+
+
+def test_bars_told_apart_by_what_surrounds_them():
+    # \frac{p}{\frac{a - b}{c}} + \frac{1}{2}: p is centred over the minus
+    # of a - b and c under it, but fraction bars separate them — the minus
+    # is no fraction bar, even though it is wider than the 1/2 bar
+    layout = [
+        ("p", BBox(15, 0, 10, 20)), ("-", BBox(0, 25, 40, 2)),            # outer fraction bar
+        ("a", BBox(2, 30, 10, 15)), ("-", BBox(14, 37, 12, 2)), ("b", BBox(28, 30, 10, 15)),
+        ("-", BBox(2, 48, 36, 2)),                                        # inner fraction bar
+        ("c", BBox(15, 52, 10, 15)),
+        ("+", BBox(45, 20, 10, 10)),
+        ("1", BBox(60, 12, 6, 10)), ("-", BBox(59, 25, 8, 2)), ("2", BBox(60, 29, 6, 10)),
+    ]
+    symbols = [AlignedSymbol(label=lab, stroke_ids=[i], logp=0.0) for i, (lab, _) in enumerate(layout)]
+    _assign_bars(symbols, [b for _, b in layout], fractions=3)
+    fracs = {i for i, s in enumerate(symbols) if s.label == "frac_bar"}
+    assert fracs == {1, 5, 9}
 
 
 # ── Alignment ────────────────────────────────────────────────────────

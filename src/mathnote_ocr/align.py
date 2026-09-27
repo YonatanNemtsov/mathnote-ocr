@@ -15,6 +15,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 
+from mathnote_ocr.bbox import BBox
 from mathnote_ocr.latex_utils.expr_aug import LNode, parse_latex
 from mathnote_ocr.latex_utils.glyphs import SYMBOL_TO_LATEX
 
@@ -156,6 +157,12 @@ EQUIVALENT = [frozenset({"sum", "Sigma_up"}), frozenset({"prod", "Pi_up"})]
 _EQUIV = {name: group for group in EQUIVALENT for name in group}
 
 
+# Minus and fraction bar are the same stroke; only what surrounds it tells
+# them apart. Alignment scores both by their pooled probability, then gives
+# the fraction-bar labels to the bars that have ink above and below them.
+BARS = frozenset({"-", "frac_bar"})
+
+
 def same_symbol(a: str, b: str) -> bool:
     return a == b or (a in _EQUIV and b in _EQUIV[a])
 
@@ -256,10 +263,14 @@ def align(
         groups = groups + _ldots_candidates(stroke_objs, groups, ocr, cache, cs)
     index = {name: i for i, name in enumerate(ocr.classifier.label_names)}
 
-    # log P(label | group) for the labels we need, equivalent classes pooled
-    target = Counter(labels)
+    # log P(label | group) for the labels we need, equivalent classes pooled.
+    # Minus and fraction bar are searched as one label, "-" (their
+    # probabilities pooled), and told apart afterwards by _assign_bars.
+    fractions = labels.count("frac_bar")
+    target = Counter("-" if lab in BARS else lab for lab in labels)
     need = sorted(target)
-    cols = {lab: [index[x] for x in _EQUIV.get(lab, {lab}) if x in index] for lab in need}
+    pooled = lambda lab: BARS if lab in BARS else _EQUIV.get(lab, {lab})
+    cols = {lab: [index[x] for x in pooled(lab) if x in index] for lab in need}
     scored = []   # (group positions, {label: logp})
     for g in groups:
         result = cache[frozenset(ids[p] for p in g)]
@@ -350,8 +361,37 @@ def align(
         AlignedSymbol(label=lab, stroke_ids=sorted(ids[p] for p in scored[gi][0]), logp=scored[gi][1][lab])
         for gi, lab in best["choice"]
     ]
+    boxes = [BBox.union_all([stroke_objs[p].bbox for p in scored[gi][0]]) for gi, _ in best["choice"]]
+    _assign_bars(symbols, boxes, fractions)
     return Alignment(symbols=symbols, logp=best["logp"], complete=nodes <= node_budget,
                      nodes=nodes, seconds=elapsed, candidates=len(scored))
+
+
+def _assign_bars(symbols: list[AlignedSymbol], boxes: list[BBox], fractions: int) -> None:
+    """Relabel the horizontal bars: the *fractions* bars that have a
+    numerator and a denominator become frac_bar, the rest minus.
+
+    A bar's numerator is the symbols centred over it with no other bar in
+    between (in \\frac{x}{2 - y} the x is over the minus too, but the
+    fraction bar separates them); likewise its denominator. Bars with both
+    come first, wider first among equals.
+    """
+    bars = [i for i, s in enumerate(symbols) if s.label in BARS]
+
+    def separated(t: int, b: int) -> bool:
+        lo, hi = sorted((boxes[t].cy, boxes[b].cy))
+        return any(c != b and boxes[c].x <= boxes[t].cx <= boxes[c].x2 and lo < boxes[c].cy < hi
+                   for c in bars)
+
+    def side(b: int, above: bool) -> bool:
+        return any(t not in bars and boxes[b].x <= boxes[t].cx <= boxes[b].x2
+                   and (boxes[t].cy < boxes[b].cy if above else boxes[t].cy > boxes[b].cy)
+                   and not separated(t, b)
+                   for t in range(len(symbols)))
+
+    ranked = sorted(bars, key=lambda b: (side(b, True) and side(b, False), boxes[b].w), reverse=True)
+    for rank, b in enumerate(ranked):
+        symbols[b].label = "frac_bar" if rank < fractions else "-"
 
 
 def parse_aligned(ocr, strokes, alignment: Alignment) -> str:
