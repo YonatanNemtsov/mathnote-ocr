@@ -213,8 +213,12 @@ def _singleton_geo_mean(
     stroke_ids: list[int],
     cache: "GrouperCache",
     params: "GrouperParams",
+    read=None,
 ) -> float | None:
     """Geometric mean of per-stroke singleton confidences in *group*.
+
+    *read*: how a classification is read (the vocabulary's apply) — the
+    singletons are candidate symbols in their own right.
 
     Returns ``None`` when none of the strokes' singletons have been classified
     yet — callers should treat that as "no gate available".
@@ -222,6 +226,8 @@ def _singleton_geo_mean(
     confs = []
     for si in group:
         sr = cache.get(frozenset([stroke_ids[si]]))
+        if sr is not None and read is not None:
+            sr = read(sr)
         if sr and sr.confidence is not None:
             confs.append(_group_confidence(sr, similar_map=params.similar_symbol_map))
     if not confs:
@@ -770,6 +776,7 @@ def group_and_classify(
     top_k: int = 1,
     debug: bool = False,
     pins: list[Tree] | None = None,
+    vocabulary=None,
 ) -> list[list[DetectedSymbol]]:
     """Detect symbols in a set of strokes.
 
@@ -784,6 +791,10 @@ def group_and_classify(
     When *pins* are provided, each pinned symbol's strokes are pre-grouped
     with its forced label (classification is skipped). Exact cover then
     runs only over the unpinned strokes.
+
+    *vocabulary* (mathnote_ocr.vocabulary.Vocabulary): what a group may be
+    read as. Applied to each candidate group's classification here, not to
+    the cached classifications the stroke patterns use, nor to pins.
     """
     if not strokes:
         return [[]]
@@ -843,8 +854,11 @@ def group_and_classify(
     rejected_ood = 0
     rejected_conf = 0
 
+    read = (lambda r: vocabulary.apply(r, classifier.label_names)) if vocabulary else None
     for group in candidate_groups:
         result = cache[_pos_to_ids(group)]
+        if read is not None:
+            result = read(result)
 
         if result.is_ood:
             rejected_ood += 1
@@ -886,7 +900,7 @@ def group_and_classify(
                         f"  group {set(group)} → PATTERN BOOST '{result.symbol}' to {effective_conf:.3f}"
                     )
             elif _singletons_can_coexist(group, strokes, stroke_ids, cache):
-                geo_mean = _singleton_geo_mean(group, stroke_ids, cache, params)
+                geo_mean = _singleton_geo_mean(group, stroke_ids, cache, params, read)
                 if geo_mean is not None and effective_conf < geo_mean:
                     if debug:
                         print(

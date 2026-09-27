@@ -210,12 +210,21 @@ def jitter_bboxes(
     dy_scale: float = 0.15,
     size_scale: float = 0.05,
 ) -> list[list[float]]:
-    """Add gaussian jitter to bounding boxes for TTA."""
+    """Add gaussian jitter to bounding boxes for TTA.
+
+    Each box moves by a fraction of its own height — at least a third of the
+    expression's median height, so thin symbols (bars, dots) still move. The
+    floor used to be 5 absolute units: small ink (writing zoomed out, or
+    normalised coordinates) got jitter many times its own size and the
+    votes fell apart (scripts/diagnostics/scale_invariance.py).
+    """
     import random
 
+    heights = sorted(b[3] for b in bboxes)
+    floor = heights[len(heights) // 2] / 3 if heights else 0.0
     result = []
     for x, y, w, h in bboxes:
-        ref = max(h, 5)
+        ref = max(h, floor)
         dx = random.gauss(0, dx_scale * ref)
         dy = random.gauss(0, dy_scale * ref)
         sw = random.gauss(1, size_scale) if size_scale > 0 else 1.0

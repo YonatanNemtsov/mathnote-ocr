@@ -92,3 +92,26 @@ def test_generate_is_deterministic(names):
     b = generate(5, names, seed=7)
     assert [s.latex for s in a] == [s.latex for s in b]
     assert [x.bbox for x in a[0].symbols] == [x.bbox for x in b[0].symbols]
+
+
+def test_commas_separate_the_entries_of_a_row():
+    syms = [
+        sym("(", 0, 0, 10, 40),
+        sym("1", 20, 5), sym(",", 44, 28, 6, 10), sym("2", 60, 5), sym(",", 84, 28, 6, 10), sym("x", 100, 5),
+        sym(")", 130, 0, 10, 40),
+    ]
+    g = split_grid(syms, kind="matrix")
+    assert g.env == "pmatrix" and g.shape == (1, 3)
+    assert [[[syms[i].name for i in c] for c in row] for row in g.cells] == [[["1"], ["2"], ["x"]]]
+
+
+def test_commas_in_rows_of_a_matrix_and_entries_with_operators():
+    syms = [
+        sym("[", 0, 0, 10, 110),
+        sym("x", 20, 5), sym("+", 44, 8), sym("1", 66, 5), sym(",", 90, 28, 6, 10), sym("2", 110, 5),
+        sym("3", 20, 70), sym(",", 90, 93, 6, 10), sym("4", 110, 70),
+        sym("]", 140, 0, 10, 110),
+    ]
+    g = split_grid(syms, kind="matrix")
+    assert g.env == "bmatrix" and g.shape == (2, 2)
+    assert [[[syms[i].name for i in c] for c in row] for row in g.cells] == [[["x", "+", "1"], ["2"]], [["3"], ["4"]]]

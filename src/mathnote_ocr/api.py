@@ -22,6 +22,7 @@ from mathnote_ocr.expression import DetectedSymbol, Expression, GridBlock, empty
 from mathnote_ocr.pin import PinnedTree
 from mathnote_ocr.pipeline_config import get, load_config
 from mathnote_ocr.structures import Structure
+from mathnote_ocr.vocabulary import Vocabulary
 from mathnote_ocr.structures.grid import split_grid
 from mathnote_ocr.tree_parser.inference import SubsetTreeParser
 from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID
@@ -45,6 +46,7 @@ class MathOCR:
         scoring: str | None = None,
         weights_dir: str | None = None,
         canvas_size: int = 800,
+        vocabulary: Vocabulary | None = None,
     ) -> None:
         self._default_canvas_size = canvas_size
         cfg = load_config(config)
@@ -62,6 +64,9 @@ class MathOCR:
         )
 
         self.grouper_params = GrouperParams.from_config(cfg)
+        # What symbols are read as (mathnote_ocr.vocabulary); the default changes nothing
+        self.vocabulary = vocabulary or Vocabulary()
+        self.vocabulary.check(self.classifier.label_names)
         self._top_k_default = get(cfg, "grouper.top_k", 1)
 
         tp_kwargs = dict(
@@ -84,6 +89,11 @@ class MathOCR:
 
     # ── Session factory ──────────────────────────────────────────────
 
+    @property
+    def symbols(self) -> list[str]:
+        """What a symbol can be read as, under this instance's vocabulary."""
+        return self.vocabulary.symbols(self.classifier.label_names)
+
     def session(self, *, canvas_size: int | None = None) -> Session:
         """Create a stateful session for incremental detection."""
         return Session(self, canvas_size=canvas_size)
@@ -98,6 +108,7 @@ class MathOCR:
         top_k: int = 1,
         pins: Sequence[PinnedTree] | None = None,
         structures: Sequence[Structure] | None = None,
+        vocabulary: Vocabulary | None = None,
     ) -> Expression:
         """Detect a math expression from strokes.
 
@@ -116,6 +127,8 @@ class MathOCR:
                 ``Structure("grid", stroke_ids)`` for a matrix / cases:
                 split into cells and treated as one atom in the expression
                 (see Expression.grids).
+            vocabulary: What symbols may be read as, for this call (default:
+                this instance's; see mathnote_ocr.vocabulary).
 
         Returns:
             An Expression. Empty Expression (``len(expr) == 0``) when
@@ -128,6 +141,7 @@ class MathOCR:
             top_k=top_k,
             pins=pins,
             structures=structures,
+            vocabulary=vocabulary,
         )
 
     def _detect_with_cache(
@@ -139,6 +153,7 @@ class MathOCR:
         top_k: int = 1,
         pins: Sequence[PinnedTree] | None = None,
         structures: Sequence[Structure] | None = None,
+        vocabulary: Vocabulary | None = None,
     ) -> Expression:
         """Detection with an explicit cache. Used by Session to reuse
         classification results across calls. Not part of the public API."""
@@ -151,8 +166,10 @@ class MathOCR:
 
         cs = canvas_size if canvas_size is not None else _autocanvas(stroke_objs, self._default_canvas_size)
         k = max(1, top_k)
+        vocab = self.vocabulary if vocabulary is None else vocabulary
+        vocab.check(self.classifier.label_names)
         if structures:
-            return self._detect_with_structures(stroke_objs, cache, cs, pins, structures)
+            return self._detect_with_structures(stroke_objs, cache, cs, pins, structures, vocab)
 
         partitions = group_and_classify(
             stroke_objs,
@@ -162,6 +179,7 @@ class MathOCR:
             source_size=cs,
             top_k=k,
             pins=list(pins) if pins else None,
+            vocabulary=vocab,
         )
         if not partitions:
             return Expression(
@@ -206,6 +224,7 @@ class MathOCR:
         cs: float,
         pins: Sequence[PinnedTree] | None,
         structures: Sequence[Structure],
+        vocabulary: Vocabulary | None = None,
     ) -> Expression:
         """Detection with marked regions (grids).
 
@@ -239,6 +258,7 @@ class MathOCR:
             parts = group_and_classify(
                 strokes_, self.classifier, params=self.grouper_params, cache=cache,
                 source_size=cs, top_k=1, pins=pins_within({s.id for s in strokes_}),
+                vocabulary=vocabulary,
             )
             return list(parts[0]) if parts else []
 
@@ -474,6 +494,7 @@ class Session:
         pins: Sequence[PinnedTree] | None = None,
         top_k: int = 1,
         structures: Sequence[Structure] | None = None,
+        vocabulary: Vocabulary | None = None,
     ) -> Expression:
         """Run detection on session strokes.
 
@@ -485,6 +506,8 @@ class Session:
             top_k: How many candidate partitions to consider.
             structures: Marked regions (e.g. Structure("grid", ids)); ids
                 must be in the detection subset.
+            vocabulary: What symbols may be read as, for this call (default:
+                the MathOCR's).
         """
         if stroke_ids is None:
             strokes = list(self._strokes.values())
@@ -502,4 +525,5 @@ class Session:
             top_k=top_k,
             pins=pins,
             structures=structures,
+            vocabulary=vocabulary,
         )

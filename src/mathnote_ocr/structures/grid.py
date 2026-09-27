@@ -14,6 +14,9 @@ pattern as the grouper and tree parser.
      centres) x C columns (each row cut at its C-1 largest gaps, plus
      variants that move a cut across an operator). Rectangular by
      construction; cases have 1 or 2 columns.
+     Commas written between entries ("(1, 2, 3)", rows "a, b") are explicit
+     separators: a candidate cuts each row at its commas and leaves them
+     out of the cells, and is preferred over cuts guessed from gaps.
   4. Score, lexicographically: fewest ill-formed cells (math grammar: no
      cell ends with an operator, starts with a binary one, or has two
      operators in a row), then — cases only — two columns (value &
@@ -217,6 +220,46 @@ def _row_splits(row: list[int], boxes, n_cols: int, names) -> list[list[list[int
     return splits
 
 
+def _comma_candidates(units, boxes, unit_name, seq, kind) -> list[tuple]:
+    """Grids cut at written commas: rows from the other units' vertical
+    gaps (each comma joins the row it sits in), each row cut at its commas,
+    the commas left out of the cells. Only rectangular grids with no empty
+    cell, and only if some row has a comma."""
+    commas = [u for u in range(len(units)) if unit_name(u) == ","]
+    rest = [u for u in range(len(units)) if u not in commas]
+    if not commas or not rest:
+        return []
+    out = []
+    for rows in _row_candidates([boxes[u] for u in rest]):
+        rows = [[rest[i] for i in r] for r in rows if r]
+        spans = [(min(boxes[u][1] for u in r), max(boxes[u][3] for u in r)) for r in rows]
+        with_commas = [list(r) for r in rows]
+        for c in commas:
+            cy = (boxes[c][1] + boxes[c][3]) / 2
+            k = min(range(len(rows)), key=lambda i: 0 if spans[i][0] <= cy <= spans[i][1]
+                    else min(abs(cy - spans[i][0]), abs(cy - spans[i][1])))
+            with_commas[k].append(c)
+        grid_rows, ok = [], True
+        for r in with_commas:
+            cells, cell = [], []
+            for u in sorted(r, key=lambda u: boxes[u][0]):
+                if u in commas:
+                    cells.append(cell)
+                    cell = []
+                else:
+                    cell.append(u)
+            cells.append(cell)
+            if any(not c for c in cells):
+                ok = False
+                break
+            grid_rows.append(cells)
+        if not ok or len({len(r) for r in grid_rows}) != 1 or len(grid_rows[0]) < 2:
+            continue
+        bad = sum(not _well_formed(seq(c)) for row in grid_rows for c in row)
+        out.append((bad, False, _separation(grid_rows, boxes), grid_rows))
+    return out
+
+
 # ── 4. Scoring ───────────────────────────────────────────────────────
 
 
@@ -333,10 +376,14 @@ def split_grid(symbols, kind: str = "auto", n_alternatives: int | None = 5) -> G
                 one_col = kind == "cases" and n_cols == 1
                 candidates.append((bad, one_col, _separation(grid_rows, boxes), grid_rows))
 
-    candidates.sort(key=lambda c: (c[0], c[1], -c[2]))
+    # Commas between entries: explicit column breaks (preferred when as well-formed)
+    explicit = _comma_candidates(units, boxes, unit_name, seq, kind) if kind != "cases" else []
+    candidates = [(bad, 0, one_col, sep, rows) for bad, one_col, sep, rows in explicit] + \
+                 [(bad, 1, one_col, sep, rows) for bad, one_col, sep, rows in candidates]
+    candidates.sort(key=lambda c: (c[0], c[1], c[2], -c[3]))
 
     def to_grid(cand) -> Grid:
-        bad, _one_col, sep, grid_rows = cand
+        bad, _guessed, _one_col, sep, grid_rows = cand
         cells = [[sorted(i for u in cell for i in units[u]) for cell in row] for row in grid_rows]
         return Grid(env=env, left=left, right=right, cells=cells, ill_formed=bad, separation=sep)
 

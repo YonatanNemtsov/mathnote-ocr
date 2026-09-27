@@ -12,6 +12,7 @@ from mathnote_ocr.expression import DetectedSymbol, Expression, GridBlock, empty
 from mathnote_ocr.pin import PinEdge, PinnedTree, PinSymbol
 from mathnote_ocr.structures import Structure
 from mathnote_ocr.tree_parser.tree_v2 import Edge, Tree
+from mathnote_ocr.vocabulary import Vocabulary
 
 __all__ = [
     "MathOCR",
@@ -26,4 +27,5 @@ __all__ = [
     "PinnedTree",
     "PinSymbol",
     "PinEdge",
+    "Vocabulary",
 ]
