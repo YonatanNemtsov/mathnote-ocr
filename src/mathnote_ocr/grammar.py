@@ -12,13 +12,21 @@ sees one line of the reading — the siblings of one parent under one
 relation, in reading order, named as shown (a fraction bar with nothing
 above or below it is shown as a minus) — and which line that is (lines()):
 "main", "sup", "sub", "num", "den", "sqrt", "upper", "lower", or "cell" (a
-matrix cell). A matrix atom in a line is named "grid".
+matrix cell). A matrix atom in a line is named "grid". A rule that takes a
+third argument also gets the line's boxes, (x0, y0, x1, y1) per symbol —
+for what the ink shows about the line (two neighbours stacked are no line).
+A fraction's part with nothing in it is a line too (empty — a fraction bar
+with nothing on either side is a minus, not a fraction), and position -1
+objects to the line as a whole: to the symbol it hangs off (a fraction's
+bar).
 
 Rewrites. Rewrite(parts, into) names two symbols that may be one:
 it applies where the grouper weighed the two symbols' strokes as one symbol
 (they're close enough to be one) and the classifier's first reading of them
 together is a target — the classifier judges the shape — with at least
-the rewrite's min_confidence (default 0: any first reading).
+the rewrite's min_confidence (default 0: any first reading). Like any
+repair it is kept only if it fixes something: the reading breaks fewer
+rules with the two joined.
 
 Moves. For a symbol a rule flags, the app's moves(name, where) lists the
 repairs to try, in order (default: relabel only). Two are built in:
@@ -40,6 +48,7 @@ never changed.
 
 from __future__ import annotations
 
+import inspect
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -47,7 +56,7 @@ from dataclasses import dataclass
 from mathnote_ocr.pin import PinnedTree, PinSymbol
 from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Edge
 
-Rule = Callable[[Sequence[str], str], set[int]]
+Rule = Callable[..., set[int]]      # (names, where) or (names, where, boxes) -> positions
 
 WHERE = {Edge.ROOT: "main", Edge.SUP: "sup", Edge.SUB: "sub", Edge.NUM: "num", Edge.DEN: "den",
          Edge.SQRT: "sqrt", Edge.UPPER: "upper", Edge.LOWER: "lower", Edge.MATCH: "match"}
@@ -64,21 +73,48 @@ class Rewrite:
 
 def lines(expr) -> list[tuple[str, list[int]]]:
     """The reading's lines: (where, symbol ids in reading order) — the siblings
-    under each parent and relation, and each matrix cell (by x)."""
+    under each parent and relation, a fraction's empty part, and each matrix
+    cell (by x)."""
+    return [(where, ids) for where, ids, _owner in _owned_lines(expr)]
+
+
+def _owned_lines(expr) -> list[tuple[str, list[int], int | None]]:
+    """lines(), with the symbol each line hangs off (None: the main line, a cell)."""
     if expr.tree is None:
         return []
+    t = expr.tree
     groups: dict[tuple, list] = defaultdict(list)
-    for sid, node in expr.tree.nodes.items():
+    for sid, node in t.nodes.items():
         if sid == ROOT_ID:
             continue
         groups[(node.parent_id, int(node.edge_type))].append((node.order, sid))
-    out = [(WHERE.get(Edge(e), "other"), [sid for _o, sid in sorted(v)]) for (_p, e), v in groups.items()]
+    out = [(WHERE.get(Edge(e), "other"), [sid for _o, sid in sorted(v)], None if p == ROOT_ID else p)
+           for (p, e), v in groups.items()]
+    # a fraction's part with nothing in it (a bar with neither is a minus: no fraction)
+    for sid, node in t.nodes.items():
+        if sid == ROOT_ID or node.symbol.name != "frac_bar":
+            continue
+        num, den = t.children_by_edge(sid, Edge.NUM), t.children_by_edge(sid, Edge.DEN)
+        if bool(num) != bool(den):
+            out.append(("den" if num else "num", [], sid))
     for g in (expr.grids or {}).values():
         for row in g.cells:
             for cell in row:
                 ids = [i for i in cell if i in expr.symbols]
-                out.append(("cell", sorted(ids, key=lambda i: expr.symbols[i].bbox.x)))
+                out.append(("cell", sorted(ids, key=lambda i: expr.symbols[i].bbox.x), None))
     return out
+
+
+def _box(expr, sid) -> tuple[float, float, float, float]:
+    b = expr.symbols[sid].bbox if sid in expr.symbols else expr.grids[sid].bbox
+    return (b.x, b.y, b.x + b.w, b.y + b.h)
+
+
+def _takes_boxes(rule) -> bool:
+    try:
+        return len(inspect.signature(rule).parameters) >= 3
+    except (TypeError, ValueError):
+        return False
 
 
 def _name(expr, sid) -> str:
@@ -123,10 +159,20 @@ class Grammar:
     def violations(self, expr) -> set[int]:
         """The symbol ids some rule flags (in some line of the reading)."""
         bad = set()
-        for where, ids in lines(expr):
+        for where, ids, owner in _owned_lines(expr):
             names = [_name(expr, i) for i in ids]
+            boxes = None
             for rule in self.rules:
-                bad |= {ids[k] for k in rule(names, where) if ids[k] in expr.symbols}
+                if _takes_boxes(rule):
+                    if boxes is None:
+                        boxes = [_box(expr, i) for i in ids]
+                    flagged = rule(names, where, boxes)
+                else:
+                    flagged = rule(names, where)
+                for k in flagged:
+                    sid = owner if k == -1 else ids[k]
+                    if sid is not None and sid in expr.symbols:
+                        bad.add(sid)
         return bad
 
 
@@ -186,14 +232,17 @@ def repair(expr, read: Callable[[list[PinnedTree]], object], grammar: Grammar,
     ids)* is the grouper's reading of those strokes as one symbol (under the
     vocabulary), or None if it never weighed them as one.
     """
-    # Rewrites: split symbols joined
+    # Rewrites: split symbols joined — each kept only if it fixes something
+    # (the reading breaks fewer rules with it), like any other repair
     if grammar.rewrites and classified is not None:
-        joins = _joins(expr, grammar, keep, classified)
-        if joins:
-            free = keep | frozenset(st.id for _n, strokes in joins for st in strokes)
-            alt = read(_frozen(expr, free) + [PinnedTree.build([PinSymbol(n, s)]) for n, s in joins])
-            if alt is not None and alt.tree is not None:
-                expr = alt
+        kept: list[tuple[str, list]] = []
+        for join in _joins(expr, grammar, keep, classified):
+            trial = kept + [join]
+            free = keep | frozenset(st.id for _n, strokes in trial for st in strokes)
+            alt = read(_frozen(expr, free) + [PinnedTree.build([PinSymbol(n, s)]) for n, s in trial])
+            if alt is not None and alt.tree is not None \
+                    and len(grammar.violations(alt)) < len(grammar.violations(expr)):
+                kept, expr = trial, alt
 
     # Moves: each flagged symbol on its own, the rest as read
     bad = grammar.violations(expr)
