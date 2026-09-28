@@ -25,6 +25,14 @@ pattern as the grouper and tree parser.
      used as a cut vs largest gap left inside a cell, rows and columns).
      Gaps alone can't tell a cases' columns apart: the gap before the
      condition is often no wider than those around its < or =.
+  5. Rows and columns line up (matrices): a row is a line — units
+     overlapping vertically — and a column boundary a vertical line through
+     every row that crosses no unit, cut or not by how likely the gaps it
+     crosses are column breaks. A row with nothing on one side of a
+     boundary (a matrix being written, a row still short) says nothing
+     about it, and its missing entries are empty cells. This grid is the
+     answer unless it leaves more entries ill-formed than the best
+     candidate (or commas separate the entries).
 
 The tree parser's confidence can't judge cells: it is 1.0 even for "x +".
 """
@@ -49,6 +57,16 @@ MAX_COLS = 8
 MAX_VARIANTS = 16
 # A delimiter covers at least this fraction of the content's height
 DELIM_COVER = 0.7
+# A gap between two neighbouring units of a row, in typical unit heights, is
+# a column break with P = 1 / (1 + exp(-GAP_SLOPE (gap - GAP_MID))) — fit on
+# matrices written by hand (matrix_app/scripts/measure_cell_gaps.py: inside an
+# entry median 0.32, 95% below 0.54; between entries median 1.31, 95% above 0.68)
+GAP_MID = 0.5
+GAP_SLOPE = 16.0
+# Columns are apart: a vertical line passes between two neighbouring columns
+# through every row (479 of 481 boundaries in those matrices; the others miss
+# by 0.02 unit heights — touching is allowed up to this much)
+COLUMN_TOUCH = 0.05
 
 
 @dataclass
@@ -295,7 +313,7 @@ def _stacked(cell: list[int], boxes) -> bool:
 
 def _bad(rows: list[list[list[int]]], boxes, seq) -> int:
     """Cells that are no single, well-formed entry."""
-    return sum(not _well_formed(seq(c)) or _stacked(c, boxes) for row in rows for c in row)
+    return sum(not _well_formed(seq(c)) or _stacked(c, boxes) for row in rows for c in row if c)
 
 
 def _separation(rows: list[list[list[int]]], boxes) -> float:
@@ -336,6 +354,92 @@ def _separation(rows: list[list[list[int]]], boxes) -> float:
             continue
         score += math.log(max(cut, 1e-6) / max(keep, floor))
     return score
+
+
+# ── 5. Rows and columns that line up ─────────────────────────────────
+
+
+def _log_cut(gap: float) -> tuple[float, float]:
+    """(log P(column break), log P(inside an entry)) for a gap in unit heights."""
+    z = GAP_SLOPE * (gap - GAP_MID)
+    softplus = lambda t: t + math.log1p(math.exp(-t)) if t > 0 else math.log1p(math.exp(t))
+    return -softplus(-z), -softplus(z)
+
+
+def _line_rows(boxes) -> list[list[int]]:
+    """The units in rows, top to bottom: a row is a line — units overlapping
+    vertically, directly or through others (in the handwritten matrices, a
+    unit always overlaps another of its row, by 0.41 of its height or more,
+    and never one of the next row)."""
+    n = len(boxes)
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for a, b in itertools.combinations(range(n), 2):
+        if min(boxes[a][3], boxes[b][3]) > max(boxes[a][1], boxes[b][1]):
+            parent[find(a)] = find(b)
+    rows: dict[int, list[int]] = {}
+    for u in range(n):
+        rows.setdefault(find(u), []).append(u)
+    return sorted(rows.values(), key=lambda r: min(boxes[u][1] for u in r))
+
+
+def _aligned_columns(rows: list[list[int]], boxes, h: float, seq) -> list[list[list[int]]]:
+    """*rows*' units in columns found across all rows: the boundaries are the
+    vertical lines through every row crossing no unit; each is a column
+    break if the gaps it crosses — in the rows with a unit on both sides and
+    no other boundary in that gap (a wide gap says there is a break, not
+    where) — are more likely breaks than not; a boundary no row speaks for
+    is judged by its own width. If that leaves an entry ill-formed, the
+    least sure decision is flipped, then the next. Cells a row has nothing
+    in are empty."""
+    spans = sorted((boxes[u][0], boxes[u][2]) for r in rows for u in r)
+    lines, reach = [], spans[0][1]
+    for x0, x1 in spans[1:]:
+        if x0 > reach - COLUMN_TOUCH * h:
+            lines.append((reach + x0) / 2)
+        reach = max(reach, x1)
+    centre = lambda u: (boxes[u][0] + boxes[u][2]) / 2
+    margin = []
+    for x in lines:
+        cut = keep = 0.0
+        evidence = False
+        for r in rows:
+            left = [u for u in r if centre(u) < x]
+            right = [u for u in r if centre(u) > x]
+            if not (left and right):
+                continue
+            x0, x1 = max(boxes[u][2] for u in left), min(boxes[u][0] for u in right)
+            if sum(x0 - COLUMN_TOUCH * h <= y <= x1 + COLUMN_TOUCH * h for y in lines) > 1:
+                continue                          # this gap holds another boundary too
+            c, k = _log_cut((x1 - x0) / h)
+            cut, keep, evidence = cut + c, keep + k, True
+        if not evidence:
+            below = max(x1 for x0, x1 in spans if (x0 + x1) / 2 < x)
+            above = min(x0 for x0, x1 in spans if (x0 + x1) / 2 > x)
+            cut, keep = _log_cut((above - below) / h)
+        margin.append(cut - keep)
+
+    def grid_for(chosen):
+        bounds = sorted(x for x, m in zip(lines, chosen) if m)
+        return [[[u for u in r if sum(centre(u) > b for b in bounds) == c] for c in range(len(bounds) + 1)]
+                for r in rows]
+
+    chosen = [m > 0 for m in margin]
+    grid = grid_for(chosen)
+    for k in sorted(range(len(lines)), key=lambda k: abs(margin[k])):
+        if not _bad(grid, boxes, seq):
+            break
+        flipped = chosen[:k] + [not chosen[k]] + chosen[k + 1:]
+        alt = grid_for(flipped)
+        if _bad(alt, boxes, seq) < _bad(grid, boxes, seq):
+            chosen, grid = flipped, alt
+    return grid
 
 
 # ── Entry point ──────────────────────────────────────────────────────
@@ -409,6 +513,16 @@ def split_grid(symbols, kind: str = "auto", n_alternatives: int | None = 5) -> G
 
     if not candidates:
         return Grid(env=env, left=left, right=right, cells=[[sorted(content)]] if content else [])
+    # 5. A matrix's rows and columns as they line up — unless that leaves
+    # more entries ill-formed (or the entries are separated by commas)
+    top = candidates[0]
+    if kind != "cases" and top[1] == 1:
+        rows_units = _line_rows(boxes)
+        if len(rows_units) >= 2:
+            aligned = _aligned_columns(rows_units, boxes, median(b[3] - b[1] for b in boxes), seq)
+            bad = _bad(aligned, boxes, seq)
+            if bad <= top[0]:
+                candidates.insert(0, (bad, 1, False, _separation(aligned, boxes), aligned))
     best = to_grid(candidates[0])
     rest = candidates[1:] if n_alternatives is None else candidates[1:1 + n_alternatives]
     best.alternatives = [to_grid(c) for c in rest]
