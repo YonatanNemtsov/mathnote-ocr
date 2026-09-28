@@ -19,7 +19,8 @@ pattern as the grouper and tree parser.
      out of the cells, and is preferred over cuts guessed from gaps.
   4. Score, lexicographically: fewest ill-formed cells (math grammar: no
      cell ends with an operator, starts with a binary one, or has two
-     operators in a row), then — cases only — two columns (value &
+     operators in a row; and a cell is one line — no two of its entries
+     one above the other), then — cases only — two columns (value &
      condition) over one, then the cleanest gap separation (smallest gap
      used as a cut vs largest gap left inside a cell, rows and columns).
      Gaps alone can't tell a cases' columns apart: the gap before the
@@ -255,7 +256,7 @@ def _comma_candidates(units, boxes, unit_name, seq, kind) -> list[tuple]:
             grid_rows.append(cells)
         if not ok or len({len(r) for r in grid_rows}) != 1 or len(grid_rows[0]) < 2:
             continue
-        bad = sum(not _well_formed(seq(c)) for row in grid_rows for c in row)
+        bad = _bad(grid_rows, boxes, seq)
         out.append((bad, False, _separation(grid_rows, boxes), grid_rows))
     return out
 
@@ -276,6 +277,25 @@ def _well_formed(seq: list[str]) -> bool:
         if a in OPERATORS and b in OPERATORS and b not in UNARY:
             return False
     return True
+
+
+def _stacked(cell: list[int], boxes) -> bool:
+    """A cell is one line of writing: two of its units one above the other
+    (apart vertically, overlapping horizontally over most of the narrower
+    one's width) are entries of different rows. A fraction is one unit, so
+    its parts never count."""
+    for a, b in itertools.combinations(cell, 2):
+        (ax0, ay0, ax1, ay1), (bx0, by0, bx1, by1) = boxes[a], boxes[b]
+        apart = by0 >= ay1 or ay0 >= by1
+        over = min(ax1, bx1) - max(ax0, bx0)
+        if apart and over > 0.5 * min(ax1 - ax0, bx1 - bx0):
+            return True
+    return False
+
+
+def _bad(rows: list[list[list[int]]], boxes, seq) -> int:
+    """Cells that are no single, well-formed entry."""
+    return sum(not _well_formed(seq(c)) or _stacked(c, boxes) for row in rows for c in row)
 
 
 def _separation(rows: list[list[list[int]]], boxes) -> float:
@@ -372,7 +392,7 @@ def split_grid(symbols, kind: str = "auto", n_alternatives: int | None = 5) -> G
                     continue
                 seen.add(key)
                 grid_rows = [list(row) for row in choice]
-                bad = sum(not _well_formed(seq(c)) for row in grid_rows for c in row)
+                bad = _bad(grid_rows, boxes, seq)
                 one_col = kind == "cases" and n_cols == 1
                 candidates.append((bad, one_col, _separation(grid_rows, boxes), grid_rows))
 

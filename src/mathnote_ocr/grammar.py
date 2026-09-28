@@ -17,7 +17,8 @@ matrix cell). A matrix atom in a line is named "grid".
 Rewrites. Rewrite(parts, into) names two symbols that may be one:
 it applies where the grouper weighed the two symbols' strokes as one symbol
 (they're close enough to be one) and the classifier's first reading of them
-together is a target — the classifier judges the shape.
+together is a target — the classifier judges the shape — with at least
+the rewrite's min_confidence (default 0: any first reading).
 
 Moves. For a symbol a rule flags, the app's moves(name, where) lists the
 repairs to try, in order (default: relabel only). Two are built in:
@@ -54,9 +55,11 @@ WHERE = {Edge.ROOT: "main", Edge.SUP: "sup", Edge.SUB: "sub", Edge.NUM: "num", E
 
 @dataclass(frozen=True)
 class Rewrite:
-    """Two symbols (either order) that may be one of *into*."""
+    """Two symbols (either order) that may be one of *into* — when the
+    classifier reads them together as it with at least *min_confidence*."""
     parts: tuple[str, str]
     into: tuple[str, ...]
+    min_confidence: float = 0.0
 
 
 def lines(expr) -> list[tuple[str, list[int]]]:
@@ -160,7 +163,7 @@ def _joins(expr, grammar: Grammar, keep: frozenset[int], classified) -> list[tup
                 if sorted((na, nb)) != sorted(rw.parts):
                     continue
                 r = classified(_strokes(a) | _strokes(b))
-                if r is not None and r.symbol in rw.into:
+                if r is not None and r.symbol in rw.into and r.confidence >= rw.min_confidence:
                     found.append((r.confidence, r.symbol, a, b))
     out, used = [], set()
     for _c, name, a, b in sorted(found, key=lambda f: -f[0]):
