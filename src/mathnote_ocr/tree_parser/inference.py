@@ -48,6 +48,14 @@ from mathnote_ocr.tree_parser.tree_builder import (
 from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
 from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Edge, Node, Symbol, Tree
 
+# A bar is a fraction bar or a minus by its place in the expression; both are
+# tried when the classifier gives the other at least this (inks in the matrix
+# app's log: 0.42 for a minus read as a fraction bar) — for the most uncertain
+# MAX_BAR_CHOICES bars of an expression (2^n parses)
+BARS = ("frac_bar", "-")
+MIN_BAR_ALTERNATIVE = 0.1
+MAX_BAR_CHOICES = 3
+
 logger = logging.getLogger(__name__)
 
 
@@ -405,6 +413,74 @@ class TreeParser(ABC):
         relations=None,
     ) -> tuple[str, float, Tree, dict | None]:
         """Like parse(), but also returns (latex, confidence, tree, evidence).
+
+        A bar's role — fraction bar or minus — is the expression's, not the
+        stroke's: the classifier can't tell them apart from one stroke (a
+        minus under a fraction's numerator read 0.52 fraction bar, 0.42
+        minus) and the label steers the tree. So bars whose other reading is
+        possible are read both ways and the labelling whose tree the model
+        verifies best is kept (_label_search). Pinned bars keep their label.
+        """
+        if self.tree_strategy in ("backtrack", "backtrack_collapse") and len(symbols) > 1:
+            return self._label_search(symbols, pins, relations)
+        return self._parse_labelled(symbols, pins, relations)
+
+    def _label_search(self, symbols, pins, relations):
+        """Every labelling of the uncertain bars (at most MAX_BAR_CHOICES of
+        them, the most uncertain), parsed, and scored by: the classifier's
+        probability of the labels x the subset model's verification of each
+        parent's children x the GNN's agreement with the tree (as logs)."""
+        import itertools
+        import math
+
+        from mathnote_ocr.tree_parser.bottomup_v2 import _verify_score_gnn, _verify_score_subset
+
+        pinned = set()
+        for pin in pins or []:
+            for node in getattr(pin, "nodes", {}).values():
+                sym = getattr(node, "symbol", None)
+                if sym is not None:
+                    pinned.update(sym.stroke_ids)
+        choices = []                                     # (position, [(name, p), ...])
+        for i, s in enumerate(symbols):
+            if s.name not in BARS or any(st.id in pinned for st in s.strokes):
+                continue
+            # both labels' probabilities from the classifier's reading of the strokes
+            probs = dict(s.alternatives)
+            other = next(n for n in BARS if n != s.name)
+            p_own, p_other = probs.get(s.name, s.confidence), probs.get(other, 0.0)
+            if p_other >= MIN_BAR_ALTERNATIVE:
+                choices.append((i, [(s.name, max(p_own, 1e-6)), (other, p_other)]))
+        if not choices:
+            return self._parse_labelled(symbols, pins, relations)
+        choices = sorted(choices, key=lambda c: -c[1][1][1])[:MAX_BAR_CHOICES]
+        best = None
+        for combo in itertools.product(*(opts for _i, opts in choices)):
+            labelled = list(symbols)
+            log_p = 0.0
+            for (i, _opts), (name, p) in zip(choices, combo):
+                if name != symbols[i].name:
+                    labelled[i] = replace(symbols[i], name=name)
+                log_p += math.log(p)
+            out = self._parse_labelled(labelled, pins, relations)
+            tree = out[2]
+            v2 = self._make_symbols(labelled)
+            score = log_p + math.log(max(_verify_score_subset(tree, v2, self._run_subsets, self._make_subsets), 1e-3))
+            gnn = getattr(self, "gnn_model", None)
+            if gnn is not None:
+                score += math.log(max(_verify_score_gnn(tree, v2, gnn, self.symbol_vocab, self.device,
+                                                        self._run_subsets, self._make_subsets), 1e-3))
+            if best is None or score > best[0]:
+                best = (score, out)
+        return best[1]
+
+    def _parse_labelled(
+        self,
+        symbols: list[DetectedSymbol],
+        pins: list[Tree] | None = None,
+        relations=None,
+    ) -> tuple[str, float, Tree, dict | None]:
+        """parse_with_tree for the symbols as labelled.
 
         When *pins* are provided, the tree builder enforces each pin's internal
         edges. The pin's root attaches to the surrounding tree as the model
