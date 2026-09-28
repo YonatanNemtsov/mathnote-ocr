@@ -805,6 +805,7 @@ def build(
     symbol_vocab: dict | None = None,
     device=None,
     pins: list[Tree] | None = None,
+    relations=None,
 ) -> Tree:
     """Build expression tree bottom-up with beam search.
 
@@ -812,6 +813,9 @@ def build(
     the initial tree and added to the resolved set, so the beam search will
     not reassign them. The pin's root attaches to the surrounding tree
     normally — only internal subtree structure is fixed.
+
+    *relations* (mathnote_ocr.relations.Relations): relations and links the
+    tree may not have — their votes are removed before the search.
     """
     from mathnote_ocr.tree_parser.tree_v2 import Edge, Node
 
@@ -860,6 +864,8 @@ def build(
             tta_dy=tta_dy,
             tta_size=tta_size,
         )
+        if relations:
+            evidence = relations.restrict(evidence, variant)
         initial_tree = Tree(tuple(Node(s, ROOT_ID, Edge.ROOT, i) for i, s in enumerate(variant)))
         beam.append((initial_tree, set(), variant, evidence, 0.0, 0))
 
@@ -1101,6 +1107,7 @@ def build_with_collapse(
     symbol_vocab: dict | None = None,
     device=None,
     pins: list[Tree] | None = None,
+    relations=None,
 ) -> Tree:
     """Build tree bottom-up with beam search + collapsing.
 
@@ -1110,6 +1117,9 @@ def build_with_collapse(
     See build() for pin semantics. With collapse, pinned edges may be
     absorbed into EXPR nodes — the pre-application happens before any
     collapse so each pin is honored on the original symbol set.
+
+    *relations* is not applied by this strategy (its evidence is re-run on
+    collapsed symbols); accepted so callers can pass it.
     """
     from mathnote_ocr.bbox import BBox
     from mathnote_ocr.tree_parser.evidence import aggregate_evidence_soft

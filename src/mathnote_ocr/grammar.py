@@ -1,38 +1,67 @@
 """Grammar: what a well-formed reading is — for an app that says so.
 
-The engine provides the mechanism; the app provides the rules. A rule is
-any function from a line's symbol names to the positions it objects to;
-a Grammar is the app's list of rules, given to the engine like its
-vocabulary:
+The engine provides the mechanism; the app provides the rules, the rewrites
+and which repairs to try. A Grammar is given to the engine like its vocabulary:
 
-    ocr = MathOCR(config, grammar=Grammar(rule_a, rule_b))
-    ocr.detect(strokes)                        # a broken reading is repaired
+    ocr = MathOCR(config, grammar=Grammar(rule_a, rule_b, rewrites=[...], moves=my_moves))
+    ocr.detect(strokes)                        # a reading is repaired
     ocr.detect(strokes, grammar=Grammar())     # or another grammar, for one call
 
-A reading that breaks a rule is repaired inside detect — the most probable
-grammatical reading is kept (a hard constraint), found by re-reading with
-one flagged symbol changed to one of its own alternatives. Pins (the user's
-corrections) are never changed.
+Rules. A rule is a function (names, where) -> positions it objects to: it
+sees one line of the reading — the siblings of one parent under one
+relation, in reading order, named as shown (a fraction bar with nothing
+above or below it is shown as a minus) — and which line that is (lines()):
+"main", "sup", "sub", "num", "den", "sqrt", "upper", "lower", or "cell" (a
+matrix cell). A matrix atom in a line is named "grid".
 
-Rules see the reading's lines: the siblings of one parent under one
-relation (the main line, a numerator, a superscript …) in reading order,
-and each matrix cell (lines()). A matrix atom in a line is named "grid".
+Rewrites. Rewrite(parts, into) names two symbols that may be one:
+it applies where the grouper weighed the two symbols' strokes as one symbol
+(they're close enough to be one) and the classifier's first reading of them
+together is a target — the classifier judges the shape.
+
+Moves. For a symbol a rule flags, the app's moves(name, where) lists the
+repairs to try, in order (default: relabel only). Two are built in:
+  "relabel"    read as one of its own alternatives (most probable first)
+  "elsewhere"  placed elsewhere: its link to its parent forbidden
+               (mathnote_ocr.relations), its reading kept
+and any other move is the app's own: a function (expr, symbol id, keep) ->
+Proposal | None — the pins (and forbidden links) to re-read with. The first
+move that leaves fewer violations is kept.
+
+Repair is local: every other symbol keeps its reading (pinned, as shown)
+while one place is re-read, so fixes in a long expression don't disturb each
+other; a move must leave everything else as it was — labels and structure —
+or it is refused, unless it says it reshapes (a Proposal with reshapes=True;
+a rewrite always may: two symbols joined, what they split apart moves back).
+The kept fixes are read together. The user's pins (their corrections) are
+never changed.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 
 from mathnote_ocr.pin import PinnedTree, PinSymbol
-from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID
+from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Edge
 
-Rule = Callable[[Sequence[str]], set[int]]
+Rule = Callable[[Sequence[str], str], set[int]]
+
+WHERE = {Edge.ROOT: "main", Edge.SUP: "sup", Edge.SUB: "sub", Edge.NUM: "num", Edge.DEN: "den",
+         Edge.SQRT: "sqrt", Edge.UPPER: "upper", Edge.LOWER: "lower", Edge.MATCH: "match"}
 
 
-def lines(expr) -> list[list[int]]:
-    """The reading's lines, as symbol ids in reading order: the siblings under
-    each parent and relation, and each matrix cell (by x)."""
+@dataclass(frozen=True)
+class Rewrite:
+    """Two symbols (either order) that may be one of *into*."""
+    parts: tuple[str, str]
+    into: tuple[str, ...]
+
+
+def lines(expr) -> list[tuple[str, list[int]]]:
+    """The reading's lines: (where, symbol ids in reading order) — the siblings
+    under each parent and relation, and each matrix cell (by x)."""
     if expr.tree is None:
         return []
     groups: dict[tuple, list] = defaultdict(list)
@@ -40,56 +69,197 @@ def lines(expr) -> list[list[int]]:
         if sid == ROOT_ID:
             continue
         groups[(node.parent_id, int(node.edge_type))].append((node.order, sid))
-    out = [[sid for _o, sid in sorted(v)] for v in groups.values()]
+    out = [(WHERE.get(Edge(e), "other"), [sid for _o, sid in sorted(v)]) for (_p, e), v in groups.items()]
     for g in (expr.grids or {}).values():
         for row in g.cells:
             for cell in row:
                 ids = [i for i in cell if i in expr.symbols]
-                out.append(sorted(ids, key=lambda i: expr.symbols[i].bbox.x))
+                out.append(("cell", sorted(ids, key=lambda i: expr.symbols[i].bbox.x)))
     return out
 
 
 def _name(expr, sid) -> str:
-    return expr.symbols[sid].name if sid in expr.symbols else "grid"    # a matrix atom: an operand
+    """A symbol's name as rules see it: as shown — the tree's name (a minus
+    the parser made a fraction bar is one), and a fraction bar with neither
+    a numerator nor a denominator is shown, and seen, as a minus."""
+    if sid not in expr.symbols:
+        return "grid"                          # a matrix atom: an operand
+    t = expr.tree
+    name = t.nodes[sid].symbol.name if t is not None and sid in t.nodes else expr.symbols[sid].name
+    if name == "frac_bar" and not (t.children_by_edge(sid, Edge.NUM) or t.children_by_edge(sid, Edge.DEN)):
+        return "-"
+    return name
+
+
+BUILT_IN_MOVES = ("relabel", "elsewhere")
+
+
+@dataclass(frozen=True)
+class Proposal:
+    """An app's repair for a flagged symbol: re-read with these *pins* (and
+    *forbid* links, mathnote_ocr.relations), re-deciding the strokes *taken*
+    (the flagged symbol's are always included). Unless *reshapes*, everything
+    outside them must read as before."""
+    pins: tuple
+    taken: frozenset = frozenset()
+    forbid: tuple = ()
+    reshapes: bool = False
+
+
+def _relabel_only(name: str, where: str) -> Sequence:
+    return ("relabel",)
 
 
 class Grammar:
-    def __init__(self, *rules: Rule):
+    def __init__(self, *rules: Rule, rewrites: Sequence[Rewrite] = (),
+                 moves: Callable[[str, str], Sequence] = _relabel_only):
         self.rules = rules
+        self.rewrites = tuple(rewrites)
+        self.moves = moves
 
     def violations(self, expr) -> set[int]:
         """The symbol ids some rule flags (in some line of the reading)."""
         bad = set()
-        for ids in lines(expr):
+        for where, ids in lines(expr):
             names = [_name(expr, i) for i in ids]
             for rule in self.rules:
-                bad |= {ids[k] for k in rule(names) if ids[k] in expr.symbols}
+                bad |= {ids[k] for k in rule(names, where) if ids[k] in expr.symbols}
         return bad
 
 
-def repair(expr, read: Callable[[list[PinnedTree]], object], grammar: Grammar,
-           keep: frozenset[int] = frozenset(), max_tries: int = 8, per_symbol: int = 3):
-    """*expr* if it is grammatical; else the most probable grammatical re-reading
-    with one flagged symbol changed to one of its alternatives (tried in order
-    of the alternative's probability, at most *max_tries*); else *expr*.
+def _strokes(sym) -> frozenset[int]:
+    return frozenset(st.id for st in sym.strokes)
 
-    *read(extra_pins)* reads the same ink again with the extra pins — through
-    the caller's whole pipeline. Symbols with strokes in *keep* are never changed.
+
+def _frozen(expr, free: frozenset[int]) -> list[PinnedTree]:
+    """Every symbol's reading, pinned as shown (a lone fraction bar as the minus
+    it is shown as — pinned as a fraction bar it would invite a fraction) —
+    but those with strokes in *free*."""
+    return [PinnedTree.build([PinSymbol(_name(expr, sid), list(s.strokes))]) for sid, s in expr.symbols.items()
+            if not (_strokes(s) & free)]
+
+
+def _rest(expr, region: frozenset[int]):
+    """The reading outside *region* (stroke ids): its symbols (label, strokes)
+    and the relations between them."""
+    # names as shown: the parser's promotions (a minus as a fraction bar) count
+    syms = {sid: (_name(expr, sid), _strokes(s)) for sid, s in expr.symbols.items() if not (_strokes(s) & region)}
+    rel = {(syms[n.parent_id], syms[sid], int(n.edge_type)) for sid, n in expr.tree.nodes.items()
+           if sid in syms and n.parent_id in syms}
+    return set(syms.values()), rel
+
+
+def _joins(expr, grammar: Grammar, keep: frozenset[int], classified) -> list[tuple[str, list]]:
+    """The rewrites that apply: [(symbol, strokes)], no symbol in two."""
+    found = []
+    # named as rules see them: a lone fraction bar is a minus
+    syms = [(_name(expr, sid), s) for sid, s in expr.symbols.items() if not (_strokes(s) & keep)]
+    for i, (na, a) in enumerate(syms):
+        for nb, b in syms[i + 1:]:
+            for rw in grammar.rewrites:
+                if sorted((na, nb)) != sorted(rw.parts):
+                    continue
+                r = classified(_strokes(a) | _strokes(b))
+                if r is not None and r.symbol in rw.into:
+                    found.append((r.confidence, r.symbol, a, b))
+    out, used = [], set()
+    for _c, name, a, b in sorted(found, key=lambda f: -f[0]):
+        if id(a) in used or id(b) in used:
+            continue
+        used |= {id(a), id(b)}
+        out.append((name, list(a.strokes) + list(b.strokes)))
+    return out
+
+
+def repair(expr, read: Callable[[list[PinnedTree]], object], grammar: Grammar,
+           keep: frozenset[int] = frozenset(), classified=None, per_symbol: int = 3):
+    """*expr*, repaired locally (see the module doc); *expr* itself when
+    nothing applies or helps.
+
+    *read(pins, forbid=links)* reads the same ink again with the extra pins,
+    and the given links forbidden (mathnote_ocr.relations) — through the
+    caller's whole pipeline. Symbols with strokes in *keep* (the user's pins,
+    marked regions) are never changed, nor pinned again. *classified(stroke
+    ids)* is the grouper's reading of those strokes as one symbol (under the
+    vocabulary), or None if it never weighed them as one.
     """
+    # Rewrites: split symbols joined
+    if grammar.rewrites and classified is not None:
+        joins = _joins(expr, grammar, keep, classified)
+        if joins:
+            free = keep | frozenset(st.id for _n, strokes in joins for st in strokes)
+            alt = read(_frozen(expr, free) + [PinnedTree.build([PinSymbol(n, s)]) for n, s in joins])
+            if alt is not None and alt.tree is not None:
+                expr = alt
+
+    # Moves: each flagged symbol on its own, the rest as read
     bad = grammar.violations(expr)
     if not bad:
         return expr
-    options = []
-    for sid in bad:
+    n_bad = len(bad)
+    fixes = []
+    for sid in sorted(bad):
         sym = expr.symbols.get(sid)
-        if sym is None or any(st.id in keep for st in sym.strokes):
+        if sym is None or _strokes(sym) & keep:
             continue
-        alts = [(p, n) for n, p in (sym.alternatives or []) if n != sym.name][:per_symbol]
-        options += [(p, sid, n) for p, n in alts]
-    options.sort(key=lambda o: -o[0])
-    for _p, sid, name in options[:max_tries]:
-        sym = expr.symbols[sid]
-        alt = read([PinnedTree.build([PinSymbol(name, list(sym.strokes))])])
-        if alt is not None and alt.tree is not None and not grammar.violations(alt):
+        node = expr.tree.nodes[sid]
+        frozen = _frozen(expr, keep | _strokes(sym))
+        rest = _rest(expr, _strokes(sym))
+
+        def fewer(alt):
+            return alt is not None and alt.tree is not None and len(grammar.violations(alt)) < n_bad
+
+        def good(alt):
+            return fewer(alt) and _rest(alt, _strokes(sym)) == rest
+
+        def relabel():
+            for name, _p in [(n, p) for n, p in (sym.alternatives or []) if n != sym.name][:per_symbol]:
+                pin = PinnedTree.build([PinSymbol(name, list(sym.strokes))])
+                alt = read(frozen + [pin])
+                if good(alt):
+                    return [pin], [], _strokes(sym), alt
+            return None
+
+        def elsewhere():
+            parent = expr.symbols.get(node.parent_id)
+            if parent is None or node.parent_id == ROOT_ID:
+                return None
+            link = (_strokes(sym), _strokes(parent), int(node.edge_type))
+            pin = PinnedTree.build([PinSymbol(_name(expr, sid), list(sym.strokes))])
+            alt = read(frozen + [pin], forbid=[link])
+            return ([pin], [link], _strokes(sym), alt) if good(alt) else None
+
+        def proposed(move):
+            p = move(expr, sid, keep)
+            if p is None:
+                return None
+            taken = frozenset(p.taken) | _strokes(sym)
+            alt = read(_frozen(expr, keep | taken) + list(p.pins), forbid=list(p.forbid))
+            ok = fewer(alt) and (p.reshapes or _rest(alt, taken) == _rest(expr, taken))
+            return (list(p.pins), list(p.forbid), taken, alt) if ok else None
+
+        built_in = {"relabel": relabel, "elsewhere": elsewhere}
+        for move in grammar.moves(_name(expr, sid), WHERE.get(Edge(node.edge_type), "other")):
+            if not callable(move) and move not in built_in:
+                raise ValueError(f"unknown move {move!r}: built in are {BUILT_IN_MOVES}, else pass a function")
+            try:
+                found = proposed(move) if callable(move) else built_in[move]()
+            except ValueError:      # a move that can't be pinned here (strokes it can't claim): no fix
+                found = None
+            if found is not None:
+                fixes.append(found)
+                break
+    if not fixes:
+        return expr
+    if len(fixes) == 1:
+        return fixes[0][3]
+    # the fixes together — unless two claim the same strokes, or together they reshape the rest
+    taken = [t for _p, _f, t, _a in fixes]
+    fixed = frozenset().union(*taken)
+    if sum(len(t) for t in taken) == len(fixed):
+        alt = read(_frozen(expr, keep | fixed) + [p for ps, _f, _t, _a in fixes for p in ps],
+                   forbid=[link for _p, fs, _t, _a in fixes for link in fs])
+        if alt is not None and alt.tree is not None and len(grammar.violations(alt)) < n_bad \
+                and _rest(alt, fixed) == _rest(expr, fixed):
             return alt
-    return expr
+    return min((a for _p, _f, _t, a in fixes), key=lambda a: len(grammar.violations(a)))    # the best one alone

@@ -23,6 +23,7 @@ from mathnote_ocr.pin import PinnedTree
 from mathnote_ocr.pipeline_config import get, load_config
 from mathnote_ocr.structures import Structure
 from mathnote_ocr.grammar import Grammar, repair
+from mathnote_ocr.relations import Relations
 from mathnote_ocr.vocabulary import Vocabulary
 from mathnote_ocr.structures.grid import split_grid
 from mathnote_ocr.tree_parser.inference import SubsetTreeParser
@@ -49,6 +50,7 @@ class MathOCR:
         canvas_size: int = 800,
         vocabulary: Vocabulary | None = None,
         grammar: Grammar | None = None,
+        relations: Relations | None = None,
     ) -> None:
         self._default_canvas_size = canvas_size
         cfg = load_config(config)
@@ -70,6 +72,8 @@ class MathOCR:
         self.vocabulary = vocabulary or Vocabulary()
         # What a well-formed reading is (mathnote_ocr.grammar); None: any reading
         self.grammar = grammar
+        # Which relations a reading may have (mathnote_ocr.relations); the default: all
+        self.relations = relations or Relations()
         self.vocabulary.check(self.classifier.label_names)
         self._top_k_default = get(cfg, "grouper.top_k", 1)
 
@@ -166,23 +170,34 @@ class MathOCR:
         grammar: Grammar | None = None,
     ) -> Expression:
         """Detection with an explicit cache (used by Session to reuse
-        classification results across calls), then — with a grammar — the
-        repair of a reading that breaks it: re-read with a flagged symbol's
-        alternatives; the pins given (the user's corrections) are never
-        changed. Not part of the public API."""
+        classification results across calls), then — with a grammar — its
+        local repair (mathnote_ocr.grammar): rewrites, then flagged symbols'
+        alternatives; the pins given (the user's corrections) and marked
+        regions are never changed. Not part of the public API."""
         stroke_objs = _normalize_strokes(strokes)
 
-        def read(extra_pins=()):
+        def read(extra_pins=(), forbid=()):
             return self._read(stroke_objs, cache, canvas_size=canvas_size, top_k=top_k,
                               pins=(list(pins or []) + list(extra_pins)) or None,
-                              structures=structures, vocabulary=vocabulary)
+                              structures=structures, vocabulary=vocabulary,
+                              relations=self.relations.forbidding(forbid))
 
         expr = read()
         g = self.grammar if grammar is None else grammar
         if g is None or not expr or expr.tree is None:
             return expr
-        keep = frozenset(i for p in (pins or []) for i in _pin_stroke_ids(p))
-        return repair(expr, read, g, keep=keep)
+        # never changed: the pins given (the user's corrections) and marked regions
+        keep = frozenset(i for p in (pins or []) for i in _pin_stroke_ids(p)) \
+            | frozenset(i for st in (structures or []) for i in st.stroke_ids)
+        vocab = self.vocabulary if vocabulary is None else vocabulary
+        labels = self.classifier.label_names
+
+        def classified(stroke_ids):
+            """The grouper's reading of these strokes as one symbol, if it weighed them as one."""
+            r = cache.get(frozenset(stroke_ids))
+            return vocab.apply(r, labels) if r is not None else None
+
+        return repair(expr, read, g, keep=keep, classified=classified)
 
     def _read(
         self,
@@ -194,8 +209,10 @@ class MathOCR:
         pins: Sequence[PinnedTree] | None = None,
         structures: Sequence[Structure] | None = None,
         vocabulary: Vocabulary | None = None,
+        relations: Relations | None = None,
     ) -> Expression:
         """One reading (no grammar). Not part of the public API."""
+        rel = self.relations if relations is None else relations
         stroke_objs = _normalize_strokes(strokes)
         if not stroke_objs:
             return empty_expression()
@@ -208,7 +225,7 @@ class MathOCR:
         vocab = self.vocabulary if vocabulary is None else vocabulary
         vocab.check(self.classifier.label_names)
         if structures:
-            return self._detect_with_structures(stroke_objs, cache, cs, pins, structures, vocab)
+            return self._detect_with_structures(stroke_objs, cache, cs, pins, structures, vocab, rel)
 
         partitions = group_and_classify(
             stroke_objs,
@@ -230,7 +247,7 @@ class MathOCR:
         pin_list = list(pins) if pins else None
         for partition in partitions:
             detected = sorted(partition, key=lambda s: s.bbox.x)
-            _latex, parse_conf, tree, _ev = self.tree_parser.parse_with_tree(detected, pin_list)
+            _latex, parse_conf, tree, _ev = self.tree_parser.parse_with_tree(detected, pin_list, relations=rel)
             symbols = {i: s for i, s in enumerate(detected)}
             sym_conf = _geomean_confidence(detected)
             covered = {st.id for s in detected for st in s.strokes}
@@ -264,6 +281,7 @@ class MathOCR:
         pins: Sequence[PinnedTree] | None,
         structures: Sequence[Structure],
         vocabulary: Vocabulary | None = None,
+        relations: Relations | None = None,
     ) -> Expression:
         """Detection with marked regions (grids).
 
@@ -320,7 +338,7 @@ class MathOCR:
             if key not in cell_cache:
                 cs_ = sorted((syms[j] for j in cell), key=lambda s: s.bbox.x)
                 if cs_:
-                    latex, _conf, cell_tree, _ev = self.tree_parser.parse_with_tree(cs_, None)
+                    latex, _conf, cell_tree, _ev = self.tree_parser.parse_with_tree(cs_, None, relations=relations)
                     cell_cache[key] = (latex, cell_tree)
                 else:
                     cell_cache[key] = ("", None)
@@ -333,7 +351,7 @@ class MathOCR:
                 for ids, _syms, _grids in region_data
             ]
             parser_input = sorted(outer_syms + atoms, key=lambda s: s.bbox.x)
-            _latex, parse_conf, tree, _ev = self.tree_parser.parse_with_tree(parser_input, outer_pins)
+            _latex, parse_conf, tree, _ev = self.tree_parser.parse_with_tree(parser_input, outer_pins, relations=relations)
             atom_pos = {id(a): i for i, a in enumerate(parser_input) if any(a is b for b in atoms)}
             symbols = {i: s for i, s in enumerate(parser_input) if id(s) not in atom_pos}
             next_id = len(parser_input)

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from mathnote_ocr import Grammar, MathOCR, Vocabulary
+from mathnote_ocr import Grammar, MathOCR, Rewrite, Vocabulary
 from mathnote_ocr.grammar import lines
 
 WEB = Path(__file__).resolve().parents[2] / "math_ocr_web"
@@ -18,7 +18,7 @@ CONFIG = WEB / "configs" / "mixed_v10_backtrack_gnn.yaml"
 GLYPHS = Path(__file__).resolve().parents[2] / "matrix_app" / "tests"
 
 
-def no_bars(names):
+def no_bars(names, where):
     """A throwaway rule: no | anywhere."""
     return {i for i, n in enumerate(names) if n == "|"}
 
@@ -41,7 +41,7 @@ def ink(tokens):
 def test_lines_are_the_readings_siblings_in_order(ocr):
     random.seed(0)
     e = ocr.detect(ink(["(", "1", ",", "2", ")"]), grammar=Grammar())
-    assert [[e.symbols[i].name for i in ln] for ln in lines(e)] == [["(", "1", ",", "2", ")"]]
+    assert [(w, [e.symbols[i].name for i in ln]) for w, ln in lines(e)] == [("main", ["(", "1", ",", "2", ")"])]
 
 
 def test_a_broken_reading_is_repaired_with_a_symbols_own_alternative(ocr):
@@ -63,3 +63,17 @@ def test_the_users_pins_are_never_changed(ocr):
     bar = max(strokes[1:4], key=lambda s: s.bbox.h)
     random.seed(0)
     assert "|" in ocr.detect(strokes, pins=[PinnedTree.build([PinSymbol("|", [bar])])]).latex
+
+
+def test_a_rewrite_joins_two_symbols_the_classifier_reads_as_one(ocr):
+    """= written as two strokes the grouper split: - - joined, when the
+    classifier reads the two strokes together as =."""
+    from glyphs import glyph
+    from mathnote_ocr.api import _normalize_strokes
+    eq = glyph("=", 40)
+    assert len(eq) == 2
+    strokes = ink(["x"]) + [[(x + 110, y + 60) for x, y in s] for s in eq] + [[(x + 60, y) for x, y in s] for s in ink(["2"])]
+    g = Grammar(rewrites=[Rewrite(("-", "-"), ("=",))])
+    random.seed(0)
+    got = ocr.detect(strokes, grammar=g).latex
+    assert "- -" not in got, got

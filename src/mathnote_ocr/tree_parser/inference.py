@@ -402,12 +402,16 @@ class TreeParser(ABC):
         self,
         symbols: list[DetectedSymbol],
         pins: list[Tree] | None = None,
+        relations=None,
     ) -> tuple[str, float, Tree, dict | None]:
         """Like parse(), but also returns (latex, confidence, tree, evidence).
 
         When *pins* are provided, the tree builder enforces each pin's internal
         edges. The pin's root attaches to the surrounding tree as the model
         chooses; only the internal subtree structure is fixed.
+
+        *relations* (mathnote_ocr.relations.Relations): relations and links
+        the tree may not have.
         """
         if not symbols:
             return "", 1.0, Tree(()), None
@@ -457,6 +461,7 @@ class TreeParser(ABC):
                 symbol_vocab=symbol_vocab,
                 device=self.device if gnn_model else None,
                 pins=pins,
+                relations=relations,
             )
             return tree_to_latex(tree), 1.0, tree, None
 
@@ -474,8 +479,11 @@ class TreeParser(ABC):
             for s in subsets:
                 seen_subsets.add(tuple(s))
 
+        def restricted(ev):
+            return relations.restrict(ev, v2_syms) if relations else ev
+
         for _ in range(self.max_iters):
-            evidence = aggregate_evidence_soft(N, all_partial)
+            evidence = restricted(aggregate_evidence_soft(N, all_partial))
             tree = self._evidence_to_tree(evidence, v2_syms)
             targets = find_seq_conflicts(
                 evidence,
@@ -490,7 +498,7 @@ class TreeParser(ABC):
                 seen_subsets.add(tuple(t))
             all_partial.extend(self._run_subsets(names, bboxes, new_targets))
 
-        evidence = aggregate_evidence_soft(N, all_partial)
+        evidence = restricted(aggregate_evidence_soft(N, all_partial))
         tree = self._evidence_to_tree(evidence, v2_syms)
         confidence = score_tree(self.scoring, evidence, tree, N)
         return tree_to_latex(tree), confidence, tree, evidence
