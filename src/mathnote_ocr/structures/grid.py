@@ -49,6 +49,7 @@ BINARY = {"+", "=", "<", ">", "leq", "geq", "neq", "times", "cdot", "pm", "div"}
 # May also stand first, as a sign (unary)
 UNARY = {"-", "+", "pm"}
 OPERATORS = BINARY | {"-"}
+FLAT = {"-", "frac_bar", "=", ",", ".", "dot", "cdot"}
 LEFT = {"(", "[", "|", "lbrace"}
 RIGHT = {")", "]", "|", "rbrace"}
 ENV_BY_DELIMS = {("(", ")"): "pmatrix", ("[", "]"): "bmatrix", ("|", "|"): "vmatrix", (None, None): "matrix"}
@@ -151,7 +152,10 @@ def _units(symbols, idx: list[int]) -> list[list[int]]:
     def union(a, b):
         parent[find(a)] = find(b)
 
-    typical = median(symbols[i].bbox.h for i in idx) if idx else 0
+    # the writing's height: flat symbols (bars) say nothing about it — with two
+    # bars among four symbols a median of all put the denominator out of reach
+    tall = [symbols[i].bbox.h for i in idx if symbols[i].name not in FLAT]
+    typical = median(tall or [symbols[i].bbox.h for i in idx]) if idx else 0
     for i in idx:
         s = symbols[i]
         x0, y0, x1, y1 = _box(s)
