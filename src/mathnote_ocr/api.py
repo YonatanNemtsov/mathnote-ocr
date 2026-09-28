@@ -286,7 +286,8 @@ class MathOCR:
         """Detection with marked regions (grids).
 
         Each region's strokes are grouped and classified on their own (no
-        symbol straddles its border), split into cells, and every cell is
+        symbol straddles its border) and split into cells; every cell is then
+        read like an expression on its own — its strokes grouped alone, then
         parsed. The rest is parsed with each region as one "expression"
         atom — the parser's token for a collapsed sub-expression — renamed
         "grid" in the result and rendered from its GridBlock. Alternative
@@ -332,17 +333,23 @@ class MathOCR:
         outer_pins = pins_within({s.id for s in outer})
         cell_cache: dict = {}
 
-        def cell_parse(r: int, syms: list[DetectedSymbol], cell: list[int]) -> tuple:
-            """(LaTeX, tree) of one cell, parsed on its own."""
-            key = (r, tuple(sorted(cell)))
-            if key not in cell_cache:
-                cs_ = sorted((syms[j] for j in cell), key=lambda s: s.bbox.x)
-                if cs_:
-                    latex, _conf, cell_tree, _ev = self.tree_parser.parse_with_tree(cs_, None, relations=relations)
-                    cell_cache[key] = (latex, cell_tree)
+        def cell_read(syms: list[DetectedSymbol], cell: list[int]) -> tuple:
+            """(symbols, LaTeX, tree) of one cell, read like an expression on its
+            own: its strokes grouped alone (the grouper weighs a stroke against
+            its neighbours — the region's other entries must not decide how a
+            cell's strokes join), then parsed — the pins within it kept, as
+            elsewhere."""
+            ids = frozenset(st.id for j in cell for st in syms[j].strokes)
+            if ids not in cell_cache:
+                cell_syms = sorted(best_partition([by_id[i] for i in sorted(ids)]), key=lambda s: s.bbox.x)
+                if cell_syms:
+                    # the pins within the cell hold its structure too (a pinned \frac{1}{t - 1})
+                    latex, _conf, cell_tree, _ev = self.tree_parser.parse_with_tree(
+                        cell_syms, pins_within(set(ids)), relations=relations)
+                    cell_cache[ids] = (cell_syms, latex, cell_tree)
                 else:
-                    cell_cache[key] = ("", None)
-            return cell_cache[key]
+                    cell_cache[ids] = ([], "", None)
+            return cell_cache[ids]
 
         def build(variant: int) -> Expression:
             atoms = [
@@ -359,16 +366,29 @@ class MathOCR:
             for r, (atom, (ids, syms, splits)) in enumerate(zip(atoms, region_data)):
                 aid = atom_pos[id(atom)]
                 tree = tree.rename_node(aid, "grid")
-                local = {}
-                for j, sym in enumerate(syms):
-                    symbols[next_id] = sym
-                    local[j] = next_id
-                    next_id += 1
                 g = splits[min(variant, len(splits) - 1)] if r == 0 else splits[0]
-                parsed = [[cell_parse(r, syms, cell) for cell in row] for row in g.cells]
+                # what is in no cell (delimiters, commas between entries) as grouped with the region
+                in_cells = {j for row in g.cells for cell in row for j in cell}
+                for j, sym in enumerate(syms):
+                    if j not in in_cells:
+                        symbols[next_id] = sym
+                        next_id += 1
+                # each cell's own symbols, in x order (its tree numbers them so)
+                cells, parsed = [], []
+                for row in g.cells:
+                    crow, prow = [], []
+                    for cell in row:
+                        cell_syms, latex, cell_tree = cell_read(syms, cell)
+                        crow.append(tuple(range(next_id, next_id + len(cell_syms))))
+                        for sym in cell_syms:
+                            symbols[next_id] = sym
+                            next_id += 1
+                        prow.append((latex, cell_tree))
+                    cells.append(tuple(crow))
+                    parsed.append(prow)
                 grids[aid] = GridBlock(
                     env=g.env,
-                    cells=tuple(tuple(tuple(local[j] for j in cell) for cell in row) for row in g.cells),
+                    cells=tuple(cells),
                     cell_latex=tuple(tuple(latex for latex, _t in row) for row in parsed),
                     bbox=atom.bbox,
                     cell_trees=tuple(tuple(t for _l, t in row) for row in parsed),
