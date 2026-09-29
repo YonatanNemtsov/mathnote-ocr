@@ -60,8 +60,8 @@ MAX_VARIANTS = 16
 DELIM_COVER = 0.7
 # A gap between two neighbouring units of a row, in typical unit heights, is
 # a column break with P = 1 / (1 + exp(-GAP_SLOPE (gap - GAP_MID))) — fit on
-# matrices written by hand (matrix_app/scripts/measure_cell_gaps.py: inside an
-# entry median 0.32, 95% below 0.54; between entries median 1.31, 95% above 0.68)
+# ~400 states of matrices written by hand (inside an entry: median 0.32, 95%
+# below 0.54; between entries: median 1.31, 95% above 0.68)
 GAP_MID = 0.5
 GAP_SLOPE = 16.0
 # Columns are apart: a vertical line passes between two neighbouring columns

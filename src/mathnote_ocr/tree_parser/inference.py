@@ -49,8 +49,8 @@ from mathnote_ocr.tree_parser.tree_latex import tree_to_latex
 from mathnote_ocr.tree_parser.tree_v2 import ROOT_ID, Edge, Node, Symbol, Tree
 
 # A bar is a fraction bar or a minus by its place in the expression; both are
-# tried when the classifier gives the other at least this (inks in the matrix
-# app's log: 0.42 for a minus read as a fraction bar) — for the most uncertain
+# tried when the classifier gives the other at least this (a minus under a
+# fraction's numerator was read 0.52 fraction bar, 0.42 minus) — for the most uncertain
 # MAX_BAR_CHOICES bars of an expression (2^n parses)
 BARS = ("frac_bar", "-")
 MIN_BAR_ALTERNATIVE = 0.1

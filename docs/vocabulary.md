@@ -3,7 +3,7 @@
 > **Decided:** the study vocabulary is the current 125 + all of Tier 1 +
 > `⋮` + `ℝ ℕ ℤ ℚ ℂ` (34 new classes) + all five accents (`\hat \bar \vec
 > \dot \tilde`, labelled as marks `accent_*`) = 164 classes. It lives in
-> math_ocr_web `study/vocabulary.json`; the new classes are in
+> the handwriting study app's `study/vocabulary.json`; the new classes are in
 > `glyphs.SYMBOL_TO_LATEX` and `align.latex_to_labels` knows accents,
 > `\mathbb` and `\to`. Glyph-vs-meaning (§2) and the accent structure (§4)
 > are decided later, from data — the study labels by meaning, which

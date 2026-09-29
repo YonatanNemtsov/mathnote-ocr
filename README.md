@@ -83,6 +83,61 @@ expr = session.detect(pins=[pin])   # the x^2 subtree is preserved
 
 Pins are per-call inputs to `detect()`; the caller controls their lifecycle. Indices in `edges` refer to positions in the `symbols` list. Pins may leave the symbol set as a forest (no edges, or multiple local roots); in that case a synthetic `expr` node is inserted as their common parent.
 
+#### Matrices and cases
+
+Mark a region's strokes as a grid and it is split into cells and read as one
+item of the surrounding expression:
+
+```python
+from mathnote_ocr import Structure
+
+expr = ocr.detect(strokes, structures=[Structure("grid", tuple(matrix_stroke_ids))])
+for atom_id, grid in expr.grids.items():
+    print(grid.env, grid.shape, grid.cell_latex)   # pmatrix (2, 2) (('1', '2'), ('3', '4'))
+```
+
+Rows are lines of writing and columns line up across rows, so a matrix still
+being written reads with empty cells. Each cell is read like an expression on
+its own (`grid.cell_trees`); the brackets stay symbols of the expression around
+the grid, so `(…)^2` reads as it would anywhere.
+
+### Configuring the engine for an app
+
+An app usually knows more than the engine: which symbols it can use, which
+relations never occur, what a well-formed reading is. The engine provides the
+mechanisms; the app states the rules. All three are given once to `MathOCR`
+(or per call to `detect`):
+
+```python
+from mathnote_ocr import Grammar, MathOCR, Relations, Rewrite, Vocabulary
+
+ocr = MathOCR(
+    config,
+    vocabulary=Vocabulary(exclude={"alpha", "beta"}, aliases={"slash": ","}),
+    relations=Relations(exclude={"sub"}),          # no subscripts in this app
+    grammar=Grammar(no_two_operators, rewrites=[Rewrite(("-", "-"), ("=",))]),
+)
+```
+
+- **`Vocabulary`**: symbols the app never expects are removed from the
+  classifier's choices (their probability dropped, the rest not rescaled);
+  `aliases` read one class as another.
+- **`Relations`**: relations the tree may not have (`"sup"`, `"sub"`, `"num"`,
+  `"den"`, …) get no votes: the parser reads the most probable tree among the
+  allowed ones.
+- **`Grammar`**: a rule is a function `(names, where[, boxes]) -> positions it
+  objects to`. It sees one line of the reading at a time: the siblings under one
+  parent and relation, in order, named as shown; `where` says which line it is
+  (`"main"`, `"sup"`, `"num"`, `"den"`, `"cell"`, …), and a rule taking `boxes`
+  also gets each symbol's box. A fraction's empty side is a line of its own, and
+  position `-1` objects to its bar. A reading that breaks a rule is repaired
+  locally: each flagged symbol is re-read on its own (as one of its other
+  readings, or placed elsewhere, or by the app's own move) while everything
+  else stays as read, and a repair is kept only if fewer rules are broken.
+  A `Rewrite(parts, into, min_confidence=0)` joins two symbols that are really
+  one (an `=` written as two strokes and split) when the classifier reads their
+  strokes together as a target, and only if that fixes something.
+
 ### Web interface
 
 The bundled demo:
