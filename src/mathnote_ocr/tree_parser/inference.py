@@ -427,7 +427,7 @@ class TreeParser(ABC):
 
     def _label_search(self, symbols, pins, relations):
         """Every labelling of the uncertain bars (at most MAX_BAR_CHOICES of
-        them, the most uncertain), parsed, and scored by: the classifier's
+        them, the most uncertain), parsed once without jitter, and scored by: the classifier's
         probability of the labels x the subset model's verification of each
         parent's children x the GNN's agreement with the tree (as logs)."""
         import itertools
@@ -454,25 +454,30 @@ class TreeParser(ABC):
         if not choices:
             return self._parse_labelled(symbols, pins, relations)
         choices = sorted(choices, key=lambda c: -c[1][1][1])[:MAX_BAR_CHOICES]
+        # the labellings are compared on one parse each, without the jittered
+        # runs; only the winner is read with them
         best = None
-        for combo in itertools.product(*(opts for _i, opts in choices)):
-            labelled = list(symbols)
-            log_p = 0.0
-            for (i, _opts), (name, p) in zip(choices, combo):
-                if name != symbols[i].name:
-                    labelled[i] = replace(symbols[i], name=name)
-                log_p += math.log(p)
-            out = self._parse_labelled(labelled, pins, relations)
-            tree = out[2]
-            v2 = self._make_symbols(labelled)
-            score = log_p + math.log(max(_verify_score_subset(tree, v2, self._run_subsets, self._make_subsets), 1e-3))
-            gnn = getattr(self, "gnn_model", None)
-            if gnn is not None:
-                score += math.log(max(_verify_score_gnn(tree, v2, gnn, self.symbol_vocab, self.device,
-                                                        self._run_subsets, self._make_subsets), 1e-3))
-            if best is None or score > best[0]:
-                best = (score, out)
-        return best[1]
+        runs, self.tta_runs = self.tta_runs, 1
+        try:
+            for combo in itertools.product(*(opts for _i, opts in choices)):
+                labelled = list(symbols)
+                log_p = 0.0
+                for (i, _opts), (name, p) in zip(choices, combo):
+                    if name != symbols[i].name:
+                        labelled[i] = replace(symbols[i], name=name)
+                    log_p += math.log(p)
+                tree = self._parse_labelled(labelled, pins, relations)[2]
+                v2 = self._make_symbols(labelled)
+                score = log_p + math.log(max(_verify_score_subset(tree, v2, self._run_subsets, self._make_subsets), 1e-3))
+                gnn = getattr(self, "gnn_model", None)
+                if gnn is not None:
+                    score += math.log(max(_verify_score_gnn(tree, v2, gnn, self.symbol_vocab, self.device,
+                                                            self._run_subsets, self._make_subsets), 1e-3))
+                if best is None or score > best[0]:
+                    best = (score, labelled)
+        finally:
+            self.tta_runs = runs
+        return self._parse_labelled(best[1], pins, relations)
 
     def _parse_labelled(
         self,

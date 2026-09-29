@@ -51,6 +51,7 @@ class MathOCR:
         vocabulary: Vocabulary | None = None,
         grammar: Grammar | None = None,
         relations: Relations | None = None,
+        grid_alternatives: int = 2,
     ) -> None:
         self._default_canvas_size = canvas_size
         cfg = load_config(config)
@@ -74,6 +75,9 @@ class MathOCR:
         self.grammar = grammar
         # Which relations a reading may have (mathnote_ocr.relations); the default: all
         self.relations = relations or Relations()
+        # Other splits of a marked grid read too (Expression.alternatives): each
+        # costs its cells' readings
+        self.grid_alternatives = grid_alternatives
         self.vocabulary.check(self.classifier.label_names)
         self._top_k_default = get(cfg, "grouper.top_k", 1)
 
@@ -325,7 +329,7 @@ class MathOCR:
         for st, ids in regions:
             syms = best_partition([by_id[i] for i in ids])
             kind = st.kind if st.kind in ("matrix", "cases") else "auto"
-            g = split_grid(syms, kind=kind, n_alternatives=2)
+            g = split_grid(syms, kind=kind, n_alternatives=self.grid_alternatives)
             region_data.append((ids, syms, [g] + g.alternatives))
 
         outer = [s for s in stroke_objs if s.id not in claimed]
