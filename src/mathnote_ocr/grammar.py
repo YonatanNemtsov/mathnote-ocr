@@ -106,7 +106,14 @@ def _owned_lines(expr) -> list[tuple[str, list[int], int | None]]:
 
 
 def _box(expr, sid) -> tuple[float, float, float, float]:
-    b = expr.symbols[sid].bbox if sid in expr.symbols else expr.grids[sid].bbox
+    """A line member's box: a symbol's, a matrix atom's, or a pinned group's
+    (the tree's expr node, around the pinned symbols)."""
+    if sid in expr.symbols:
+        b = expr.symbols[sid].bbox
+    elif sid in (expr.grids or {}):
+        b = expr.grids[sid].bbox
+    else:
+        b = expr.tree.nodes[sid].symbol.bbox
     return (b.x, b.y, b.x + b.w, b.y + b.h)
 
 
