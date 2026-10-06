@@ -218,8 +218,9 @@ def jitter_bboxes(
     normalised coordinates) got jitter many times its own size and the
     votes fell apart (scripts/diagnostics/scale_invariance.py).
     """
-    import random
+    from mathnote_ocr.seeding import rng
 
+    random = rng()
     heights = sorted(b[3] for b in bboxes)
     floor = heights[len(heights) // 2] / 3 if heights else 0.0
     result = []

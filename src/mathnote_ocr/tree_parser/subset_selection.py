@@ -19,7 +19,8 @@ Inference:
 from __future__ import annotations
 
 import math
-import random
+
+from mathnote_ocr.seeding import rng
 
 # ── Geometry helpers ─────────────────────────────────────────────────
 
@@ -75,6 +76,7 @@ def sample_subsets_spatial(
         seen.add(key)
         subsets.append(all_indices[:])
 
+    random = rng()
     for _ in range(n_subsets):
         k = random.randint(min(min_size, n_symbols), min(max_size, n_symbols))
 

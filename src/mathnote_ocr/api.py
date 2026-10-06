@@ -23,6 +23,7 @@ from mathnote_ocr.pin import PinnedTree
 from mathnote_ocr.pipeline_config import get, load_config
 from mathnote_ocr.structures import Structure
 from mathnote_ocr.grammar import Grammar, repair
+from mathnote_ocr.seeding import seeded
 from mathnote_ocr.relations import Relations
 from mathnote_ocr.vocabulary import Vocabulary
 from mathnote_ocr.structures.grid import split_grid
@@ -122,6 +123,7 @@ class MathOCR:
         structures: Sequence[Structure] | None = None,
         vocabulary: Vocabulary | None = None,
         grammar: Grammar | None = None,
+        seed: int | None = 0,
     ) -> Expression:
         """Detect a math expression from strokes.
 
@@ -145,6 +147,9 @@ class MathOCR:
             grammar: What a well-formed reading is, for this call (default:
                 this instance's; see mathnote_ocr.grammar). A reading that
                 breaks it is re-read with a flagged symbol's alternatives.
+            seed: The parser samples (subsets, test-time jitter): the same
+                ink and seed always read the same. Another seed: another
+                try at the same ink. None: unseeded (mathnote_ocr.seeding).
 
         Returns:
             An Expression. Empty Expression (``len(expr) == 0``) when
@@ -159,6 +164,7 @@ class MathOCR:
             structures=structures,
             vocabulary=vocabulary,
             grammar=grammar,
+            seed=seed,
         )
 
     def _detect_with_cache(
@@ -172,6 +178,7 @@ class MathOCR:
         structures: Sequence[Structure] | None = None,
         vocabulary: Vocabulary | None = None,
         grammar: Grammar | None = None,
+        seed: int | None = 0,
     ) -> Expression:
         """Detection with an explicit cache (used by Session to reuse
         classification results across calls), then — with a grammar — its
@@ -181,10 +188,12 @@ class MathOCR:
         stroke_objs = _normalize_strokes(strokes)
 
         def read(extra_pins=(), forbid=()):
-            return self._read(stroke_objs, cache, canvas_size=canvas_size, top_k=top_k,
-                              pins=(list(pins or []) + list(extra_pins)) or None,
-                              structures=structures, vocabulary=vocabulary,
-                              relations=self.relations.forbidding(forbid))
+            # each read from the seed: a repair's re-reads are compared on equal terms
+            with seeded(seed):
+                return self._read(stroke_objs, cache, canvas_size=canvas_size, top_k=top_k,
+                                  pins=(list(pins or []) + list(extra_pins)) or None,
+                                  structures=structures, vocabulary=vocabulary,
+                                  relations=self.relations.forbidding(forbid))
 
         expr = read()
         g = self.grammar if grammar is None else grammar
@@ -577,6 +586,7 @@ class Session:
         structures: Sequence[Structure] | None = None,
         vocabulary: Vocabulary | None = None,
         grammar: Grammar | None = None,
+        seed: int | None = 0,
     ) -> Expression:
         """Run detection on session strokes.
 
@@ -592,6 +602,8 @@ class Session:
                 the MathOCR's).
             grammar: What a well-formed reading is, for this call (default:
                 the MathOCR's).
+            seed: The same ink and seed always read the same; another seed
+                is another try (see MathOCR.detect).
         """
         if stroke_ids is None:
             strokes = list(self._strokes.values())
@@ -611,4 +623,5 @@ class Session:
             structures=structures,
             vocabulary=vocabulary,
             grammar=grammar,
+            seed=seed,
         )

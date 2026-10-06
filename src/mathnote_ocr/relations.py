@@ -10,12 +10,19 @@ Repair (mathnote_ocr.grammar) uses the same for one link: forbid(child
 strokes, parent strokes, relation) — "this minus is not u's superscript" —
 so the symbol is placed elsewhere and the rest is read as before.
 
+A relation can also depend on where the symbols are: *allow(child, parent,
+relation)* — each a (name, (x0, y0, x1, y1)) pair — says whether that link
+is possible at all ("a fraction's part lies over its bar"); links it rejects
+get no votes either.
+
+    Relations(allow=lambda child, parent, rel: ...)
+
 Relation names: "sup", "sub", "num", "den", "sqrt", "upper", "lower".
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
 from mathnote_ocr.tree_parser.tree_v2 import Edge
@@ -30,6 +37,7 @@ Link = tuple[frozenset[int], frozenset[int], int]     # (child strokes, parent s
 class Relations:
     exclude: frozenset[str] = frozenset()
     forbid: tuple[Link, ...] = ()
+    allow: Callable[[tuple, tuple, str], bool] | None = None
 
     def __post_init__(self):
         object.__setattr__(self, "exclude", frozenset(self.exclude))
@@ -38,11 +46,11 @@ class Relations:
             raise ValueError(f"unknown relations {sorted(unknown)}; known: {sorted(EDGES)}")
 
     def __bool__(self) -> bool:
-        return bool(self.exclude or self.forbid)
+        return bool(self.exclude or self.forbid or self.allow)
 
     def forbidding(self, links: Iterable[Link]) -> Relations:
         """These relations, and the given links forbidden too."""
-        return Relations(self.exclude, self.forbid + tuple(links))
+        return Relations(self.exclude, self.forbid + tuple(links), self.allow)
 
     def restrict(self, evidence: dict, symbols: Sequence) -> dict:
         """The parser's evidence with the excluded relations' and forbidden
@@ -59,4 +67,12 @@ class Relations:
                 i, j = pos.get(child), pos.get(parent)
                 if i is not None and j is not None:
                     votes[i, j, int(edge)] = 0
+        if self.allow is not None:
+            seen = [(s.name, (s.bbox.x, s.bbox.y, s.bbox.x + s.bbox.w, s.bbox.y + s.bbox.h)) for s in symbols]
+            for name, edge in EDGES.items():
+                if name in self.exclude:
+                    continue
+                for i, j in (votes[:, :len(seen), int(edge)] > 0).nonzero().tolist():
+                    if i != j and not self.allow(seen[i], seen[j], name):
+                        votes[i, j, int(edge)] = 0
         return {**evidence, "parent_votes": votes}
