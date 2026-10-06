@@ -84,3 +84,72 @@ class SymbolCNNWithPrototypes(nn.Module):
                 self.prototypes[class_idx] = torch.from_numpy(class_mean)
 
         self.prototypes_computed = True
+
+
+class _Block(nn.Module):
+    """Residual block: two 3x3 conv + batch norm, a 1x1 projection when the
+    shape changes."""
+
+    def __init__(self, cin: int, cout: int, stride: int):
+        super().__init__()
+        self.conv1 = nn.Conv2d(cin, cout, 3, stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(cout)
+        self.conv2 = nn.Conv2d(cout, cout, 3, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(cout)
+        self.skip = (nn.Sequential(nn.Conv2d(cin, cout, 1, stride=stride, bias=False), nn.BatchNorm2d(cout))
+                     if stride != 1 or cin != cout else nn.Identity())
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        y = self.relu(self.bn1(self.conv1(x)))
+        y = self.bn2(self.conv2(y))
+        return self.relu(y + self.skip(x))
+
+
+class SymbolResNetWithPrototypes(SymbolCNNWithPrototypes):
+    """A small ResNet in place of the 3-layer CNN — the same interface:
+    class logits and a 256-dim feature vector (so the prototypes and their
+    out-of-vocabulary check work unchanged), and the optional relative size.
+
+    A stem conv, four stages of two residual blocks (32, 64, 128, 256
+    channels; each stage after the first halves the resolution), global
+    average pooling: any input size works. About 2.8M parameters.
+    """
+
+    def __init__(self, num_classes: int, canvas_size: int = 48, use_size_feat: bool = False):
+        nn.Module.__init__(self)
+        self.use_size_feat = use_size_feat
+        self.stem = nn.Sequential(nn.Conv2d(1, 32, 3, padding=1, bias=False), nn.BatchNorm2d(32), nn.ReLU(inplace=True))
+        widths = [32, 64, 128, 256]
+        layers, cin = [], 32
+        for i, w in enumerate(widths):
+            stride = 1 if i == 0 else 2
+            layers += [_Block(cin, w, stride), _Block(w, w, 1)]
+            cin = w
+        self.stages = nn.Sequential(*layers)
+        self.pool = nn.AdaptiveAvgPool2d(1)
+        fc1_in = 256 + 1 if use_size_feat else 256
+        self.fc1 = nn.Linear(fc1_in, 256)
+        self.fc2 = nn.Linear(256, num_classes)
+        self.dropout = nn.Dropout(0.3)
+        self.relu = nn.ReLU()
+        self.register_buffer("prototypes", torch.zeros(num_classes, 256))
+        self.prototypes_computed = False
+
+    def forward(self, x: torch.Tensor, size_feat: torch.Tensor | None = None):
+        x = self.pool(self.stages(self.stem(x))).flatten(1)
+        if self.use_size_feat and size_feat is not None:
+            x = torch.cat([x, size_feat.unsqueeze(-1)], dim=-1)
+        features = self.relu(self.fc1(x))
+        return self.fc2(self.dropout(features)), features
+
+
+ARCHITECTURES = {"cnn": SymbolCNNWithPrototypes, "resnet": SymbolResNetWithPrototypes}
+
+
+def build_model(arch: str, num_classes: int, canvas_size: int, use_size_feat: bool) -> SymbolCNNWithPrototypes:
+    """The classifier of architecture *arch* ("cnn": the 3-layer CNN, the
+    default and every checkpoint without an "arch"; "resnet")."""
+    if arch not in ARCHITECTURES:
+        raise ValueError(f"unknown classifier architecture {arch!r}: {sorted(ARCHITECTURES)}")
+    return ARCHITECTURES[arch](num_classes=num_classes, canvas_size=canvas_size, use_size_feat=use_size_feat)

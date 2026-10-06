@@ -6,7 +6,7 @@ import torch
 from PIL import Image
 from torchvision import transforms
 
-from mathnote_ocr.classifier.model import SymbolCNNWithPrototypes
+from mathnote_ocr.classifier.model import SymbolCNNWithPrototypes, build_model
 from mathnote_ocr.engine.checkpoint import load_checkpoint
 
 
@@ -46,18 +46,33 @@ class SymbolClassifier:
         self.canvas_size: int = checkpoint.get("canvas_size", 128)
         self.use_size_feat: bool = checkpoint.get("use_size_feat", False)
 
-        self.model = SymbolCNNWithPrototypes(
-            num_classes=len(self.label_names),
-            canvas_size=self.canvas_size,
-            use_size_feat=self.use_size_feat,
-        )
+        self.arch: str = checkpoint.get("arch", "cnn")
+        self.model = build_model(self.arch, len(self.label_names), self.canvas_size, self.use_size_feat)
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.prototypes_computed = True
         self.model.to(self.device)
         self.model.eval()
 
+        # Several prototypes per class — one per writing style (scripts/style_prototypes.py):
+        # (classes, styles, features) and which of each class's slots are used
+        sp = checkpoint.get("style_prototypes")
+        self.style_prototypes = sp.to(self.device) if sp is not None else None
+        sm = checkpoint.get("style_mask")
+        self.style_mask = sm.to(self.device) if sm is not None else None
+
         self.ood_threshold = ood_threshold
         self.per_class_thresholds = per_class_thresholds or {}
+
+    def _distances(self, features: torch.Tensor, preds: torch.Tensor) -> torch.Tensor:
+        """Each feature vector's distance to its predicted class: to the
+        nearest of the class's style prototypes when the checkpoint has
+        them, else to its one prototype."""
+        if self.style_prototypes is None:
+            return torch.norm(features - self.model.prototypes[preds], dim=1)
+        protos = self.style_prototypes[preds]                       # (B, K, D)
+        d = torch.norm(features.unsqueeze(1) - protos, dim=2)       # (B, K)
+        d = d.masked_fill(~self.style_mask[preds], float("inf"))
+        return d.min(dim=1).values
 
     def classify(
         self,
@@ -96,7 +111,7 @@ class SymbolClassifier:
             confidence = conf.item()
 
             # Distance to predicted class prototype
-            distance = torch.norm(features[0] - self.model.prototypes[predicted_class]).item()
+            distance = self._distances(features[:1], torch.tensor([predicted_class], device=features.device)).item()
 
             # Top-N alternatives
             top_n = min(5, probs.shape[1])
@@ -141,8 +156,7 @@ class SymbolClassifier:
             confs, preds = probs.max(1)
 
             # Batch distance computation
-            pred_protos = self.model.prototypes[preds]  # (B, D)
-            distances = torch.norm(features - pred_protos, dim=1)  # (B,)
+            distances = self._distances(features, preds)  # (B,)
 
         # Top-N alternatives per sample
         top_n = min(5, probs.shape[1])
@@ -208,7 +222,7 @@ class SymbolClassifier:
             predicted_symbol = self.label_names[predicted_class]
             confidence = top_conf.item()
 
-            distance = torch.norm(features[0] - self.model.prototypes[predicted_class]).item()
+            distance = self._distances(features[:1], torch.tensor([predicted_class], device=features.device)).item()
 
         if ood_threshold is not None:
             threshold = ood_threshold
