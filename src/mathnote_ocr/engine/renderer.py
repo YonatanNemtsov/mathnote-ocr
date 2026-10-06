@@ -12,6 +12,7 @@ def render_strokes(
     canvas_size: int = 128,
     padding_ratio: float = 0.15,
     source_size: float | None = None,
+    round_joins: bool = False,
 ) -> Image.Image:
     """
     Render strokes to a grayscale image.
@@ -27,6 +28,10 @@ def render_strokes(
         source_size: Max dimension of the original drawing canvas (e.g. 800 for
                      an 800x400 canvas). When provided, caps the scale factor so
                      small symbols stay small.
+        round_joins: Round the corners where a stroke's segments meet, as a pen
+                     tip does. Off: each corner leaves a notch, so thick densely
+                     sampled strokes come out frayed. A classifier is read with
+                     the rendering it was trained with (its checkpoint's round_joins).
 
     Returns:
         Grayscale PIL Image of size (canvas_size, canvas_size).
@@ -75,7 +80,7 @@ def render_strokes(
             r = width
             draw.ellipse([x - r, y - r, x + r, y + r], fill=0)
         elif len(pts) > 1:
-            draw.line(pts, fill=0, width=width)
+            draw.line(pts, fill=0, width=width, joint="curve" if round_joins else None)
             for x, y in [pts[0], pts[-1]]:
                 r = width / 2
                 draw.ellipse([x - r, y - r, x + r, y + r], fill=0)

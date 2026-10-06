@@ -115,6 +115,7 @@ class GNNGrouper:
                     group_strokes,
                     canvas_size=self.classifier.canvas_size,
                     source_size=source_size,
+                    round_joins=self.classifier.round_joins,
                 )
             )
             if self.classifier.use_size_feat:

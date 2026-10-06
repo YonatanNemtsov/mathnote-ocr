@@ -702,6 +702,7 @@ def classify_groups(
                 group_strokes,
                 canvas_size=classifier.canvas_size,
                 source_size=source_size,
+                round_joins=classifier.round_joins,
             )
         )
         size_feats.append(

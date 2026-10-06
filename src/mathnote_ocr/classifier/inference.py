@@ -45,6 +45,8 @@ class SymbolClassifier:
         self.label_names: list[str] = checkpoint["label_names"]
         self.canvas_size: int = checkpoint.get("canvas_size", 128)
         self.use_size_feat: bool = checkpoint.get("use_size_feat", False)
+        # the rendering it was trained with (renderer.render_strokes); older checkpoints: off
+        self.round_joins: bool = checkpoint.get("round_joins", False)
 
         self.arch: str = checkpoint.get("arch", "cnn")
         self.model = build_model(self.arch, len(self.label_names), self.canvas_size, self.use_size_feat)
