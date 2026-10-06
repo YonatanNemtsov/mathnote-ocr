@@ -547,6 +547,26 @@ class TreeParser(ABC):
             return tree_to_latex(tree), 1.0, tree, None
 
         v2_syms = self._make_symbols(symbols)
+        # Pins as in the backtrack search: each pinned group is read as one
+        # unit (bottomup_v2._collapse_pins) and its subtree put back after
+        stored_pin_subtrees = {}
+        units = None                       # the collapsed list's symbols, by search position
+        if pins:
+            from mathnote_ocr.tree_parser.bottomup_v2 import _collapse_pins
+
+            units, stored_pin_subtrees = _collapse_pins(
+                v2_syms, pins, next_id_start=max(s.id for s in v2_syms) + 1
+            )
+            # the search below takes symbol ids for positions: renumber
+            v2_syms = [replace(u, id=i) for i, u in enumerate(units)]
+            N = len(v2_syms)
+            names = [s.name for s in v2_syms]
+            bboxes = [s.bbox.to_list() for s in v2_syms]
+            if N == 1:
+                tree = self._expand_pins(
+                    Tree((Node(v2_syms[0], ROOT_ID, -1, 0),)), units, stored_pin_subtrees
+                )
+                return tree_to_latex(tree), 1.0, tree, None
         all_partial = []
         seen_subsets: set[tuple] = set()
         for tta_i in range(self.tta_runs):
@@ -582,7 +602,26 @@ class TreeParser(ABC):
         evidence = restricted(aggregate_evidence_soft(N, all_partial))
         tree = self._evidence_to_tree(evidence, v2_syms)
         confidence = score_tree(self.scoring, evidence, tree, N)
+        if units is not None:
+            tree = self._expand_pins(tree, units, stored_pin_subtrees)
         return tree_to_latex(tree), confidence, tree, evidence
+
+    @staticmethod
+    def _expand_pins(tree: Tree, units: list[Symbol], stored_pin_subtrees: dict) -> Tree:
+        """The tree over the renumbered units back on the units' own symbols,
+        each pinned group's subtree put back in place of its unit."""
+        from mathnote_ocr.tree_parser.tree_ops import expand, reorder_siblings
+
+        tree = Tree(tuple(
+            Node(units[n.symbol.id], ROOT_ID if n.parent_id == ROOT_ID else units[n.parent_id].id,
+                 n.edge_type, n.order)
+            for sid, n in tree.nodes.items() if sid != tree.root
+        ))
+
+        for atom_id, sub in stored_pin_subtrees.items():
+            if atom_id in tree.nodes:
+                tree = expand(tree, atom_id, sub)
+        return reorder_siblings(tree)
 
     @torch.no_grad()
     def parse_with_diagnostics(
