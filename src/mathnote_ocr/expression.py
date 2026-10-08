@@ -86,6 +86,9 @@ class DetectedSymbol:
     confidence: float = 1.0
     prototype_distance: float = 0.0
     alternatives: list[tuple[str, float]] = field(default_factory=list)
+    # How likely these strokes are one symbol, over all the readings of the
+    # strokes (the grouper's exact search, search: exact); None when not known
+    grouping_prob: float | None = None
 
 
 class Expression:
@@ -120,6 +123,9 @@ class Expression:
         self.alternatives = alternatives or []
         self.unexplained_stroke_ids = unexplained_stroke_ids or []
         self.grids = grids or {}
+        # How likely this reading's grouping of the strokes is among all of
+        # them (grouper.scorer: model, search: exact); None when not known
+        self.grouping_prob: float | None = None
 
     # ── Derived ──────────────────────────────────────────────────────
 

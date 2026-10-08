@@ -60,6 +60,10 @@ def train(
     epoch_size: int | None = None,
     resume: bool = False,
     reset_val: bool = False,
+    init_from: str | None = None,
+    threads: int | None = None,
+    encoding: str = "v1",
+    resume_lr: float | None = None,
 ) -> Path:
     """Train a SubsetTreeModel.
 
@@ -87,12 +91,25 @@ def train(
         epoch_size: Subsample this many subsets per epoch (None=all).
         resume: Resume from existing checkpoint.
         reset_val: Reset best val loss when resuming.
+        init_from: Start from this run's weights (its vocab and model
+            config), with a fresh optimizer and schedule — fine-tuning on
+            new data (resume would also bring back the old run's learning
+            rate, decayed to almost nothing by its end).
+        threads: CPU threads for torch (None: torch's default, every core).
+        resume_lr: with resume, the learning rate to continue at (the
+            optimizer's saved one otherwise) — a lower one to finish a run
+            that never reached the plateau's halving.
+        encoding: the geometry encoding (tree_parser/geometry.py): "v1"
+            buckets, or "v2" continuous features in the writing scale, which
+            the decisions see too (usual heights measured on the training data).
 
     Returns:
         Path to the checkpoint directory.
     """
     if device is None:
         device = _default_device()
+    if threads:
+        torch.set_num_threads(threads)
     train_path = Path(train_path)
     val_path = Path(val_path)
 
@@ -124,8 +141,15 @@ def train(
         if ckpt_path.exists():
             resumed_ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
 
-    if resumed_ckpt is not None and "symbol_vocab" in resumed_ckpt:
-        symbol_vocab = resumed_ckpt["symbol_vocab"]
+    init_ckpt = None
+    if init_from and resumed_ckpt is None:
+        init_ckpt = torch.load(_checkpoint_path(ckpt_kind, init_from, weights_dir=weights_dir),
+                               map_location=device, weights_only=False)
+        log.info("Starting from %s's weights (fresh optimizer)", init_from)
+    source_ckpt = resumed_ckpt if resumed_ckpt is not None else init_ckpt
+
+    if source_ckpt is not None and "symbol_vocab" in source_ckpt:
+        symbol_vocab = source_ckpt["symbol_vocab"]
         log.info("Using checkpoint vocab: %d symbols", len(symbol_vocab))
     else:
         log.info("Building symbol vocab...")
@@ -149,6 +173,15 @@ def train(
         subsets_per_example=1,
         max_examples=max_examples // 5 if max_examples else None,
     )
+    if source_ckpt is not None and "config" in source_ckpt:
+        encoding = source_ckpt["config"].get("encoding", "v1")
+    usual: dict[str, float] = {}
+    if encoding != "v1":
+        from mathnote_ocr.tree_parser.geometry import usual_heights
+        usual = (source_ckpt or {}).get("config", {}).get("usual") or usual_heights(train_ds.examples)
+        log.info("Geometry %s: usual heights of %d classes", encoding, len(usual))
+    for ds in (train_ds, val_ds):
+        ds.encoding, ds.usual = encoding, usual
 
     if epoch_size and epoch_size < len(train_ds):
         train_sampler = RandomSampler(train_ds, replacement=False, num_samples=epoch_size)
@@ -177,8 +210,8 @@ def train(
     )
 
     # Model — use checkpoint config when resuming
-    if resumed_ckpt is not None and "config" in resumed_ckpt:
-        cfg = resumed_ckpt["config"]
+    if source_ckpt is not None and "config" in source_ckpt:
+        cfg = source_ckpt["config"]
         model = SubsetTreeModel(**cfg).to(device)
     else:
         model = SubsetTreeModel(
@@ -190,6 +223,8 @@ def train(
             d_arc=d_arc,
             max_symbols=max_subset,
             dropout=dropout,
+            encoding=encoding,
+            usual=usual,
         ).to(device)
 
     total_params = sum(p.numel() for p in model.parameters())
@@ -208,6 +243,9 @@ def train(
     scaler = torch.amp.GradScaler(enabled=use_amp)
     amp_ctx = lambda: torch.autocast("cuda", dtype=torch.float16, enabled=use_amp)
 
+    if init_ckpt is not None:
+        model.load_state_dict(init_ckpt["model_state_dict"])
+
     # Resume weights
     if resumed_ckpt is not None:
         model.load_state_dict(resumed_ckpt["model_state_dict"], strict=False)
@@ -215,6 +253,10 @@ def train(
             optimizer.load_state_dict(resumed_ckpt["optimizer_state_dict"])
         if "scheduler_state_dict" in resumed_ckpt:
             scheduler.load_state_dict(resumed_ckpt["scheduler_state_dict"])
+        if resume_lr:
+            for group in optimizer.param_groups:
+                group["lr"] = resume_lr
+            log.info("Continuing at learning rate %.2e", resume_lr)
         if "epoch" in resumed_ckpt:
             start_epoch = resumed_ckpt["epoch"] + 1
         if "best_val_loss" in resumed_ckpt and not reset_val:
@@ -236,6 +278,7 @@ def train(
         "lr": lr,
         "epochs": epochs,
         "dropout": dropout,
+        "encoding": encoding,
         "started_at": datetime.now(timezone.utc).isoformat(),
     }
     (run_dir / "config.json").write_text(json.dumps(run_config, indent=2) + "\n")
@@ -363,6 +406,8 @@ def train(
                     "d_arc": d_arc,
                     "max_symbols": max_subset,
                     "dropout": dropout,
+                    "encoding": encoding,
+                    "usual": usual,
                 },
                 "metrics": val_metrics,
             }
@@ -414,6 +459,11 @@ if __name__ == "__main__":
         help="Directory to save weights (default: ./weights)",
     )
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--init-from", default=None, help="start from this run's weights, fresh optimizer (fine-tuning)")
+    parser.add_argument("--threads", type=int, default=None, help="CPU threads for torch (heat)")
+    parser.add_argument("--resume-lr", type=float, default=None,
+                        help="with --resume: continue at this learning rate (the saved one otherwise)")
+    parser.add_argument("--device", default=None, help="cpu, mps or cuda (default: the fastest there is)")
     parser.add_argument(
         "--reset-val",
         action="store_true",
@@ -432,6 +482,8 @@ if __name__ == "__main__":
     parser.add_argument("--n-layers", type=int, default=2)
     parser.add_argument("--d-ff", type=int, default=256)
     parser.add_argument("--d-arc", type=int, default=64)
+    parser.add_argument("--encoding", default="v1", choices=["v1", "v2"],
+                        help="geometry encoding (tree_parser/geometry.py)")
 
     # Subset
     parser.add_argument("--max-subset", type=int, default=8)
@@ -452,6 +504,7 @@ if __name__ == "__main__":
         run=args.run,
         train_path=args.train,
         val_path=args.val,
+        device=torch.device(args.device) if args.device else None,
         weights_dir=args.weights_dir,
         epochs=args.epochs,
         batch_size=args.batch_size,
@@ -468,4 +521,8 @@ if __name__ == "__main__":
         epoch_size=args.epoch_size,
         resume=args.resume,
         reset_val=args.reset_val,
+        init_from=args.init_from,
+        threads=args.threads,
+        encoding=args.encoding,
+        resume_lr=args.resume_lr,
     )

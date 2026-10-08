@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from mathnote_ocr.classifier.inference import ClassificationResult, SymbolClassifier
 from mathnote_ocr.engine.renderer import render_strokes
@@ -63,6 +63,28 @@ class GrouperParams:
     min_confidence: float = 0.15
     ood_threshold: float = 15.0
     similar_symbols: list[set[str]] | None = None
+    # How a candidate group is judged one symbol: "classic" (the classifier's
+    # confidence, the stroke-pattern boost, the singleton gate; readings ranked
+    # by the geometric mean) or "model" (grouper_scorer: P(one symbol) ×
+    # P(label), readings ranked by their product); scorer_run names the model
+    # How readings are searched: "first" — the first readings found, the best
+    # of them kept (the search stops at 100); "exact" — every reading, each
+    # leftover set of strokes solved once (_find_partitions_exact)
+    search: str = "first"
+    # (classic) Drop a multi-stroke group that doesn't beat its strokes read
+    # apart (the geometric mean of their confidences)
+    singleton_gate: bool = True
+    scorer: str = "classic"
+    scorer_run: str | None = None
+    # With the model, a reading's rank: the product over its symbols of
+    # P(one symbol) × P(label) ("product"), or of the odds P / (1 − P) ×
+    # P(label) ("odds": no lean towards fewer symbols)
+    scorer_ranking: str = "product"
+    scorer_model: object = None          # the loaded GroupScorer (MathOCR loads it)
+    # stroke_run: the stroke grouper (grouper_gnn.strokes) — candidate groups
+    # scored by its pairs' log-odds, read by the exact search; None: the scorer above
+    stroke_run: str | None = None
+    stroke_model: object = None          # the loaded StrokeGrouperModel (MathOCR loads it)
 
     def __post_init__(self):
         groups = self.similar_symbols or _DEFAULT_SIMILAR_SYMBOLS
@@ -82,6 +104,12 @@ class GrouperParams:
             conflict_threshold=get(cfg, "grouper.conflict_threshold", 0.32),
             min_confidence=get(cfg, "classifier.min_confidence", 0.15),
             ood_threshold=get(cfg, "classifier.ood_threshold", 15.0),
+            search=get(cfg, "grouper.search", "first"),
+            singleton_gate=get(cfg, "grouper.singleton_gate", True),
+            scorer=get(cfg, "grouper.scorer", "classic"),
+            scorer_run=get(cfg, "grouper.scorer_run", None),
+            scorer_ranking=get(cfg, "grouper.scorer_ranking", "product"),
+            stroke_run=get(cfg, "grouper.stroke_run", None),
         )
 
 
@@ -527,8 +555,11 @@ def _find_best_partitions(
     *,
     initial_covered: frozenset[int] = frozenset(),
     initial_symbols: list[DetectedSymbol] | None = None,
+    geometric_mean: bool = True,
 ) -> list[tuple[float, list[DetectedSymbol]]]:
-    """Find top-k non-overlapping covers of all n strokes.
+    """Find top-k non-overlapping covers of all n strokes, ranked by the
+    geometric mean of their groups' scores — or, with geometric_mean=False
+    (scores that are probabilities), by their product.
 
     Algorithm X style: pick the most constrained uncovered stroke
     (fewest valid groups), try each group, recurse.
@@ -599,11 +630,145 @@ def _find_best_partitions(
         search(start, seed_symbols, 1.0, budget)
         if results:
             break
-    results.sort(
-        key=lambda x: x[0] ** (1.0 / max(len(x[1]), 1)),
-        reverse=True,
-    )
+    if geometric_mean:
+        results.sort(key=lambda x: x[0] ** (1.0 / max(len(x[1]), 1)), reverse=True)
+    else:
+        results.sort(key=lambda x: x[0], reverse=True)
     return results[:top_k]
+
+
+def _find_partitions_exact(
+    n: int,
+    scored_groups: list[tuple[frozenset[int], float, DetectedSymbol]],
+    top_k: int,
+    *,
+    initial_covered: frozenset[int] = frozenset(),
+    initial_symbols: list[DetectedSymbol] | None = None,
+    keep: int = 40,
+    geometric_mean: bool = True,
+    clashes: bool = True,
+) -> list[tuple[float, list[DetectedSymbol]]]:
+    """Top-k non-overlapping covers of all n strokes — exactly, over every
+    reading of the strokes, not the first ones found.
+
+    The candidate groups form a hierarchy by containment; a set of strokes
+    is read as one group that holds its most constrained stroke plus a
+    reading of the rest — every leftover set is solved once and shared by
+    all the readings that reach it (memoised over the leftover strokes).
+    Ranked as _find_best_partitions ranks: the geometric mean of the
+    symbols' confidences (or, geometric_mean=False, their product) — so each
+    leftover set keeps its best partial readings per number of symbols
+    (*keep* each). The same fallback: the
+    fewest unexplained strokes that give a cover. Symbols that clash
+    (_symbols_clash) depend on more than the leftover strokes: readings
+    with them are dropped at the end, among the best kept (clashes=False:
+    no such rule — a learned scorer judges the boxes itself).
+
+    Each symbol of the returned readings carries grouping_prob: its strokes'
+    share of all readings, weighed by their confidences (summed over the
+    hierarchy and back down — inside / outside; clashes not counted).
+    """
+    from dataclasses import replace
+
+    stroke_groups: dict[int, list[int]] = {i: [] for i in range(n)}
+    for gi, (indices, _c, _s) in enumerate(scored_groups):
+        for s in indices:
+            stroke_groups[s].append(gi)
+    masks = [sum(1 << s for s in g[0]) for g in scored_groups]
+    seed = list(initial_symbols) if initial_symbols else []
+
+    def choices(mask: int):
+        """The most constrained stroke of *mask* and the groups that cover it inside *mask*."""
+        best_s, best = -1, None
+        m = mask
+        while m:
+            low = m & -m
+            s = low.bit_length() - 1
+            m ^= low
+            valid = [g for g in stroke_groups[s] if masks[g] & mask == masks[g]]
+            if best is None or len(valid) < len(best):
+                best_s, best = s, valid
+                if not valid:
+                    break
+        return best_s, best
+
+    def solve(start: int, budget: int):
+        memo: dict[tuple[int, int], dict[int, list]] = {}
+        inside: dict[tuple[int, int], float] = {}
+        edges: dict[tuple[int, int], list] = {}
+
+        def best(mask: int, skips: int) -> dict[int, list]:
+            key = (mask, skips)
+            if key in memo:
+                return memo[key]
+            if mask == 0:
+                memo[key], inside[key], edges[key] = {0: [(1.0, ())]}, 1.0, []
+                return memo[key]
+            s, valid = choices(mask)
+            out: dict[int, list] = {}
+            total, ed = 0.0, []
+            for g in valid:
+                sub_key = (mask & ~masks[g], skips)
+                sub = best(*sub_key)
+                conf = scored_groups[g][1]
+                total += conf * inside[sub_key]
+                ed.append((g, sub_key, conf))
+                for count, lst in sub.items():
+                    out.setdefault(count + 1, []).extend((p * conf, (g,) + gs) for p, gs in lst)
+            if skips > 0:                                  # fallback: leave this stroke unexplained
+                sub_key = (mask & ~(1 << s), skips - 1)
+                sub = best(*sub_key)
+                total += inside[sub_key]
+                ed.append((None, sub_key, 1.0))
+                for count, lst in sub.items():
+                    out.setdefault(count, []).extend(lst)
+            for count in out:
+                out[count] = sorted(out[count], key=lambda t: -t[0])[:keep]
+            memo[key], inside[key], edges[key] = out, total, ed
+            return out
+
+        top = best(start, budget)
+        return top, inside, edges
+
+    start = sum(1 << s for s in range(n)) & ~sum(1 << s for s in initial_covered)
+    for budget in range(min(_MAX_SKIPS, bin(start).count("1")) + 1):
+        top, inside, edges = solve(start, budget)
+        if top:
+            break
+    if not top:
+        return []
+    # each group's share of all readings: inside / outside over the hierarchy
+    outside = {(start, budget): 1.0}
+    for key in sorted(edges, key=lambda k: (-bin(k[0]).count("1"), -k[1])):
+        o = outside.get(key, 0.0)
+        if o == 0.0:
+            continue
+        for g, sub_key, w in edges[key]:
+            outside[sub_key] = outside.get(sub_key, 0.0) + o * w
+    z = inside[(start, budget)] or 1.0
+    prob = [0.0] * len(scored_groups)
+    for key, ed in edges.items():
+        o = outside.get(key, 0.0)
+        for g, sub_key, w in ed:
+            if g is not None:
+                prob[g] += o * w * inside[sub_key] / z
+    ranked = []
+    for count, lst in top.items():
+        total = count + len(seed)
+        for p, gs in lst:
+            ranked.append((p ** (1.0 / max(total, 1)) if geometric_mean else p, p, gs))
+    ranked.sort(key=lambda t: -t[0])
+    results = []
+    for _gm, p, gs in ranked:
+        syms = [replace(scored_groups[g][2], grouping_prob=round(min(prob[g], 1.0), 4)) for g in gs]
+        if clashes and any(_symbols_clash(a.name, a.bbox, b.name, b.bbox)
+                           for k, a in enumerate(syms) for b in syms[k + 1:] + seed):
+            continue
+        # probabilities (the model's scores): the reading's share of all readings
+        results.append((p if geometric_mean else p / z, seed + syms))
+        if len(results) >= top_k:
+            break
+    return results
 
 
 # ── Spatial validation ───────────────────────────────────────────────
@@ -659,6 +824,24 @@ def _symbols_clash(name_a: str | None, bbox_a: BBox, name_b: str | None, bbox_b:
     return _symbols_conflict(bbox_a, bbox_b, scale_by_smaller=bool(thin & {name_a, name_b}))
 
 
+# A classifier drawn at the ink's real size (its checkpoint's fill_pens) reads
+# size in pen widths too: the box's diagonal over this many pens — the same
+# numbers as the older size over the canvas for a pen of 2 on an 800 canvas.
+SIZE_PENS = 400
+
+
+def ink_size_feat(group_strokes: list[Stroke]) -> float:
+    """A group's size in pen widths (over SIZE_PENS): set by the ink alone."""
+    pts = [p for s in group_strokes for p in s.points]
+    if not pts:
+        return 0.5
+    widths = sorted(s.width for s in group_strokes if s.points)
+    pen = widths[len(widths) // 2]
+    bw = max(p.x for p in pts) - min(p.x for p in pts)
+    bh = max(p.y for p in pts) - min(p.y for p in pts)
+    return math.sqrt(bw * bw + bh * bh) / (SIZE_PENS * pen)
+
+
 def _size_feat(group_strokes: list[Stroke], source_size: float) -> float:
     """Symbol-relative diagonal, used as an extra classifier feature.
 
@@ -703,10 +886,12 @@ def classify_groups(
                 canvas_size=classifier.canvas_size,
                 source_size=source_size,
                 round_joins=classifier.round_joins,
+                fill_pens=classifier.fill_pens,
             )
         )
         size_feats.append(
-            _size_feat(group_strokes, source_size) if use_size else 0.5
+            (ink_size_feat(group_strokes) if classifier.fill_pens else _size_feat(group_strokes, source_size))
+            if use_size else 0.5
         )
     sf = size_feats if use_size else None
     results = classifier.classify_batch(images, size_feats=sf)
@@ -792,6 +977,20 @@ def generate_candidates(
     return candidate_groups, stats
 
 
+def _one_symbol_probabilities(groups, strokes, cache, params: GrouperParams) -> dict | None:
+    """P(one symbol) for each candidate group, from params.scorer_model
+    (grouper_scorer) — None when the grouper scores the classic way."""
+    if params.scorer_model is None:
+        return None
+    from mathnote_ocr.grouper_scorer import features, writing_scale
+    scale = writing_scale(strokes)
+    groups = list(groups)
+    rows = [features(g, strokes, cache, scale, params.ood_threshold) for g in groups]
+    if getattr(params.scorer_model, "objective", "groups") == "readings":
+        return {g: ("score", v) for g, v in zip(groups, params.scorer_model.logits(rows))}
+    return dict(zip(groups, params.scorer_model.score(rows)))
+
+
 def group_and_classify(
     strokes: list[Stroke],
     classifier: SymbolClassifier,
@@ -866,6 +1065,11 @@ def group_and_classify(
                     )
                 )
 
+    if params.stroke_model is not None:
+        return _group_by_strokes(strokes, classifier, params=params, cache=cache, source_size=source_size,
+                                 top_k=top_k, pinned=frozenset(pinned_positions), pinned_symbols=pinned_symbols,
+                                 vocabulary=vocabulary)
+
     # 1-4. Candidate groups (geometry, enumeration), each classified into the cache
     candidate_groups, stats = generate_candidates(
         strokes, classifier, params=params, cache=cache, source_size=source_size,
@@ -881,19 +1085,30 @@ def group_and_classify(
     rejected_conf = 0
 
     read = (lambda r: vocabulary.apply(r, classifier.label_names)) if vocabulary else None
+    one_symbol = _one_symbol_probabilities(candidate_groups, strokes, cache, params)
     for group in candidate_groups:
         result = cache[_pos_to_ids(group)]
         if read is not None:
             result = read(result)
 
-        if result.is_ood:
+        # a scorer trained on whole readings judges every candidate itself — its
+        # prototype distance and confidence among the evidence, no hard cut:
+        # a group past the reject distance keeps the classifier's best guess
+        keep_all = one_symbol is not None and getattr(params.scorer_model, "objective", "groups") == "readings"
+        if keep_all and result.symbol is None:
+            best = next((a for a in (result.alternatives or []) if a[0] is not None), None)
+            if best is None:
+                continue
+            result = replace(result, symbol=best[0], confidence=best[1])
+
+        if result.is_ood and not keep_all:
             rejected_ood += 1
             if debug:
                 print(
                     f"  group {set(group)} → REJECT OOD: '{result.symbol}' dist={result.prototype_distance:.1f}"
                 )
             continue
-        if result.confidence < params.min_confidence:
+        if result.confidence < params.min_confidence and not keep_all:
             rejected_conf += 1
             if debug:
                 print(
@@ -903,6 +1118,25 @@ def group_and_classify(
 
         # Sum probabilities across confusion group (e.g. x+X_cap+times)
         group_conf = _group_confidence(result, similar_map=params.similar_symbol_map)
+
+        if one_symbol is not None:
+            # the model: P(one symbol) × P(label) — it sees the prototype
+            # distance and the strokes alone itself (no boost, no gate)
+            if isinstance(one_symbol[group], tuple):       # trained on whole readings: rank by exp of its score
+                psi = max(min(one_symbol[group][1], 30.0), -30.0)
+                rank = math.exp(psi)
+                effective_conf = group_conf / (1 + math.exp(-psi))
+            else:
+                p = min(max(one_symbol[group], 1e-6), 1 - 1e-6)
+                effective_conf = p * group_conf           # the symbol's confidence, a probability
+                rank = (p / (1 - p) if params.scorer_ranking == "odds" else p) * max(group_conf, 1e-9)
+            group_strokes = [strokes[i] for i in group]
+            sym = DetectedSymbol(name=_DEFAULTS.get(result.symbol, result.symbol), bbox=compute_bbox(group_strokes),
+                                 strokes=group_strokes, confidence=effective_conf,
+                                 prototype_distance=result.prototype_distance,
+                                 alternatives=list(result.alternatives or []))
+            scored_groups.append((group, rank, sym))
+            continue
 
         # Weight by prototype quality
         proto_quality = 1.0 / (1.0 + (result.prototype_distance / params.ood_threshold) ** 2)
@@ -925,7 +1159,7 @@ def group_and_classify(
                     print(
                         f"  group {set(group)} → PATTERN BOOST '{result.symbol}' to {effective_conf:.3f}"
                     )
-            elif _singletons_can_coexist(group, strokes, stroke_ids, cache):
+            elif params.singleton_gate and _singletons_can_coexist(group, strokes, stroke_ids, cache):
                 geo_mean = _singleton_geo_mean(group, stroke_ids, cache, params, read)
                 if geo_mean is not None and effective_conf < geo_mean:
                     if debug:
@@ -958,12 +1192,14 @@ def group_and_classify(
     # 5. Find best non-overlapping partitions (exact cover).
     #    Pinned strokes are pre-covered; pinned symbols seed every partition.
     t0 = time.perf_counter()
-    partitions = _find_best_partitions(
+    search = _find_partitions_exact if params.search == "exact" else _find_best_partitions
+    partitions = search(
         n,
         scored_groups,
         top_k,
         initial_covered=frozenset(pinned_positions),
         initial_symbols=pinned_symbols,
+        geometric_mean=params.scorer_model is None,
     )
     t_cover = time.perf_counter() - t0
 
@@ -985,7 +1221,142 @@ def group_and_classify(
     if not partitions:
         return [[]]
 
-    return [_postprocess(syms) for _, syms in partitions]
+    # with the model and the exact search, each reading's share of all
+    # readings of the strokes (Partition.prob); else None
+    shares = params.scorer_model is not None and params.search == "exact"
+    keep = [[st.id for st in p.strokes] for p in pinned_symbols]
+    return [Partition(_postprocess(syms, keep), prob=round(score, 6) if shares else None)
+            for score, syms in partitions]
+
+
+def _group_by_strokes(strokes, classifier, *, params, cache, source_size, top_k, pinned, pinned_symbols,
+                      vocabulary):
+    """group_and_classify with the stroke grouper (params.stroke_model): the
+    candidates are the geometric ones (the enumeration, no classifier) and the
+    groups of the model's own joining; each scores the sum of its pairs'
+    log-odds (grouper_gnn.strokes), read by the exact search — the readings'
+    shares are their probabilities under the pairs. The classifier labels each
+    candidate (the vocabulary applied; a group it would reject keeps its best guess)."""
+    model = params.stroke_model
+    n = len(strokes)
+    free = [i for i in range(n) if i not in pinned]
+    if not free:
+        return [Partition(list(pinned_symbols), prob=1.0)]
+    kw = dict(classifier=classifier, params=params, cache=cache, source_size=source_size, top_k=top_k,
+              pinned=pinned, pinned_symbols=pinned_symbols, vocabulary=vocabulary)
+    parts = _read_by_strokes(strokes, scale=None, **kw)
+    # read again at the size its biggest confident symbol says the writing is (the model's
+    # usual sizes), when that differs from the size it was read at
+    if model.class_sizes and parts and parts[0]:
+        k = model.reference_scale(parts[0])
+        if k is not None and abs(math.log(k / model.default_scale(strokes))) > math.log(1.15):
+            parts = _read_by_strokes(strokes, scale=k, **kw)
+    return parts
+
+
+def _read_by_strokes(strokes, *, scale, classifier, params, cache, source_size, top_k, pinned, pinned_symbols,
+                     vocabulary):
+    """One reading of _group_by_strokes, the ink at *scale* (None: the model's default)."""
+    model = params.stroke_model
+    n = len(strokes)
+    free = [i for i in range(n) if i not in pinned]
+    scores, _lp, tokens = model.encode(strokes, scale)
+    eff = _effective_min_merge_distance(strokes, params.min_merge_distance, params.merge_distance_scale)
+    dist = _compute_distance_matrix(strokes)
+    nb = _compute_neighbors(strokes, dist, params.size_multiplier, min_merge_distance=eff)
+    geo = _enumerate_candidate_groups(strokes, dist, nb, params.max_strokes_per_symbol, params.size_multiplier,
+                                      cache=None, min_merge_distance=eff,
+                                      max_group_diameter_ratio=params.max_group_diameter_ratio)
+    cands = {g for g in geo if not g & pinned} | set(model.joined(scores, set(free))) \
+        | {frozenset([i]) for i in free}
+    cands = sorted(cands, key=lambda g: (len(g), sorted(g)))
+    read = (lambda r: vocabulary.apply(r, classifier.label_names)) if vocabulary else None
+    if model.kind == "groups":
+        # the group pictures: each candidate drawn whole and read by the model's classifier;
+        # its term joins the pairs' in the score, its label head (the whole picture in the
+        # line's context) names the group — the head's labels as the group's alternatives
+        terms, glp, res = model.group_terms(strokes, tokens, cands, scale)
+        results = []
+        for k, r in enumerate(res):
+            top = glp[k].topk(min(10, glp.shape[1]))         # ten: the page's "more" chips
+            alts = [(model.labels[int(i)], round(float(math.exp(v)), 6)) for v, i in zip(top.values, top.indices)]
+            results.append(replace(r, symbol=alts[0][0], confidence=alts[0][1], alternatives=alts, is_ood=False,
+                                   probs=glp[k].exp().tolist()))
+        extra = terms.tolist()
+        # the reader's cache holds the model's reading of each candidate too, so what looks
+        # groups up there (the grammar's joins: these strokes as one symbol?) gets its answer —
+        # alternatives only (probs=None): its labels aren't the reader classifier's
+        ids = [s.id for s in strokes]
+        for g, r in zip(cands, results):
+            cache[frozenset(ids[p] for p in g)] = replace(r, probs=None)
+    else:
+        classify_groups(strokes, cands, classifier, cache=cache, source_size=source_size)
+        ids = [s.id for s in strokes]
+        results = [cache[frozenset(ids[p] for p in g)] for g in cands]
+        extra = [0.0] * len(cands)
+    # each group's log-score: its pairs' log-odds (plus its picture's term). The search
+    # multiplies plain probabilities, so the scores are shifted by a constant per stroke
+    # (every reading covers all strokes: no ranking changes) — chosen so the best reading
+    # multiplies to 1; only hopeless readings underflow
+    psis = [(model.group_score(scores, g) + h) / model.t_grouping for g, h in zip(cands, extra)]
+    per_stroke = _best_log_total(n, cands, psis, pinned) / max(len(free), 1)
+    scored = []
+    if vocabulary and model.kind == "groups":              # the head's distribution, over its own labels
+        read = lambda r: vocabulary.apply(r, model.labels)
+    for g, result, psi in zip(cands, results, psis):
+        if read is not None:
+            result = read(result)
+        if result.symbol is None:
+            best = next((a for a in (result.alternatives or []) if a[0] is not None), None)
+            if best is None:
+                continue
+            result = replace(result, symbol=best[0], confidence=best[1])
+        psi = max(min(psi - per_stroke * len(g), 700.0), -700.0)
+        group_strokes = [strokes[i] for i in g]
+        sym = DetectedSymbol(name=_DEFAULTS.get(result.symbol, result.symbol), bbox=compute_bbox(group_strokes),
+                             strokes=group_strokes,
+                             confidence=_group_confidence(result, similar_map=params.similar_symbol_map),
+                             prototype_distance=result.prototype_distance,
+                             alternatives=list(result.alternatives or []))
+        scored.append((g, math.exp(psi), sym))
+    # no clash rule: the boxes' geometry is the model's to judge (a subscript touching a bar)
+    partitions = _find_partitions_exact(n, scored, top_k, initial_covered=pinned,
+                                        initial_symbols=list(pinned_symbols), geometric_mean=False, clashes=False)
+    if not partitions:
+        return [[]]
+    keep = [[st.id for st in p.strokes] for p in pinned_symbols]
+    return [Partition(_postprocess(syms, keep), prob=round(score, 6)) for score, syms in partitions]
+
+
+def _best_log_total(n: int, groups, psis, covered=frozenset()) -> float:
+    """The best reading's total log-score over the uncovered strokes, exactly
+    (each leftover set of strokes solved once, its lowest stroke's group first)."""
+    masks = [sum(1 << i for i in g) for g in groups]
+    by_low: dict[int, list[int]] = {}
+    for k, g in enumerate(groups):
+        by_low.setdefault(min(g), []).append(k)
+    best: dict[int, float] = {0: 0.0}
+
+    def solve(mask):
+        if mask in best:
+            return best[mask]
+        low = (mask & -mask).bit_length() - 1
+        best[mask] = max((psis[k] + solve(mask ^ masks[k]) for k in by_low.get(low, ())
+                          if masks[k] & mask == masks[k]), default=-math.inf)
+        return best[mask]
+
+    full = sum(1 << i for i in range(n) if i not in covered)
+    total = solve(full)
+    return total if math.isfinite(total) else 0.0
+
+
+class Partition(list):
+    """A reading's symbols (a list), with *prob*: how likely this grouping
+    is among all groupings of the strokes (model scorer, exact search), or None."""
+
+    def __init__(self, symbols=(), prob: float | None = None):
+        super().__init__(symbols)
+        self.prob = prob
 
 
 # ── Symbol post-processing (composite symbol merging) ────────────────
@@ -1043,10 +1414,22 @@ def _by_symbol(symbols: list[DetectedSymbol], name: str) -> list[tuple[int, Dete
     return [(i, s) for i, s in enumerate(symbols) if s.name == name]
 
 
-def _postprocess(symbols: list[DetectedSymbol]) -> list[DetectedSymbol]:
-    """Apply all composite symbol merge rules."""
+_HIDDEN = "\x00pinned:"
+
+
+def _postprocess(symbols: list[DetectedSymbol], keep=()) -> list[DetectedSymbol]:
+    """Apply all composite symbol merge rules — never to a symbol in *keep*
+    (stroke-id sets: the pinned symbols, as the user fixed them). Those stay in
+    the list for the rules' geometry (nothing between two bars) but under a name
+    no rule looks for, so none merges them."""
+    keep = {frozenset(k) for k in keep}
+    if keep:
+        symbols = [replace(s, name=_HIDDEN + s.name) if frozenset(st.id for st in s.strokes) in keep else s
+                   for s in symbols]
     for rule in _MERGE_RULES:
         symbols = rule(symbols)
+    if keep:
+        symbols = [replace(s, name=s.name[len(_HIDDEN):]) if s.name.startswith(_HIDDEN) else s for s in symbols]
     return symbols
 
 

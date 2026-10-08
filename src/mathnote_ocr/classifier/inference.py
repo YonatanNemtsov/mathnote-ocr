@@ -18,6 +18,8 @@ class ClassificationResult:
     is_ood: bool
     alternatives: list[tuple[str, float]] = None  # [(symbol, confidence), ...]
     probs: object = None  # full distribution over label_names (np.ndarray), batch path only
+    features: object = None  # the classifier's view of the shape: its layer before the class scores
+                             # (np.ndarray, 256), batch path only — the space its prototypes live in
 
 
 _transform = transforms.Compose(
@@ -47,6 +49,7 @@ class SymbolClassifier:
         self.use_size_feat: bool = checkpoint.get("use_size_feat", False)
         # the rendering it was trained with (renderer.render_strokes); older checkpoints: off
         self.round_joins: bool = checkpoint.get("round_joins", False)
+        self.fill_pens: float | None = checkpoint.get("fill_pens")      # renderer.render_strokes; None: the older rendering
 
         self.arch: str = checkpoint.get("arch", "cnn")
         self.model = build_model(self.arch, len(self.label_names), self.canvas_size, self.use_size_feat)
@@ -164,6 +167,7 @@ class SymbolClassifier:
         top_n = min(5, probs.shape[1])
         top_confs, top_indices = probs.topk(top_n, dim=1)
         probs_np = probs.cpu().numpy()
+        features_np = features.cpu().numpy()
 
         results = []
         for i in range(len(images)):
@@ -188,6 +192,7 @@ class SymbolClassifier:
                     is_ood=is_ood,
                     alternatives=alternatives,
                     probs=probs_np[i],
+                    features=features_np[i],
                 )
             )
         return results

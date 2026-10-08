@@ -18,6 +18,7 @@ import torch
 from torch.utils.data import Dataset
 
 from mathnote_ocr.latex_utils.relations import compute_features_from_bbox_list
+from mathnote_ocr.tree_parser import geometry
 from mathnote_ocr.tree_parser.tree import ROOT
 
 # ── Bbox jitter (online augmentation) ────────────────────────────────
@@ -138,12 +139,16 @@ class TreeSubsetDataset(Dataset):
         subsets_per_example: int = 3,  # unused, kept for CLI compat
         max_examples: int | None = None,
         augment: bool = False,
+        encoding: str = "v1",
+        usual: dict[str, float] | None = None,
     ) -> None:
         self.examples: list[dict] = []
         self.symbol_vocab = symbol_vocab
         self.max_subset = max_subset
         self.min_subset = min_subset
         self.augment = augment
+        self.encoding = encoding             # the geometry encoding (tree_parser/geometry.py)
+        self.usual = usual or {}             # v2: usual heights (set after loading, from the training data)
 
         with open(jsonl_path) as f:
             for line in f:
@@ -243,7 +248,12 @@ class TreeSubsetDataset(Dataset):
         bbox_list = [symbols[gi]["bbox"] for gi in subset]
         if self.augment:
             bbox_list = _augment_bboxes_gentle(bbox_list)
-        geo_feats, size_feats = compute_features_from_bbox_list(bbox_list, S)
+        if self.encoding == "v1":
+            geo_feats, size_feats = compute_features_from_bbox_list(bbox_list, S)
+        else:
+            geo_feats, size_feats = geometry.subset_inputs(
+                self.encoding, [s["name"] for s in symbols], bboxes_all, subset, S,
+                usual=self.usual, subset_bboxes=bbox_list)
 
         # Pad mask
         pad_mask = torch.ones(S, dtype=torch.bool)

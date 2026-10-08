@@ -13,6 +13,7 @@ def render_strokes(
     padding_ratio: float = 0.15,
     source_size: float | None = None,
     round_joins: bool = False,
+    fill_pens: float | None = None,
 ) -> Image.Image:
     """
     Render strokes to a grayscale image.
@@ -32,6 +33,12 @@ def render_strokes(
                      tip does. Off: each corner leaves a notch, so thick densely
                      sampled strokes come out frayed. A classifier is read with
                      the rendering it was trained with (its checkpoint's round_joins).
+        fill_pens: Draw at the ink's real size: a symbol fills the image only
+                   once it is this many pen widths across (the pen: the strokes'
+                   median ``Stroke.width``); a smaller one — a dot, a comma, a
+                   prime — stays that small in the image, drawn with its real pen.
+                   Replaces ``source_size`` and the small-canvas exception. None:
+                   the older rendering (every symbol blown up to fill the image).
 
     Returns:
         Grayscale PIL Image of size (canvas_size, canvas_size).
@@ -51,6 +58,12 @@ def render_strokes(
     effective_padding = padding_ratio if canvas_size >= 64 else 0.05
     usable = hi * (1.0 - 2 * effective_padding)
     scale = usable / max(bbox_w, bbox_h)
+
+    if fill_pens is not None:
+        widths = sorted(s.width for s in strokes if s.points)
+        pen = widths[len(widths) // 2]
+        scale = min(scale, usable / (fill_pens * pen))
+        source_size = None
 
     # source_size cap keeps small symbols small at large canvas sizes,
     # but skip it for small canvases where every pixel matters

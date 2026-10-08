@@ -70,6 +70,26 @@ class MathOCR:
         )
 
         self.grouper_params = GrouperParams.from_config(cfg)
+        if self.grouper_params.scorer == "model":            # grouper.scorer: model — the learned group scorer
+            from mathnote_ocr.grouper_scorer import GroupScorer
+            scorer = GroupScorer.load(self.grouper_params.scorer_run or "v1", weights_dir)
+            scorer.check(_cls_run)                           # it reads this classifier's outputs
+            self.grouper_params.scorer_model = scorer
+        if self.grouper_params.stroke_run:                  # the stroke grouper (grouper_gnn.strokes)
+            from mathnote_ocr.grouper_gnn.strokes import StrokeGrouperModel
+            self.grouper_params.stroke_model = StrokeGrouperModel.load(self.grouper_params.stroke_run, weights_dir)
+        # label_scorer.run: the learned layer of context over the classifier's labels
+        # (mathnote_ocr.label_scorer) — each reading's symbols labelled again before the
+        # parser; label_scorer.name_map: "grouper" (the grouper's X_cap -> x ... applied to
+        # its choice, as to the classifier's) or "none" (its labels as chosen)
+        self.label_scorer = None
+        self._label_names = None
+        if get(cfg, "label_scorer.run"):
+            from mathnote_ocr.engine.grouper import _DEFAULTS
+            from mathnote_ocr.label_scorer import LabelScorer
+            self.label_scorer = LabelScorer.load(get(cfg, "label_scorer.run"), weights_dir)
+            self.label_scorer.check(_cls_run)
+            self._label_names = _DEFAULTS if get(cfg, "label_scorer.name_map", "grouper") == "grouper" else None
         # What symbols are read as (mathnote_ocr.vocabulary); the default changes nothing
         self.vocabulary = vocabulary or Vocabulary()
         # What a well-formed reading is (mathnote_ocr.grammar); None: any reading
@@ -91,6 +111,7 @@ class MathOCR:
             tta_dy=get(cfg, "tree_parser.tta_dy", 0.05),
             tta_size=get(cfg, "tree_parser.tta_size", 0.05),
             root_discount=get(cfg, "tree_parser.root_discount", 0.2),
+            promote=get(cfg, "tree_parser.promote", True),
             weights_dir=weights_dir,
         )
         if _gnn_run:
@@ -260,23 +281,28 @@ class MathOCR:
         pin_list = list(pins) if pins else None
         for partition in partitions:
             detected = sorted(partition, key=lambda s: s.bbox.x)
+            if self.label_scorer is not None:
+                detected = self.label_scorer.rerank(detected, name_map=self._label_names)
             _latex, parse_conf, tree, _ev = self.tree_parser.parse_with_tree(detected, pin_list, relations=rel)
             symbols = {i: s for i, s in enumerate(detected)}
-            sym_conf = _geomean_confidence(detected)
+            # the grouping's probability (model + exact search), else the
+            # symbols' geometric mean — times the tree's
+            prob = getattr(partition, "prob", None)
+            sym_conf = prob if prob is not None else _geomean_confidence(detected)
             covered = {st.id for s in detected for st in s.strokes}
-            results.append(
-                Expression(
-                    strokes=stroke_objs,
-                    symbols=symbols,
-                    tree=tree,
-                    confidence=round(sym_conf * parse_conf, 4),
-                    unexplained_stroke_ids=[s.id for s in stroke_objs if s.id not in covered],
-                )
+            e = Expression(
+                strokes=stroke_objs,
+                symbols=symbols,
+                tree=tree,
+                confidence=round(sym_conf * parse_conf, 6),
+                unexplained_stroke_ids=[s.id for s in stroke_objs if s.id not in covered],
             )
+            e.grouping_prob = prob
+            results.append(e)
 
         results.sort(key=lambda e: e.confidence, reverse=True)
         best = results[0]
-        return Expression(
+        out = Expression(
             strokes=best.strokes,
             symbols=best.symbols,
             tree=best.tree,
@@ -284,6 +310,8 @@ class MathOCR:
             alternatives=results[1:] if k > 1 else [],
             unexplained_stroke_ids=best.unexplained_stroke_ids,
         )
+        out.grouping_prob = best.grouping_prob
+        return out
 
 
     def _detect_with_structures(

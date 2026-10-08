@@ -50,6 +50,10 @@ def _compute_evidence_for_example(
     unk_id = symbol_vocab.get("<unk>", 1)
 
     subsets = make_spatial_subsets(bboxes, max_subset=max_subset)
+    scale = None
+    if getattr(subset_model, "encoding", "v1") != "v1":
+        from mathnote_ocr.tree_parser.geometry import writing_scale
+        scale = writing_scale(names, bboxes)
     partial_outputs = []
     for subset_indices in subsets:
         n_sub = len(subset_indices)
@@ -59,8 +63,7 @@ def _compute_evidence_for_example(
         for i, gi in enumerate(subset_indices):
             sub_ids[i] = symbol_vocab.get(names[gi], unk_id)
 
-        bbox_list = [bboxes[gi] for gi in subset_indices]
-        geo, size_feats = compute_features_from_bbox_list(bbox_list, S)
+        geo, size_feats = subset_model.inputs(names, bboxes, subset_indices, scale=scale, S=S)
         geo = geo.to(device)
         size_feats = size_feats.to(device)
 

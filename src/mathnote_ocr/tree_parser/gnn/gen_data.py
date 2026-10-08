@@ -59,6 +59,7 @@ def generate(
     max_n: int = 30,
     max_examples: int | None = None,
     augment: bool = False,
+    weights_dir: str | Path | None = None,
 ) -> Path:
     """Generate GNN evidence data.
 
@@ -72,6 +73,8 @@ def generate(
         per_version: Number of examples per generator version (when sampling).
         max_n: Maximum number of symbols per expression.
         max_examples: Limit examples when loading from JSONL.
+        weights_dir: Where to find the subset model (as the trainers'
+            --weights-dir); None: the bundled package weights.
 
     Returns:
         Path to the saved .pt file.
@@ -97,7 +100,7 @@ def generate(
     # Load subset model
     log.info("Loading subset model...")
     t0 = time.time()
-    ckpt = load_checkpoint("tree_subset", subset_run, device=device)
+    ckpt = load_checkpoint("tree_subset", subset_run, device=device, weights_dir=weights_dir)
     cfg = ckpt["config"]
     symbol_vocab = ckpt["symbol_vocab"]
     max_subset = cfg["max_symbols"]

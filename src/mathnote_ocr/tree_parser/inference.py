@@ -84,8 +84,12 @@ class TreeParser(ABC):
         spatial_penalty: float = 3.0,
         root_discount: float = 0.2,
         weights_dir: str | None = None,
+        promote: bool = True,
     ) -> None:
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # promote_symbols before parsing (dot/cdot by position, '-' -> frac_bar by the subset
+        # model); False: the labels as given (a grouper that labels in context decides them)
+        self.promote = promote
         self.weights_dir = weights_dir
         self.max_subset = max_subset
         self.radius_mult = radius_mult
@@ -176,8 +180,13 @@ class TreeParser(ABC):
         cached: dict[int, tuple[dict[str, torch.Tensor], int]] = {}
         to_run: list[tuple[int, list[int], tuple]] = []
 
+        v2 = getattr(self.subset_model, "encoding", "v1") != "v1"
+        scale = None
+        if v2:
+            from mathnote_ocr.tree_parser.geometry import writing_scale
+            scale = writing_scale(names, bboxes)          # the whole expression's
         for b, subset_indices in enumerate(subsets):
-            key = tuple((names[gi], *bboxes[gi]) for gi in subset_indices)
+            key = tuple((names[gi], *bboxes[gi]) for gi in subset_indices) + ((scale,) if v2 else ())
             if key in self._subset_cache:
                 cached[b] = self._subset_cache[key]
             else:
@@ -198,8 +207,7 @@ class TreeParser(ABC):
                     all_ids[batch_idx, i] = self._symbol_id(names[gi])
                 all_pad[batch_idx, :n_sub] = False
 
-                bbox_list = [bboxes[gi] for gi in subset_indices]
-                geo, size = compute_features_from_bbox_list(bbox_list, sub_S)
+                geo, size = self.subset_model.inputs(names, bboxes, subset_indices, scale=scale, S=sub_S)
                 geo_list.append(geo)
                 size_list.append(size)
 
@@ -224,6 +232,7 @@ class TreeParser(ABC):
         self,
         symbols: list[DetectedSymbol],
         confidence_threshold: float = 0.5,
+        keep=frozenset(),
     ) -> list[DetectedSymbol]:
         """Use the subset model to disambiguate context-dependent symbols.
 
@@ -232,7 +241,18 @@ class TreeParser(ABC):
         Currently handles:
           - `-` → `frac_bar`: if the subset model predicts NUM and DEN
             children for a minus with high confidence, it's a fraction bar.
+
+        Symbols at the positions in *keep* (the pinned ones: the user said
+        what they are) keep their names.
         """
+        before = [s.name for s in symbols]
+        symbols = self._promote(symbols, confidence_threshold)
+        for i in keep:
+            if symbols[i].name != before[i]:
+                symbols[i] = replace(symbols[i], name=before[i])
+        return symbols
+
+    def _promote(self, symbols: list[DetectedSymbol], confidence_threshold: float) -> list[DetectedSymbol]:
         N = len(symbols)
         names = [s.name for s in symbols]
         bboxes = [[s.bbox.x, s.bbox.y, s.bbox.w, s.bbox.h] for s in symbols]
@@ -497,8 +517,12 @@ class TreeParser(ABC):
         if not symbols:
             return "", 1.0, Tree(()), None
 
-        # Promote dot/cdot (and frac bars for non-backtrack strategies)
-        symbols = self.promote_symbols(symbols)
+        # Promote dot/cdot (and frac bars for non-backtrack strategies) — not a pinned symbol
+        pinned = {i for p in pins or [] for node in getattr(p, "nodes", {}).values()
+                  if getattr(node, "symbol", None) is not None for i in node.symbol.stroke_ids}
+        if self.promote:
+            symbols = self.promote_symbols(symbols, keep={k for k, s in enumerate(symbols)
+                                                          if any(st.id in pinned for st in s.strokes)})
 
         if len(symbols) == 1:
             from mathnote_ocr.latex_utils.glyphs import SYMBOL_TO_LATEX

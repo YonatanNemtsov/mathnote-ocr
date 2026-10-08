@@ -154,15 +154,19 @@ class StrokeGNN(nn.Module):
         n_heads: int = 4,
         n_layers: int = 3,
         dropout: float = 0.1,
+        stroke_emb: int = 0,
     ) -> None:
         super().__init__()
         self.render_size = render_size
+        self.stroke_emb = stroke_emb
         d_node = d_render + d_geo
 
         # Stroke mini-render CNN encoder
         # 32→16→8 after two pool layers, flatten = 32*8*8 = 2048
         cnn_flat = 32 * (render_size // 4) ** 2
-        self.stroke_cnn = nn.Sequential(
+        # stroke_emb > 0: each stroke arrives as a vector of this size (the symbol
+        # classifier's shape vector of the stroke drawn alone) instead of a picture
+        self.stroke_cnn = nn.Sequential(nn.LayerNorm(stroke_emb), nn.Linear(stroke_emb, d_render)) if stroke_emb else nn.Sequential(
             nn.Conv2d(1, 16, 3, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(2),
@@ -216,9 +220,12 @@ class StrokeGNN(nn.Module):
         B, N = renders.shape[:2]
         R = self.render_size
 
-        # Encode renders: (B*N, 1, R, R) → (B*N, d_render) → (B, N, d_render)
-        cnn_in = renders.reshape(B * N, 1, R, R)
-        cnn_out = self.stroke_cnn(cnn_in).reshape(B, N, -1)
+        if self.stroke_emb:                     # renders: (B, N, stroke_emb) vectors
+            cnn_out = self.stroke_cnn(renders)
+        else:
+            # Encode renders: (B*N, 1, R, R) → (B*N, d_render) → (B, N, d_render)
+            cnn_in = renders.reshape(B * N, 1, R, R)
+            cnn_out = self.stroke_cnn(cnn_in).reshape(B, N, -1)
 
         # Encode geometry
         geo_out = self.geo_proj(geo)  # (B, N, d_geo)
@@ -237,3 +244,44 @@ class StrokeGNN(nn.Module):
         node_logits = self.node_classifier(x)  # (B, N, num_classes)
 
         return edge_scores, node_logits
+
+
+class StrokeGroupGNN(StrokeGNN):
+    """StrokeGNN plus what each candidate group looks like as one picture.
+
+    A candidate group's score is the sum of its stroke pairs' log-odds (the
+    StrokeGNN's) plus a group term from its picture: the symbol classifier's
+    shape vector of the group drawn whole, its top probability and prototype
+    distance, its number of strokes, and its strokes' tokens after the attention
+    (their mean) — so two bars read as "=" once drawn together, a lone bar of an
+    "=" can score as unlikely on its own. The same inputs give the group's label
+    (the whole symbol's picture, in the line's context).
+    """
+
+    def __init__(self, num_classes: int, group_emb: int = 256, d_group: int = 128, **kw) -> None:
+        super().__init__(num_classes=num_classes, **kw)
+        d_node = kw.get("d_render", 32) + kw.get("d_geo", 16)
+        self.group_emb = group_emb
+        self.group_in = nn.Sequential(nn.LayerNorm(group_emb), nn.Linear(group_emb, d_group))
+        d_in = d_group + d_node + 2 + 4
+        self.group_score = nn.Sequential(nn.Linear(d_in, d_group), nn.ReLU(), nn.Linear(d_group, d_group), nn.ReLU(),
+                                         nn.Linear(d_group, 1))
+        self.group_label = nn.Sequential(nn.Linear(d_in, d_group), nn.ReLU(), nn.Linear(d_group, num_classes))
+
+    def encode(self, renders, geo, edge_feats, pad_mask=None, adj_mask=None):
+        """(edge scores (B, N, N), stroke label logits (B, N, C), stroke tokens (B, N, d))."""
+        x = torch.cat([self.stroke_cnn(renders), self.geo_proj(geo)], dim=-1)
+        for layer in self.layers:
+            x = layer(x, edge_feats, pad_mask, adj_mask)
+        x = self.final_norm(x)
+        return self.edge_scorer(x), self.node_classifier(x), x
+
+    def groups(self, tokens: torch.Tensor, member: torch.Tensor, vec: torch.Tensor, conf: torch.Tensor,
+               dist: torch.Tensor, size: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Group terms and label logits. tokens (T, d): every stroke's token, flat;
+        member (G, T): each group's strokes, rows summing to 1 (their mean); vec (G, group_emb),
+        conf, dist (G,), size (G,) strokes in the group."""
+        n_hot = nn.functional.one_hot((size.clamp(1, 4) - 1).long(), 4).float()
+        h = torch.cat([self.group_in(vec), member @ tokens, conf[:, None], dist[:, None].clamp(max=5.0),
+                       n_hot], dim=-1)
+        return self.group_score(h).squeeze(-1), self.group_label(h)

@@ -290,3 +290,79 @@ def compute_adjacency_mask(
             mask[neighbours, i] = True  # symmetric
 
     return torch.from_numpy(mask)
+
+
+# ── v2: in the writing's own scale ───────────────────────────────────
+#
+# v1 above measures sizes and gaps over the whole expression's box — a gap
+# between two symbols looks tiny in a long line and big in a short one. v2
+# measures them in the writing's scale (the median stroke diagonal, label-free:
+# grouper_scorer.writing_scale), sizes also in pen widths, and the distance
+# between two strokes ink to ink (closest points), not between their boxes.
+
+N_NODE_V2 = 12
+N_EDGE_V2 = 12
+
+
+def _pts(points: list[dict], cap: int = 48) -> np.ndarray:
+    a = np.array([[p["x"], p["y"]] for p in points], dtype=np.float32).reshape(-1, 2)
+    return a[:: max(1, len(a) // cap)] if len(a) else np.zeros((1, 2), dtype=np.float32)
+
+
+def stroke_scale(strokes: list[list[dict]]) -> float:
+    """The writing's size: the median stroke diagonal (grouper_scorer.writing_scale)."""
+    diag = sorted(math.hypot(max(p["x"] for p in s) - min(p["x"] for p in s),
+                             max(p["y"] for p in s) - min(p["y"] for p in s)) for s in strokes if s)
+    return max(diag[len(diag) // 2], 1.0) if diag else 1.0
+
+
+def compute_features_v2(strokes: list[list[dict]], pen: float = 2.0) -> tuple[torch.Tensor, torch.Tensor]:
+    """(node (N, N_NODE_V2), edge (N, N, N_EDGE_V2)) features in the writing's scale.
+
+    Node: width, height, log size in pen widths, log aspect, length, log points,
+    direction (cos, sin) start to end, straightness, closedness, x from the ink's
+    left, y from its vertical middle. Edge: ink distance (closest points), box
+    gaps x and y, centre offsets x and y, log size ratio, box overlap, x and y
+    overlap over the smaller, written next to each other, strokes between them
+    (log), the other's centre within this one's height band.
+    """
+    n = len(strokes)
+    S = stroke_scale(strokes)
+    pts = [_pts(s) for s in strokes]
+    full = [np.array([[p["x"], p["y"]] for p in s], dtype=np.float32).reshape(-1, 2) for s in strokes]
+    box = np.array([[a[:, 0].min(), a[:, 1].min(), a[:, 0].max(), a[:, 1].max()] if len(a) else [0, 0, 0, 0]
+                    for a in full], dtype=np.float32)
+    x0 = box[:, 0].min() if n else 0.0
+    ymid = (box[:, 1].min() + box[:, 3].max()) / 2 if n else 0.0
+    node = np.zeros((n, N_NODE_V2), dtype=np.float32)
+    for i, a in enumerate(full):
+        w, h = box[i, 2] - box[i, 0], box[i, 3] - box[i, 1]
+        diag = math.hypot(w, h)
+        arc = float(np.linalg.norm(np.diff(a, axis=0), axis=1).sum()) if len(a) > 1 else 0.0
+        d = a[-1] - a[0] if len(a) > 1 else np.zeros(2)
+        dn = float(np.linalg.norm(d))
+        node[i] = [w / S, h / S, math.log1p(diag / pen), math.log((w + 1) / (h + 1)), arc / S,
+                   math.log1p(len(a)), d[0] / dn if dn else 0.0, d[1] / dn if dn else 0.0,
+                   diag / arc if arc else 1.0, dn / arc if arc else 0.0,
+                   (box[i, 0] - x0) / S, ((box[i, 1] + box[i, 3]) / 2 - ymid) / S]
+    edge = np.zeros((n, n, N_EDGE_V2), dtype=np.float32)
+    cx, cy = (box[:, 0] + box[:, 2]) / 2, (box[:, 1] + box[:, 3]) / 2
+    diag = np.hypot(box[:, 2] - box[:, 0], box[:, 3] - box[:, 1]) + 1.0
+    for i in range(n):
+        for j in range(i + 1, n):
+            ink = float(np.sqrt(((pts[i][:, None, :] - pts[j][None, :, :]) ** 2).sum(-1)).min())
+            gx = max(0.0, max(box[i, 0], box[j, 0]) - min(box[i, 2], box[j, 2]))
+            gy = max(0.0, max(box[i, 1], box[j, 1]) - min(box[i, 3], box[j, 3]))
+            ox = max(0.0, min(box[i, 2], box[j, 2]) - max(box[i, 0], box[j, 0]))
+            oy = max(0.0, min(box[i, 3], box[j, 3]) - max(box[i, 1], box[j, 1]))
+            wi, hi = box[i, 2] - box[i, 0] + 1, box[i, 3] - box[i, 1] + 1
+            wj, hj = box[j, 2] - box[j, 0] + 1, box[j, 3] - box[j, 1] + 1
+            inter = ox * oy
+            iou = inter / (wi * hi + wj * hj - inter)
+            sym = [ink / S, gx / S, gy / S, iou, ox / min(wi, wj), oy / min(hi, hj),
+                   float(j - i == 1), math.log1p(j - i - 1)]
+            for a, b, sgn in ((i, j, 1.0), (j, i, -1.0)):
+                band = float(box[a, 1] <= cy[b] <= box[a, 3])
+                edge[a, b] = sym + [(cx[b] - cx[a]) / S, (cy[b] - cy[a]) / S,
+                                    math.log(diag[b] / diag[a]), band]
+    return torch.from_numpy(node), torch.from_numpy(edge)

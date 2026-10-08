@@ -10,6 +10,7 @@ becomes symbol-level training data, even where the engine read it wrong.
 
 from __future__ import annotations
 
+import heapq
 import math
 import time
 from collections import Counter
@@ -199,6 +200,68 @@ def _ldots_candidates(strokes, groups, ocr, cache, source_size) -> list[frozense
     return extra
 
 
+COMPACT_MAX_STROKES = 4      # strokes in one compact candidate
+COMPACT_BOX = 1.6            # its box: at most this many typical stroke heights wide and tall
+COMPACT_NEAR = 0.8           # strokes this close (typical heights, box to box) are neighbours
+COMPACT_LIMIT = 4000         # candidates per ink at most (a dense ink stops adding)
+
+
+def _compact_candidates(strokes, groups, ocr, cache, source_size, box_size: float = COMPACT_BOX) -> list[frozenset[int]]:
+    """Extra candidates for symbols whose strokes lie apart: every set of 2
+    to COMPACT_MAX_STROKES neighbouring strokes whose box together is about
+    one symbol's size — a pi's bar and two legs, a colon's two dots, an i's
+    dot over its stem, the two bars of =. The grouper weighs strokes as one
+    symbol only when they are close; these symbols' parts often are not, so
+    the right group was no choice at all: a colon's second dot or an i's dot
+    went to a neighbour. Only candidates: the classifier scores each like
+    any other group, and the expression's symbols decide.
+
+    Sizes in the ink's own unit: the median height of its strokes that are
+    not tiny (a dot says nothing about the writing's size)."""
+    from mathnote_ocr.engine.grouper import classify_groups
+
+    n = len(strokes)
+    if n < 2:
+        return []
+    box = [s.bbox for s in strokes]
+    diag = [(b.w ** 2 + b.h ** 2) ** 0.5 for b in box]
+    typical = sorted(diag)[n // 2] or 1.0
+    heights = sorted(box[p].h for p in range(n) if diag[p] >= 0.4 * typical) or [typical]
+    unit = heights[len(heights) // 2] or typical
+
+    def gap(a, b):
+        dx = max(0.0, max(box[a].x, box[b].x) - min(box[a].x2, box[b].x2))
+        dy = max(0.0, max(box[a].y, box[b].y) - min(box[a].y2, box[b].y2))
+        return (dx * dx + dy * dy) ** 0.5
+
+    near = {p: [q for q in range(n) if q != p and gap(p, q) <= COMPACT_NEAR * unit] for p in range(n)}
+    limit = box_size * unit
+    found: set[frozenset[int]] = set()
+    frontier = [frozenset([p]) for p in range(n)]
+    for _size in range(2, COMPACT_MAX_STROKES + 1):
+        grown = set()
+        for g in frontier:
+            for p in g:
+                for q in near[p]:
+                    if q in g:
+                        continue
+                    h = g | {q}
+                    if h in grown or h in found:
+                        continue
+                    x0 = min(box[i].x for i in h); x1 = max(box[i].x2 for i in h)
+                    y0 = min(box[i].y for i in h); y1 = max(box[i].y2 for i in h)
+                    if x1 - x0 <= limit and y1 - y0 <= limit:
+                        grown.add(h)
+        found |= grown
+        frontier = list(grown)
+        if len(found) > COMPACT_LIMIT or not frontier:
+            break
+    existing = set(groups)
+    extra = [g for g in found if g not in existing][:COMPACT_LIMIT]
+    classify_groups(strokes, extra, ocr.classifier, cache=cache, source_size=source_size)
+    return extra
+
+
 LOG_FLOOR = math.log(1e-12)
 
 
@@ -218,6 +281,8 @@ class Alignment:
     seconds: float
     candidates: int = 0
     notes: list[str] = field(default_factory=list)
+    order_inversions: int = 0   # pairs written in an order contradicting the LaTeX (with order_weight)
+    alternatives: list = field(default_factory=list)   # [(logp, symbols)], the next best covers (alternatives=)
 
     @property
     def weakest(self) -> float:
@@ -238,6 +303,12 @@ def align(
     *,
     canvas_size: int | None = None,
     node_budget: int = 200_000,
+    order_weight: float = 0.0,
+    order_by: str = "time",
+    k_best: int = 50,
+    alternatives: int = 0,
+    compact: bool = False,
+    compact_box: float | dict | None = None,
 ) -> Alignment | None:
     """Assign strokes to the symbols in *labels* (e.g. from latex_to_labels).
 
@@ -245,6 +316,24 @@ def align(
     them, unfiltered — where the groups' labels use up *labels* exactly,
     maximising the sum of log P(label | group). Returns None when no such
     cover exists among the candidates.
+
+    With *order_weight* > 0, the *k_best* best covers are re-ranked by
+    log P minus order_weight x the pairs of symbols written in an order
+    contradicting *labels*' order (order_inversions): the labels are a
+    sequence, not a bag — on a stranger's handwriting, where the classifier
+    is unsure, the best bag shuffles labels between similar groups.
+    *order_by*: "time" (a symbol's first stroke) or "x" (its left edge).
+    Fraction bars take no part (written before or after their numerator).
+
+    *compact*: also the groups of neighbouring strokes that fit one
+    symbol's box (_compact_candidates: pi, colon, i, =) — off by default.
+    *compact_box*: that box, in the ink's typical stroke heights — a number,
+    or {label: size} (the largest of the expression's symbols is used: a
+    product sign is far bigger than a colon); default COMPACT_BOX.
+
+    *alternatives* > 0: the next best covers too, best first
+    (Alignment.alternatives) — for a caller with its own check (the
+    expression's tree against the ink) to take the best one that passes.
     """
     from mathnote_ocr.api import _autocanvas, _normalize_strokes
     from mathnote_ocr.engine.grouper import GrouperCache, generate_candidates
@@ -261,6 +350,11 @@ def align(
     ids = [s.id for s in stroke_objs]
     if "ldots" in labels:
         groups = groups + _ldots_candidates(stroke_objs, groups, ocr, cache, cs)
+    if compact:
+        # the box: the largest symbol's in the expression (compact_box per label, measured), else COMPACT_BOX
+        box_size = (max([compact_box.get(lab, COMPACT_BOX) for lab in labels] + [COMPACT_BOX])
+                    if isinstance(compact_box, dict) else (compact_box or COMPACT_BOX))
+        groups = groups + _compact_candidates(stroke_objs, groups, ocr, cache, cs, box_size)
     index = {name: i for i, name in enumerate(ocr.classifier.label_names)}
 
     # log P(label | group) for the labels we need, equivalent classes pooled.
@@ -291,13 +385,18 @@ def align(
     # Per label, groups by descending score — for the optimistic bound
     ranked = {lab: sorted(range(len(scored)), key=lambda gi, lab=lab: -scored[gi][1][lab]) for lab in need}
 
-    best: dict = {"logp": -math.inf, "choice": None}
+    k = max(max(1, k_best) if order_weight > 0 else 1, alternatives + 1)
+    found: list[tuple[float, int, list]] = []          # min-heap of the k best covers (logp, tiebreak, choice)
+
+    def kth() -> float:
+        return found[0][0] if len(found) >= k else -math.inf
+
     nodes = 0
     remaining = dict(target)
     chosen: list[tuple[int, str]] = []
     # Best score seen per state (strokes left, symbols left): a state reached
     # again with no better score can't lead anywhere better
-    seen: dict[tuple, float] = {}
+    seen: dict[tuple, list[float]] = {}
 
     def bound(uncovered: frozenset[int]) -> float:
         """Optimistic: each remaining symbol gets the best group still available
@@ -321,17 +420,26 @@ def align(
             return
         left = sum(remaining.values())
         if not uncovered:
-            if left == 0 and score > best["logp"]:
-                best["logp"], best["choice"] = score, list(chosen)
+            if left == 0 and score > kth():
+                entry = (score, nodes, list(chosen))
+                if len(found) < k:
+                    heapq.heappush(found, entry)
+                else:
+                    heapq.heapreplace(found, entry)
             return
         # Each symbol takes 1..max_size strokes
         if left == 0 or len(uncovered) < left or len(uncovered) > left * max_size:
             return
-        state = (uncovered, tuple(sorted((lab, k) for lab, k in remaining.items() if k)))
-        if seen.get(state, -math.inf) >= score:
+        state = (uncovered, tuple(sorted((lab, c) for lab, c in remaining.items() if c)))
+        # the k best ways into a state: a worse one can't complete any better
+        tops = seen.setdefault(state, [])
+        if len(tops) >= k and score <= tops[0]:
             return
-        seen[state] = score
-        if score + bound(uncovered) <= best["logp"]:
+        if len(tops) >= k:
+            heapq.heapreplace(tops, score)
+        else:
+            heapq.heappush(tops, score)
+        if score + bound(uncovered) <= kth():
             return
         # Most constrained stroke first
         pick_opts = None
@@ -355,16 +463,54 @@ def align(
 
     search(frozenset(range(n)), 0.0)
     elapsed = time.perf_counter() - t0
-    if best["choice"] is None:
+    if not found:
         return None
-    symbols = [
-        AlignedSymbol(label=lab, stroke_ids=sorted(ids[p] for p in scored[gi][0]), logp=scored[gi][1][lab])
-        for gi, lab in best["choice"]
-    ]
-    boxes = [BBox.union_all([stroke_objs[p].bbox for p in scored[gi][0]]) for gi, _ in best["choice"]]
-    _assign_bars(symbols, boxes, fractions)
-    return Alignment(symbols=symbols, logp=best["logp"], complete=nodes <= node_budget,
-                     nodes=nodes, seconds=elapsed, candidates=len(scored))
+    seq = ["-" if lab in BARS else lab for lab in labels]
+
+    def key(gi: int) -> float:
+        g = scored[gi][0]
+        return min(g) if order_by == "time" else min(stroke_objs[p].bbox.x for p in g)
+
+    def ranked_cover(entry):
+        logp, _t, choice = entry
+        inv = order_inversions(seq, [(lab, key(gi)) for gi, lab in choice])
+        return logp - order_weight * inv, logp, inv, choice
+
+    ranked = sorted((ranked_cover(e) for e in found), key=lambda r: -r[0])
+
+    def symbols_of(choice) -> list[AlignedSymbol]:
+        syms = [AlignedSymbol(label=lab, stroke_ids=sorted(ids[p] for p in scored[gi][0]), logp=scored[gi][1][lab])
+                for gi, lab in choice]
+        boxes = [BBox.union_all([stroke_objs[p].bbox for p in scored[gi][0]]) for gi, _ in choice]
+        _assign_bars(syms, boxes, fractions)
+        return syms
+
+    _value, logp, inversions, choice = ranked[0]
+    return Alignment(symbols=symbols_of(choice), logp=logp, complete=nodes <= node_budget, nodes=nodes,
+                     seconds=elapsed, candidates=len(scored), order_inversions=inversions,
+                     alternatives=[(lp, symbols_of(ch)) for _v, lp, _i, ch in ranked[1:alternatives + 1]])
+
+
+def order_inversions(sequence: list[str], placed: list[tuple[str, float]]) -> int:
+    """Pairs of symbols placed (label, position: first stroke or left edge)
+    in an order contradicting *sequence* (the LaTeX's labels in order).
+    Equal labels are matched in order (the first one written is the first
+    in the LaTeX); bars ("-") take no part."""
+    slots: dict[str, list[int]] = {}
+    for i, lab in enumerate(sequence):
+        if lab != "-":
+            slots.setdefault(lab, []).append(i)
+    by_label: dict[str, list[float]] = {}
+    for lab, pos in placed:
+        if lab != "-" and lab not in BARS:
+            by_label.setdefault(lab, []).append(pos)
+    order = []                                  # (position, place in the LaTeX)
+    for lab, positions in by_label.items():
+        for pos, i in zip(sorted(positions), slots.get(lab, [])):
+            order.append((pos, i))
+    order.sort()
+    idx = [i for _p, i in order]
+    return sum(1 for a in range(len(idx)) for b in range(a + 1, len(idx)) if idx[a] > idx[b])
 
 
 def _assign_bars(symbols: list[AlignedSymbol], boxes: list[BBox], fractions: int) -> None:

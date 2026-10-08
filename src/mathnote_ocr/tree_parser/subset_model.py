@@ -9,6 +9,17 @@ Architecture:
 - Biaffine head: scores each directed pair (parent → child)
 - Edge type head: MLP classifies edge type for each predicted edge
 - Order head: MLP predicts sibling order
+
+Geometry encodings (tree_parser/geometry.py):
+- v1: three centre measures in 8 fixed buckets, an embedding per bucket as
+  the attention bias; each symbol's height and position in 4 buckets. The
+  heads see the geometry only through the encoder.
+- v2: continuous pair features in the expression's writing scale, an MLP of
+  them as the attention bias; symbol features (height against the scale and
+  against the class's usual height, shape, place) added to the embedding;
+  and the decisions themselves see each child-parent pair's features: the
+  parent and previous-sibling scores get a term of them, the edge type and
+  order heads take them as input.
 """
 
 from __future__ import annotations
@@ -19,7 +30,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from mathnote_ocr.tree_parser import geometry
 from mathnote_ocr.tree_parser.tree import NUM_EDGE_TYPES, ROOT
+
+D_PAIR = 32             # v2: the child-parent geometry as the heads see it
 
 # ── Encoder (lightweight geo-bias transformer) ───────────────────────
 
@@ -34,20 +48,25 @@ class GeoBiasEncoderLayer(nn.Module):
         d_ff: int,
         n_geo_buckets: int = 8,
         dropout: float = 0.1,
+        encoding: str = "v1",
     ) -> None:
         super().__init__()
         assert d_model % n_heads == 0
         self.d_k = d_model // n_heads
         self.n_heads = n_heads
+        self.encoding = encoding
 
         self.W_q = nn.Linear(d_model, d_model)
         self.W_k = nn.Linear(d_model, d_model)
         self.W_v = nn.Linear(d_model, d_model)
         self.W_o = nn.Linear(d_model, d_model)
 
-        self.v_off_bias = nn.Embedding(n_geo_buckets, n_heads)
-        self.h_off_bias = nn.Embedding(n_geo_buckets, n_heads)
-        self.size_bias = nn.Embedding(n_geo_buckets, n_heads)
+        if encoding == "v1":
+            self.v_off_bias = nn.Embedding(n_geo_buckets, n_heads)
+            self.h_off_bias = nn.Embedding(n_geo_buckets, n_heads)
+            self.size_bias = nn.Embedding(n_geo_buckets, n_heads)
+        else:
+            self.geo_bias = nn.Sequential(nn.Linear(geometry.PAIR, 32), nn.GELU(), nn.Linear(32, n_heads))
 
         self.norm1 = nn.LayerNorm(d_model)
         self.ff = nn.Sequential(
@@ -64,7 +83,7 @@ class GeoBiasEncoderLayer(nn.Module):
     def forward(
         self,
         x: torch.Tensor,  # (B, S, D)
-        geo_buckets: torch.Tensor,  # (B, 3, S, S) long
+        geo_buckets: torch.Tensor,  # v1: (B, 3, S, S) long; v2: (B, S, S, PAIR) float
         key_padding_mask: torch.Tensor | None = None,  # (B, S) True=pad
     ) -> torch.Tensor:
         residual = x
@@ -77,11 +96,14 @@ class GeoBiasEncoderLayer(nn.Module):
 
         scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
 
-        geo_bias = (
-            self.v_off_bias(geo_buckets[:, 0])
-            + self.h_off_bias(geo_buckets[:, 1])
-            + self.size_bias(geo_buckets[:, 2])
-        ).permute(0, 3, 1, 2)
+        if self.encoding == "v1":
+            geo_bias = (
+                self.v_off_bias(geo_buckets[:, 0])
+                + self.h_off_bias(geo_buckets[:, 1])
+                + self.size_bias(geo_buckets[:, 2])
+            ).permute(0, 3, 1, 2)
+        else:
+            geo_bias = self.geo_bias(geo_buckets).permute(0, 3, 1, 2)
 
         scores = scores + geo_bias
 
@@ -216,21 +238,32 @@ class SubsetTreeModel(nn.Module):
         max_symbols: int = 12,
         dropout: float = 0.1,
         num_edge_types: int = NUM_EDGE_TYPES,
+        encoding: str = "v1",
+        usual: dict[str, float] | None = None,
     ) -> None:
         super().__init__()
         self.d_model = d_model
         self.max_symbols = max_symbols
         self.num_edge_types = num_edge_types
+        self.encoding = encoding
+        self.usual = usual or {}            # v2: each class's usual height over the writing scale
 
         # Symbol + size embeddings
         self.symbol_embed = nn.Embedding(num_symbols, d_model, padding_idx=0)
-        self.height_embed = nn.Embedding(4, d_model)
-        self.yoff_embed = nn.Embedding(4, d_model)
+        if encoding == "v1":
+            self.height_embed = nn.Embedding(4, d_model)
+            self.yoff_embed = nn.Embedding(4, d_model)
+        else:
+            self.symbol_geo = nn.Linear(geometry.SYMBOL, d_model)
+            # the child-parent pair, for the decisions
+            self.pair_proj = nn.Sequential(nn.Linear(geometry.PAIR, D_PAIR), nn.GELU())
+            self.arc_geo = nn.Linear(D_PAIR, 1)
+            self.seq_geo = nn.Linear(D_PAIR, 1)
 
         # Encoder layers
         self.enc_layers = nn.ModuleList(
             [
-                GeoBiasEncoderLayer(d_model, n_heads, d_ff, n_geo_buckets, dropout)
+                GeoBiasEncoderLayer(d_model, n_heads, d_ff, n_geo_buckets, dropout, encoding)
                 for _ in range(n_layers)
             ]
         )
@@ -239,9 +272,11 @@ class SubsetTreeModel(nn.Module):
         # Parent prediction (biaffine)
         self.arc_scorer = BiaffineScorer(d_model, d_arc)
 
+        d_pair_in = d_model * 2 + (D_PAIR if encoding != "v1" else 0)
+
         # Edge type classification
         self.edge_type_mlp = nn.Sequential(
-            nn.Linear(d_model * 2, d_model),
+            nn.Linear(d_pair_in, d_model),
             nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(d_model, num_edge_types),
@@ -260,7 +295,7 @@ class SubsetTreeModel(nn.Module):
 
         # Sibling order prediction
         self.order_mlp = nn.Sequential(
-            nn.Linear(d_model * 2, d_model),
+            nn.Linear(d_pair_in, d_model),
             nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(d_model, 1),
@@ -286,13 +321,16 @@ class SubsetTreeModel(nn.Module):
         symbol_ids: torch.Tensor,  # (B, S)
         geo_buckets: torch.Tensor,  # (B, 3, S, S) long
         pad_mask: torch.Tensor,  # (B, S) True=pad
-        size_feats: torch.Tensor | None = None,  # (B, S, 2) long
+        size_feats: torch.Tensor | None = None,  # v1: (B, S, 2) long; v2: (B, S, SYMBOL) float
     ) -> torch.Tensor:
         """Encode symbols into contextual representations."""
         x = self.symbol_embed(symbol_ids)
         if size_feats is not None:
-            x = x + self.height_embed(size_feats[:, :, 0])
-            x = x + self.yoff_embed(size_feats[:, :, 1])
+            if self.encoding == "v1":
+                x = x + self.height_embed(size_feats[:, :, 0])
+                x = x + self.yoff_embed(size_feats[:, :, 1])
+            else:
+                x = x + self.symbol_geo(size_feats)
 
         for layer in self.enc_layers:
             x = layer(x, geo_buckets, pad_mask)
@@ -327,6 +365,14 @@ class SubsetTreeModel(nn.Module):
         h_child = h.unsqueeze(2).expand(-1, -1, S, -1)  # (B, S, S, D)
         h_parent = h.unsqueeze(1).expand(-1, S, -1, -1)  # (B, S, S, D)
         pair_feats = torch.cat([h_child, h_parent], dim=-1)  # (B, S, S, 2D)
+
+        if self.encoding != "v1":
+            # the decisions see the child-parent geometry itself: [i, j] = parent j as seen from child i
+            g = self.pair_proj(geo_buckets)  # (B, S, S, D_PAIR)
+            pad_col = torch.zeros_like(parent_scores[:, :, :1])
+            parent_scores = parent_scores + torch.cat([self.arc_geo(g).squeeze(-1), pad_col], dim=-1)
+            seq_scores = seq_scores + torch.cat([self.seq_geo(g).squeeze(-1), pad_col], dim=-1)
+            pair_feats = torch.cat([pair_feats, g], dim=-1)  # (B, S, S, 2D + D_PAIR)
 
         edge_sym = self.edge_type_mlp(pair_feats)  # (B, S, S, E)
         edge_root = self.root_edge_mlp(h)  # (B, S, E)
@@ -405,6 +451,15 @@ class SubsetTreeModel(nn.Module):
             results.append((parent_idx, et, order, seq_prev))
 
         return results
+
+
+    def inputs(self, names: list[str], bboxes: list[list[float]], subset: list[int],
+               scale: float | None = None, subset_bboxes: list[list[float]] | None = None, S: int | None = None):
+        """(geometry input, symbol input) for one subset of an expression, in
+        this model's encoding — *names*, *bboxes*: the whole expression's
+        (v2 measures in its writing scale; pass *scale* to compute it once)."""
+        return geometry.subset_inputs(self.encoding, names, bboxes, subset, S or self.max_symbols, scale=scale,
+                                      usual=self.usual, subset_bboxes=subset_bboxes)
 
 
 # ── Factory ──────────────────────────────────────────────────────────
