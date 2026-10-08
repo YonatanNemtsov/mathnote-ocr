@@ -158,7 +158,7 @@ class GroupScorer:
         """Refuse a classifier other than the one the scorer learned from."""
         if self.classifier and _run_name(classifier_run) != self.classifier:
             raise ValueError(f"the group scorer was trained with classifier {self.classifier!r}, "
-                             f"not {_run_name(classifier_run)!r}: retrain it (scripts/train_group_scorer.py)")
+                             f"not {_run_name(classifier_run)!r}: retrain it for this classifier")
 
     @torch.no_grad()
     def logits(self, rows: list[dict]) -> list[float]:

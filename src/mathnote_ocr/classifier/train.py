@@ -295,7 +295,7 @@ def train(
     big pool is used whole across the epochs without making each one long.
 
     ``negatives_dir``: samples that are no symbol (wrong stroke groups:
-    strokes of several symbols merged — scripts/data/extract_negatives.py),
+    strokes of several symbols merged),
     drawn alongside each batch; their loss pushes the prediction towards
     uniform over the classes ("outlier exposure", weight ``neg_weight``) —
     the reader groups strokes by the classifier's confidence, and wrong

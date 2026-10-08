@@ -320,7 +320,7 @@ def align(
     With *order_weight* > 0, the *k_best* best covers are re-ranked by
     log P minus order_weight x the pairs of symbols written in an order
     contradicting *labels*' order (order_inversions): the labels are a
-    sequence, not a bag — on a stranger's handwriting, where the classifier
+    sequence, not a bag — on unfamiliar handwriting, where the classifier
     is unsure, the best bag shuffles labels between similar groups.
     *order_by*: "time" (a symbol's first stroke) or "x" (its left edge).
     Fraction bars take no part (written before or after their numerator).

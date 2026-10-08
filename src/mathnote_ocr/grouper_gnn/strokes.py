@@ -34,7 +34,7 @@ class StrokeGrouperModel:
                  features: str = "v1", kind: str = "pairs"):
         self.net = net
         self.kind = kind                # "pairs" (StrokeGNN) or "groups" (StrokeGroupGNN: with group pictures)
-        # temperatures (scripts/calibrate_stroke_grouper.py, in the checkpoint): a reading's
+        # temperatures (fitted on held-out inks, in the checkpoint): a reading's
         # score and the label head's logits divided by them — honest probabilities, same ranking
         self.t_grouping = 1.0
         self.t_labels = 1.0
@@ -43,7 +43,7 @@ class StrokeGrouperModel:
         # pictures and sizes are in pen widths)
         self.writing_height = 22.0
         # each symbol's usual size at that writing size (px, max of width and height; median
-        # over the training inks — scripts/data in the run's build): the line is measured
+        # over the training inks, in the checkpoint): the line is measured
         # against its biggest symbol read with confidence (reference_scale)
         self.class_sizes: dict[str, float] = {}
         self.features = features        # grouper_gnn.features: "v1" (over the expression) or "v2" (writing scale)

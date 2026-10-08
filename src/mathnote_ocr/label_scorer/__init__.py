@@ -5,8 +5,7 @@ The classifier labels a group of strokes from its picture alone, at a
 fixed size: it can't see that this "x" is twice the height of the writing
 around it (an X), that this dot sits on the line (a period, not a centred
 dot), or that this "1" stands right after a letter, small and raised (a
-prime). Its top few labels almost always hold the right one (98% on writers
-it never saw, scripts/probe_label_context.py); the choice among them is
+prime). Its top few labels almost always hold the right one; the choice among them is
 what goes wrong. This scorer makes that choice again, for each symbol of a
 reading, from:
 

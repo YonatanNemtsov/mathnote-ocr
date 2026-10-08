@@ -4,9 +4,8 @@ units of the expression's own writing scale.
 v1 (latex_utils.relations.compute_features_from_bbox_list) put three centre
 measures into 8 fixed buckets over the subset's median height. On real trees
 that lost what tells a barely raised exponent from a symbol on the line
-(scripts/probe_geometry.py: with each symbol's size against its class's
-usual, 60% fewer relation errors on the user's writing than the buckets with
-the symbols' identities). v2:
+(with each symbol's size against its class's usual, far fewer relation
+errors than the buckets with the symbols' identities). v2:
 
   pair features  of j as seen from i, (S, S, PAIR): centre offsets, bottom
                  and top edge differences, the gaps between facing edges
