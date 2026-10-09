@@ -19,6 +19,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import statistics
+
 import numpy as np
 import torch
 
@@ -134,15 +136,17 @@ class StrokeGrouperModel:
         return min(self.writing_height / med, 1.0) if med > 0 else 1.0
 
     def reference_scale(self, symbols) -> float | None:
-        """The factor from a reading: its biggest symbol read with confidence over one half
-        (one with a usual size: not a bar, a bracket, a root — their size is what they span —
-        nor a dot), against that symbol's usual size. None: no such symbol."""
-        sure = [s for s in symbols if s.confidence > 0.5 and self.class_sizes.get(s.name, 0.0) >= 4.0]
-        if not sure:
+        """The factor from a reading: each symbol read with confidence over one half (one with a
+        usual size: not a bar, a bracket, a root — their size is what they span — nor a dot)
+        says what the writing's size is (its usual size against its size here); the median of
+        what they say — one odd symbol does not decide — and never over 1: the ink is only ever
+        shrunk to the training size, never blown up (small marks read alone are not small
+        writing). None: no such symbol."""
+        says = [self.class_sizes[s.name] / max(s.bbox.w, s.bbox.h) for s in symbols
+                if s.confidence > 0.5 and self.class_sizes.get(s.name, 0.0) >= 4.0 and max(s.bbox.w, s.bbox.h) > 0]
+        if not says:
             return None
-        ref = max(sure, key=lambda s: max(s.bbox.w, s.bbox.h))
-        size = max(ref.bbox.w, ref.bbox.h)
-        return min(max(self.class_sizes[ref.name] / size, 0.2), 5.0) if size > 0 else None
+        return min(max(statistics.median(says), 0.2), 1.0)
 
     def at_training_scale(self, strokes: list[Stroke], scale: float | None = None) -> list[Stroke]:
         """The ink scaled by *scale* (else default_scale)."""

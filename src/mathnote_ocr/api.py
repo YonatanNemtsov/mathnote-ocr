@@ -9,6 +9,7 @@ Expression is immutable; corrections return new Expression.
 
 from __future__ import annotations
 
+import statistics
 from collections.abc import Sequence
 
 from mathnote_ocr.classifier.inference import SymbolClassifier
@@ -351,13 +352,23 @@ class MathOCR:
             inside = [p for p in pin_list if _pin_stroke_ids(p) <= idset]
             return inside or None
 
+        # every part (a region, the rest, a cell) read at the line's writing size: the size most
+        # of its strokes were last read at, else what the whole line's heights suggest — not a
+        # guess from the part's own few strokes
+        model = getattr(self.grouper_params, "stroke_model", None)
+        line_scale = None
+        if model is not None:
+            known = [cache.writing_scale[s.id] for s in stroke_objs if s.id in getattr(cache, "writing_scale", {})]
+            line_scale = (statistics.mode(known) if known and 2 * len(known) >= len(stroke_objs)
+                          else model.default_scale(stroke_objs))
+
         def best_partition(strokes_: list[Stroke]) -> list[DetectedSymbol]:
             if not strokes_:
                 return []
             parts = group_and_classify(
                 strokes_, self.classifier, params=self.grouper_params, cache=cache,
                 source_size=cs, top_k=1, pins=pins_within({s.id for s in strokes_}),
-                vocabulary=vocabulary,
+                vocabulary=vocabulary, scale=line_scale,
             )
             return list(parts[0]) if parts else []
 

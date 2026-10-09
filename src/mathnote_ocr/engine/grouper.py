@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import math
+import statistics
 import time
 from dataclasses import dataclass, replace
 
@@ -305,6 +306,9 @@ class GrouperCache:
 
     def __init__(self) -> None:
         self._data: dict[frozenset[int], ClassificationResult] = {}
+        # each stroke's writing size, as last read (the stroke grouper's scale): a stroke's
+        # next read starts there — the writing's size is the writer's, not a guess per read
+        self.writing_scale: dict[int, float] = {}
 
     def __contains__(self, key: frozenset[int]) -> bool:
         return key in self._data
@@ -324,6 +328,7 @@ class GrouperCache:
 
     def invalidate_stroke(self, stroke_id: int) -> None:
         """Drop cache entries that reference a specific stroke id."""
+        self.writing_scale.pop(stroke_id, None)
         bad = [k for k in self._data if stroke_id in k]
         for k in bad:
             del self._data[k]
@@ -647,6 +652,7 @@ def _find_partitions_exact(
     keep: int = 40,
     geometric_mean: bool = True,
     clashes: bool = True,
+    order: list[int] | None = None,
 ) -> list[tuple[float, list[DetectedSymbol]]]:
     """Top-k non-overlapping covers of all n strokes — exactly, over every
     reading of the strokes, not the first ones found.
@@ -664,6 +670,12 @@ def _find_partitions_exact(
     with them are dropped at the end, among the best kept (clashes=False:
     no such rule — a learned scorer judges the boxes itself).
 
+    *order*: the strokes left to right — each set of strokes is then read from its leftmost
+    stroke (the group holding it, then the rest): the leftover sets stay "all from some point
+    on", a few per point, so the work grows with the line's length, not with the product of its
+    parts. The readings are the same either way (every stroke is in exactly one group, whichever
+    is taken first); without an order, the most constrained stroke is taken first.
+
     Each symbol of the returned readings carries grouping_prob: its strokes'
     share of all readings, weighed by their confidences (summed over the
     hierarchy and back down — inside / outside; clashes not counted).
@@ -678,7 +690,11 @@ def _find_partitions_exact(
     seed = list(initial_symbols) if initial_symbols else []
 
     def choices(mask: int):
-        """The most constrained stroke of *mask* and the groups that cover it inside *mask*."""
+        """The stroke of *mask* to read first — its leftmost (*order*), else its most
+        constrained — and the groups that cover it inside *mask*."""
+        if order is not None:
+            s = next(i for i in order if mask >> i & 1)
+            return s, [g for g in stroke_groups[s] if masks[g] & mask == masks[g]]
         best_s, best = -1, None
         m = mask
         while m:
@@ -1002,8 +1018,12 @@ def group_and_classify(
     debug: bool = False,
     pins: list[Tree] | None = None,
     vocabulary=None,
+    scale: float | None = None,
 ) -> list[list[DetectedSymbol]]:
     """Detect symbols in a set of strokes.
+
+    *scale*: the writing size to read at (the stroke grouper's), when it is known — a part of a
+    line read at the line's size: read once at it.
 
     Returns up to *top_k* valid partitions, each a list of
     ``DetectedSymbol``, sorted by descending total confidence.
@@ -1068,7 +1088,7 @@ def group_and_classify(
     if params.stroke_model is not None:
         return _group_by_strokes(strokes, classifier, params=params, cache=cache, source_size=source_size,
                                  top_k=top_k, pinned=frozenset(pinned_positions), pinned_symbols=pinned_symbols,
-                                 vocabulary=vocabulary)
+                                 vocabulary=vocabulary, scale=scale)
 
     # 1-4. Candidate groups (geometry, enumeration), each classified into the cache
     candidate_groups, stats = generate_candidates(
@@ -1230,7 +1250,7 @@ def group_and_classify(
 
 
 def _group_by_strokes(strokes, classifier, *, params, cache, source_size, top_k, pinned, pinned_symbols,
-                      vocabulary):
+                      vocabulary, scale=None):
     """group_and_classify with the stroke grouper (params.stroke_model): the
     candidates are the geometric ones (the enumeration, no classifier) and the
     groups of the model's own joining; each scores the sum of its pairs'
@@ -1244,13 +1264,25 @@ def _group_by_strokes(strokes, classifier, *, params, cache, source_size, top_k,
         return [Partition(list(pinned_symbols), prob=1.0)]
     kw = dict(classifier=classifier, params=params, cache=cache, source_size=source_size, top_k=top_k,
               pinned=pinned, pinned_symbols=pinned_symbols, vocabulary=vocabulary)
-    parts = _read_by_strokes(strokes, scale=None, **kw)
-    # read again at the size its biggest confident symbol says the writing is (the model's
-    # usual sizes), when that differs from the size it was read at
+    if scale is not None:            # a part of a line, at the line's size: read once at it
+        return _read_by_strokes(strokes, scale=scale, **kw)
+    # the size it is read at first: the size most of its strokes were last read at (when most
+    # of them were read before), else the size their heights suggest
+    memo = getattr(cache, "writing_scale", None)
+    known = [memo[s.id] for s in strokes if memo is not None and s.id in memo]
+    start = statistics.mode(known) if known and 2 * len(known) >= len(strokes) else None
+    used = start if start is not None else model.default_scale(strokes)
+    parts = _read_by_strokes(strokes, scale=start, **kw)
+    # read again at the size its confident symbols say the writing is (the model's usual sizes),
+    # when that differs from the size it was read at by more than 15%
     if model.class_sizes and parts and parts[0]:
         k = model.reference_scale(parts[0])
-        if k is not None and abs(math.log(k / model.default_scale(strokes))) > math.log(1.15):
+        if k is not None and abs(math.log(k / used)) > math.log(1.15):
             parts = _read_by_strokes(strokes, scale=k, **kw)
+            used = k
+    if memo is not None:
+        for s in strokes:
+            memo[s.id] = used
     return parts
 
 
@@ -1321,7 +1353,8 @@ def _read_by_strokes(strokes, *, scale, classifier, params, cache, source_size, 
         scored.append((g, math.exp(psi), sym))
     # no clash rule: the boxes' geometry is the model's to judge (a subscript touching a bar)
     partitions = _find_partitions_exact(n, scored, top_k, initial_covered=pinned,
-                                        initial_symbols=list(pinned_symbols), geometric_mean=False, clashes=False)
+                                        initial_symbols=list(pinned_symbols), geometric_mean=False, clashes=False,
+                                        order=sorted(range(n), key=lambda i: (strokes[i].bbox.x, i)))
     if not partitions:
         return [[]]
     keep = [[st.id for st in p.strokes] for p in pinned_symbols]
