@@ -27,6 +27,10 @@ from mathnote_ocr.grouper_gnn.features import compute_edge_features, compute_fea
 from mathnote_ocr.grouper_gnn.model import StrokeGNN, StrokeGroupGNN
 
 MAX_GROUP = 4
+# Readings of group pictures kept (read_groups): a group drawn from the same points at the
+# same scale is the same picture — read once. A region, its cells, the line around it and the
+# next request after one more stroke share most of their groups. ~3.5 kB each.
+CACHE_SIZE = 10_000
 
 
 class StrokeGrouperModel:
@@ -51,6 +55,7 @@ class StrokeGrouperModel:
         self.vectors = vectors          # SymbolClassifier: the stroke vectors' source
         self.source_size = source_size
         self.run = run
+        self._read_cache: dict = {}     # group picture (its strokes' points) -> ClassificationResult
 
     @classmethod
     def load(cls, path: str, weights_dir: str | None = None) -> "StrokeGrouperModel":
@@ -76,18 +81,31 @@ class StrokeGrouperModel:
 
     def read_groups(self, strokes: list[Stroke], groups) -> list:
         """Each group (positions) drawn whole, as in training (pen 2, the classifier's
-        own drawing), read by the model's classifier: its ClassificationResults."""
+        own drawing), read by the model's classifier: its ClassificationResults. A
+        group drawn before from the same points (at the same scale: the points are
+        the scaled ones) is not read again."""
         from mathnote_ocr.engine.grouper import _size_feat, ink_size_feat
         from mathnote_ocr.engine.renderer import render_strokes
         clf = self.vectors
         pen2 = [Stroke(id=s.id, points=s.points, bbox=s.bbox, width=2.0) for s in strokes]
-        imgs, sizes = [], []
-        for g in groups:
-            gs = [pen2[i] for i in sorted(g)]
-            imgs.append(render_strokes(gs, canvas_size=clf.canvas_size, source_size=self.source_size,
-                                       round_joins=clf.round_joins, fill_pens=clf.fill_pens))
-            sizes.append(ink_size_feat(gs) if clf.fill_pens else _size_feat(gs, self.source_size))
-        return clf.classify_batch(imgs, size_feats=sizes if clf.use_size_feat else None)
+        stroke_key = [tuple((p.x, p.y) for p in s.points) for s in strokes]
+        keys = [tuple(stroke_key[i] for i in sorted(g)) for g in groups]
+        out = [self._read_cache.get(key) for key in keys]
+        todo = [k for k, r in enumerate(out) if r is None]
+        if todo:
+            imgs, sizes = [], []
+            for k in todo:
+                gs = [pen2[i] for i in sorted(groups[k])]
+                imgs.append(render_strokes(gs, canvas_size=clf.canvas_size, source_size=self.source_size,
+                                           round_joins=clf.round_joins, fill_pens=clf.fill_pens))
+                sizes.append(ink_size_feat(gs) if clf.fill_pens else _size_feat(gs, self.source_size))
+            read = clf.classify_batch(imgs, size_feats=sizes if clf.use_size_feat else None)
+            if len(self._read_cache) + len(todo) > CACHE_SIZE:
+                self._read_cache.clear()     # full: begin again (this call's readings are in hand)
+            for k, r in zip(todo, read):
+                out[k] = r
+                self._read_cache[keys[k]] = r
+        return out
 
     def _stroke_vectors(self, strokes: list[Stroke]) -> torch.Tensor:
         res = self.read_groups(strokes, [[i] for i in range(len(strokes))])

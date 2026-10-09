@@ -90,15 +90,10 @@ _SPECIAL_CHARS = {v: k for k, v in _SPECIAL_NAMES.items()}
 
 # Big ops and functions (for rendering logic)
 _BIG_OPS = {"int", "sum", "prod"}
-_FUNC_SEQUENCES = {
-    ("s", "i", "n"): r"\sin",
-    ("c", "o", "s"): r"\cos",
-    ("t", "a", "n"): r"\tan",
-    ("l", "o", "g"): r"\log",
-    ("l", "n"): r"\ln",
-    ("l", "i", "m"): r"\lim",
-    ("d", "e", "t"): r"\det",
-}
+_FUNC_NAMES = ("arcsin", "arccos", "arctan", "sinh", "cosh", "tanh", "sin", "cos", "tan", "sec", "csc",
+               "cot", "log", "ln", "exp", "lim", "det", "max", "min")
+# letters -> command, the longest first (sinh is not \sin h)
+_FUNC_SEQUENCES = {tuple(n): "\\" + n for n in sorted(_FUNC_NAMES, key=len, reverse=True)}
 
 
 _OPEN_TO_CLOSE = {"(": ")", "[": "]", "lbrace": "rbrace"}
@@ -500,15 +495,7 @@ def _parse_term(tokens: list[str], pos: int) -> tuple[_ParseNode | None, int]:
         return inner_nodes, pos  # type: ignore
 
     # Function command → expand to individual letter nodes
-    _FUNC_CMD_TO_LETTERS = {
-        r"\sin": list("sin"),
-        r"\cos": list("cos"),
-        r"\tan": list("tan"),
-        r"\log": list("log"),
-        r"\ln": list("ln"),
-        r"\lim": list("lim"),
-        r"\det": list("det"),
-    }
+    _FUNC_CMD_TO_LETTERS = {"\\" + n: list(n) for n in _FUNC_NAMES}
     # Functions that use LOWER/UPPER limits instead of SUB/SUP
     _FUNC_WITH_LIMITS = {r"\lim"}
     if tok in _FUNC_CMD_TO_LETTERS:

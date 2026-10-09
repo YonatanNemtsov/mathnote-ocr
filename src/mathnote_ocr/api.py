@@ -392,27 +392,47 @@ class MathOCR:
                     cell_cache[ids] = ([], "", None)
             return cell_cache[ids]
 
+        # the line around the regions, each one atom: parsed once — the splits differ only inside.
+        # A region's closing bracket stays itself in the line: what follows a matrix (its
+        # exponent, above the bracket) is placed against a bracket, as the parser was taught,
+        # not against the whole block; what it places on the bracket is the grid's (build)
+        closers = [syms[splits[0].right] if splits[0].right is not None else None
+                   for _ids, syms, splits in region_data]
+        atoms = []
+        for (ids, _syms, _grids), closer in zip(region_data, closers):
+            own = {s.id for s in closer.strokes} if closer is not None else set()
+            block = [by_id[i] for i in ids if i not in own]
+            atoms.append(DetectedSymbol(name="expression", bbox=compute_bbox(block), strokes=block, confidence=1.0))
+        parser_input = sorted(outer_syms + atoms + [c for c in closers if c is not None], key=lambda s: s.bbox.x)
+        _latex, parse_conf, outer_tree, _ev = self.tree_parser.parse_with_tree(parser_input, outer_pins, relations=relations)
+
         def build(variant: int) -> Expression:
-            atoms = [
-                DetectedSymbol(name="expression", bbox=compute_bbox([by_id[i] for i in ids]),
-                               strokes=[by_id[i] for i in ids], confidence=1.0)
-                for ids, _syms, _grids in region_data
-            ]
-            parser_input = sorted(outer_syms + atoms, key=lambda s: s.bbox.x)
-            _latex, parse_conf, tree, _ev = self.tree_parser.parse_with_tree(parser_input, outer_pins, relations=relations)
+            tree = outer_tree
             atom_pos = {id(a): i for i, a in enumerate(parser_input) if any(a is b for b in atoms)}
-            symbols = {i: s for i, s in enumerate(parser_input) if id(s) not in atom_pos}
+            closer_pos = {id(c): i for i, c in enumerate(parser_input) if any(c is d for d in closers)}
+            symbols = {i: s for i, s in enumerate(parser_input) if id(s) not in atom_pos and id(s) not in closer_pos}
             next_id = len(parser_input)
             grids: dict[int, GridBlock] = {}
             for r, (atom, (ids, syms, splits)) in enumerate(zip(atoms, region_data)):
                 aid = atom_pos[id(atom)]
                 tree = tree.rename_node(aid, "grid")
+                if closers[r] is not None:
+                    # what the parser placed on the closing bracket (an exponent) is the grid's;
+                    # the bracket itself is the grid's own, like the opening one
+                    cpos = closer_pos[id(closers[r])]
+                    for cid, edge, order in tree.children_of(cpos):
+                        if aid not in tree.walk(cid):
+                            tree = tree.move_node(cid, aid, edge, order)
+                    tree = tree.remove_node(cpos) if aid not in tree.walk(cpos) else tree
                 g = splits[min(variant, len(splits) - 1)] if r == 0 else splits[0]
                 # what is in no cell (delimiters, commas between entries) as grouped with the region
                 in_cells = {j for row in g.cells for cell in row for j in cell}
+                delimiters = []
                 for j, sym in enumerate(syms):
                     if j not in in_cells:
                         symbols[next_id] = sym
+                        if j in (g.left, g.right):
+                            delimiters.append(next_id)
                         next_id += 1
                 # each cell's own symbols, in x order (its tree numbers them so)
                 cells, parsed = [], []
@@ -433,6 +453,7 @@ class MathOCR:
                     cell_latex=tuple(tuple(latex for latex, _t in row) for row in parsed),
                     bbox=atom.bbox,
                     cell_trees=tuple(tuple(t for _l, t in row) for row in parsed),
+                    delimiters=tuple(delimiters),
                 )
             covered = {st.id for s in symbols.values() for st in s.strokes}
             conf = _geomean_confidence(list(symbols.values())) * parse_conf
