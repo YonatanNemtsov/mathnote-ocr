@@ -111,8 +111,12 @@ mechanisms; the app states the rules. All three are given once to `MathOCR`
 ```python
 from mathnote_ocr import Grammar, MathOCR, Relations, Rewrite, Vocabulary
 
+def no_two_operators(names, where):
+    """Object to an operator right after another one."""
+    ops = {"+", "-", "="}
+    return [i for i in range(1, len(names)) if names[i] in ops and names[i - 1] in ops]
+
 ocr = MathOCR(
-    config,
     vocabulary=Vocabulary(exclude={"alpha", "beta"}, aliases={"slash": ","}),
     relations=Relations(exclude={"sub"}),          # no subscripts in this app
     grammar=Grammar(no_two_operators, rewrites=[Rewrite(("-", "-"), ("=",))]),
@@ -209,7 +213,7 @@ Note: it is advised to use the default config if you are not experimenting or tr
 To use a different config:
 
 ```python
-ocr = MathOCR(config="configs/mixed_v9_backtrack.yaml")
+ocr = MathOCR(config="configs/mixed_v10_backtrack_gnn.yaml")
 ```
 
 ### Config structure
@@ -275,7 +279,7 @@ ocr = MathOCR(
 ### Bundled vs repo configs
 
 - **`src/mathnote_ocr/configs/default.yaml`** — ships with the package, used when you call `MathOCR()` or `MathOCR(config="default")`.
-- **`configs/*.yaml`** — experimental/alternative configs tracked in the repo (mixed_v9 variants, bottomup, backtrack_collapse, etc.). Reference them by path: `MathOCR(config="configs/mixed_v9_backtrack.yaml")`.
+- **`configs/*.yaml`** — experimental/alternative configs tracked in the repo (mixed_v9 variants, bottomup, backtrack_collapse, etc.). Reference them by path: `MathOCR(config="configs/mixed_v10_backtrack_gnn.yaml")`. Only configs whose weights are bundled (mixed_v10 subset + GNN, v9_combined classifier) load out of the box; the others need weights you train yourself.
 
 ### Full field reference
 
@@ -332,7 +336,8 @@ configs/              # Experiment configs (mixed_v9_*, mixed_v10_*)
 weights/              # User-trained checkpoints (development)
 data/                 # Training data
 scripts/              # Evaluation and diagnostic scripts
-tools/                # Web servers (inference UI, collection)
+demos/                # The bundled web demo
+web_tools/            # Data collection tools
 ```
 
 ## License

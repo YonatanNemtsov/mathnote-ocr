@@ -910,7 +910,7 @@ async def main(args):
     print(f"  Symbols: {BASE_DIR}/symbols/")
     print(f"  Existing: {state['session'].total_saved} expressions")
     print(f"  WebSocket: ws://localhost:{args.port}")
-    print("\nOpen tools/collect_expr.html in your browser.\n")
+    print("\nOpen web_tools/collect_expr.html in your browser.\n")
 
     async with websockets.serve(
         lambda ws: handler(ws, state),
