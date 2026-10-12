@@ -23,6 +23,7 @@ from dataclasses import replace
 
 import torch
 
+from mathnote_ocr import stopping
 from mathnote_ocr.bbox import BBox
 from mathnote_ocr.engine.checkpoint import load_checkpoint
 from mathnote_ocr.engine.grouper import DetectedSymbol
@@ -172,6 +173,7 @@ class TreeParser(ABC):
         subsets: list[list[int]],
     ) -> list[tuple[list[int], dict[str, torch.Tensor], int]]:
         """Run subset model on a list of subsets (batched, cached)."""
+        stopping.check()
         if not subsets:
             return []
 

@@ -19,11 +19,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import hashlib
 import statistics
 
 import numpy as np
 import torch
 
+from mathnote_ocr import stopping
 from mathnote_ocr.engine.stroke import Stroke, StrokePoint
 from mathnote_ocr.grouper_gnn.features import compute_edge_features, compute_features_v2, compute_node_features
 from mathnote_ocr.grouper_gnn.model import StrokeGNN, StrokeGroupGNN
@@ -31,8 +33,16 @@ from mathnote_ocr.grouper_gnn.model import StrokeGNN, StrokeGroupGNN
 MAX_GROUP = 4
 # Readings of group pictures kept (read_groups): a group drawn from the same points at the
 # same scale is the same picture — read once. A region, its cells, the line around it and the
-# next request after one more stroke share most of their groups. ~3.5 kB each.
+# next request after one more stroke share most of their groups. ~2.6 kB each (measured).
 CACHE_SIZE = 10_000
+CLASSIFY_CHUNK = 64      # group pictures read at once
+
+
+def _points_key(stroke: Stroke) -> bytes:
+    """A stroke's points, as a short fingerprint: the same points, the same key (a copy of
+    every point as the key made each remembered picture tens of kilobytes)."""
+    pts = np.array([(p.x, p.y) for p in stroke.points], dtype=np.float64)
+    return hashlib.blake2b(pts.tobytes(), digest_size=16).digest()
 
 
 class StrokeGrouperModel:
@@ -81,18 +91,20 @@ class StrokeGrouperModel:
         model.class_sizes = dict(ck.get("class_sizes") or {})
         return model
 
-    def read_groups(self, strokes: list[Stroke], groups) -> list:
+    def read_groups(self, strokes: list[Stroke], groups, store: dict | None = None) -> list:
         """Each group (positions) drawn whole, as in training (pen 2, the classifier's
         own drawing), read by the model's classifier: its ClassificationResults. A
         group drawn before from the same points (at the same scale: the points are
-        the scaled ones) is not read again."""
+        the scaled ones) is not read again — remembered in *store* (a reader's own:
+        GrouperCache.pictures, gone with it), else in the model's."""
         from mathnote_ocr.engine.grouper import _size_feat, ink_size_feat
         from mathnote_ocr.engine.renderer import render_strokes
         clf = self.vectors
         pen2 = [Stroke(id=s.id, points=s.points, bbox=s.bbox, width=2.0) for s in strokes]
-        stroke_key = [tuple((p.x, p.y) for p in s.points) for s in strokes]
+        store = self._read_cache if store is None else store
+        stroke_key = [_points_key(s) for s in strokes]
         keys = [tuple(stroke_key[i] for i in sorted(g)) for g in groups]
-        out = [self._read_cache.get(key) for key in keys]
+        out = [store.get(key) for key in keys]
         todo = [k for k, r in enumerate(out) if r is None]
         if todo:
             imgs, sizes = [], []
@@ -101,16 +113,22 @@ class StrokeGrouperModel:
                 imgs.append(render_strokes(gs, canvas_size=clf.canvas_size, source_size=self.source_size,
                                            round_joins=clf.round_joins, fill_pens=clf.fill_pens))
                 sizes.append(ink_size_feat(gs) if clf.fill_pens else _size_feat(gs, self.source_size))
-            read = clf.classify_batch(imgs, size_feats=sizes if clf.use_size_feat else None)
-            if len(self._read_cache) + len(todo) > CACHE_SIZE:
-                self._read_cache.clear()     # full: begin again (this call's readings are in hand)
+            # a chunk at a time: the network's working memory grows with the batch, and a tangle
+            # of strokes can have hundreds of candidates (each picture is read on its own either way)
+            read = []
+            for c in range(0, len(imgs), CLASSIFY_CHUNK):
+                stopping.check()
+                read += clf.classify_batch(imgs[c:c + CLASSIFY_CHUNK],
+                                           size_feats=sizes[c:c + CLASSIFY_CHUNK] if clf.use_size_feat else None)
+            if len(store) + len(todo) > CACHE_SIZE:
+                store.clear()                # full: begin again (this call's readings are in hand)
             for k, r in zip(todo, read):
                 out[k] = r
-                self._read_cache[keys[k]] = r
+                store[keys[k]] = r
         return out
 
-    def _stroke_vectors(self, strokes: list[Stroke]) -> torch.Tensor:
-        res = self.read_groups(strokes, [[i] for i in range(len(strokes))])
+    def _stroke_vectors(self, strokes: list[Stroke], store: dict | None = None) -> torch.Tensor:
+        res = self.read_groups(strokes, [[i] for i in range(len(strokes))], store)
         return torch.from_numpy(np.stack([r.features for r in res])).float()
 
     def pair_logits(self, strokes: list[Stroke]) -> torch.Tensor:
@@ -157,7 +175,7 @@ class StrokeGrouperModel:
                 for s in strokes]
 
     @torch.no_grad()
-    def encode(self, strokes: list[Stroke], scale: float | None = None):
+    def encode(self, strokes: list[Stroke], scale: float | None = None, store: dict | None = None):
         """(pair log-odds (n, n), stroke label log-probabilities (n, labels), stroke tokens (n, d))."""
         strokes = self.at_training_scale(strokes, scale)
         n = len(strokes)
@@ -167,7 +185,7 @@ class StrokeGrouperModel:
         else:
             _r, geo = compute_node_features(st, render_size=8)
             edge = compute_edge_features(st)
-        args = (self._stroke_vectors(strokes)[None], geo[None], edge[None],
+        args = (self._stroke_vectors(strokes, store)[None], geo[None], edge[None],
                 torch.zeros(1, n, dtype=torch.bool), torch.ones(1, n, n, dtype=torch.bool))
         if self.kind == "groups":
             es, nl, x = self.net.encode(*args)
@@ -178,11 +196,11 @@ class StrokeGrouperModel:
 
     @torch.no_grad()
     def group_terms(self, strokes: list[Stroke], tokens: torch.Tensor, groups,
-                    scale: float | None = None) -> tuple[torch.Tensor, torch.Tensor, list]:
+                    scale: float | None = None, store: dict | None = None) -> tuple[torch.Tensor, torch.Tensor, list]:
         """For the "groups" kind: each group's picture term (G,), its label
         log-probabilities (G, labels), and the classifier's reading of its picture."""
         groups = [sorted(g) for g in groups]
-        res = self.read_groups(self.at_training_scale(strokes, scale), groups)
+        res = self.read_groups(self.at_training_scale(strokes, scale), groups, store)
         n = len(strokes)
         member = torch.zeros(len(groups), n)
         for r, g in enumerate(groups):

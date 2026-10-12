@@ -13,6 +13,7 @@ import statistics
 import time
 from dataclasses import dataclass, replace
 
+from mathnote_ocr import stopping
 from mathnote_ocr.classifier.inference import ClassificationResult, SymbolClassifier
 from mathnote_ocr.engine.renderer import render_strokes
 from mathnote_ocr.engine.stroke import BBox, Stroke, compute_bbox
@@ -309,6 +310,9 @@ class GrouperCache:
         # each stroke's writing size, as last read (the stroke grouper's scale): a stroke's
         # next read starts there — the writing's size is the writer's, not a guess per read
         self.writing_scale: dict[int, float] = {}
+        # group pictures already read, by their points (StrokeGrouperModel.read_groups): this
+        # reader's own, so they go when it goes (a visitor's are no use to another's ink)
+        self.pictures: dict = {}
 
     def __contains__(self, key: frozenset[int]) -> bool:
         return key in self._data
@@ -561,6 +565,7 @@ def _find_best_partitions(
     initial_covered: frozenset[int] = frozenset(),
     initial_symbols: list[DetectedSymbol] | None = None,
     geometric_mean: bool = True,
+    clashes: bool = True,
 ) -> list[tuple[float, list[DetectedSymbol]]]:
     """Find top-k non-overlapping covers of all n strokes, ranked by the
     geometric mean of their groups' scores — or, with geometric_mean=False
@@ -577,6 +582,9 @@ def _find_best_partitions(
     *initial_covered* and *initial_symbols* let the caller pre-fix part
     of the partition (used by pin support — pinned strokes are already
     resolved before exact cover runs).
+
+    *clashes*: symbols that clash (_symbols_clash) are not read together (False: no such
+    rule — a learned scorer judges the boxes itself).
     """
     # stroke → list of scored_group indices
     stroke_to_groups: dict[int, list[int]] = {i: [] for i in range(n)}
@@ -592,6 +600,7 @@ def _find_best_partitions(
         score: float,
         skips_left: int,
     ) -> None:
+        stopping.check()
         if len(results) >= max_results:
             return
         if not uncovered:
@@ -616,7 +625,7 @@ def _find_best_partitions(
             indices, conf, sym = scored_groups[gi]
 
             # Early conflict check against already-chosen symbols
-            if any(_symbols_clash(sym.name, sym.bbox, e.name, e.bbox) for e in symbols):
+            if clashes and any(_symbols_clash(sym.name, sym.bbox, e.name, e.bbox) for e in symbols):
                 continue
 
             symbols.append(sym)
@@ -741,6 +750,10 @@ def _find_partitions_exact(
             for count in out:
                 out[count] = sorted(out[count], key=lambda t: -t[0])[:keep]
             memo[key], inside[key], edges[key] = out, total, ed
+            if len(memo) > MAX_SEARCH_STATES:
+                raise _TooTangled
+            if not len(memo) & 255:
+                stopping.check()
             return out
 
         top = best(start, budget)
@@ -1289,10 +1302,12 @@ def _group_by_strokes(strokes, classifier, *, params, cache, source_size, top_k,
 def _read_by_strokes(strokes, *, scale, classifier, params, cache, source_size, top_k, pinned, pinned_symbols,
                      vocabulary):
     """One reading of _group_by_strokes, the ink at *scale* (None: the model's default)."""
+    stopping.check()
     model = params.stroke_model
     n = len(strokes)
     free = [i for i in range(n) if i not in pinned]
-    scores, _lp, tokens = model.encode(strokes, scale)
+    pictures = getattr(cache, "pictures", None)
+    scores, _lp, tokens = model.encode(strokes, scale, store=pictures)
     eff = _effective_min_merge_distance(strokes, params.min_merge_distance, params.merge_distance_scale)
     dist = _compute_distance_matrix(strokes)
     nb = _compute_neighbors(strokes, dist, params.size_multiplier, min_merge_distance=eff)
@@ -1302,12 +1317,13 @@ def _read_by_strokes(strokes, *, scale, classifier, params, cache, source_size, 
     cands = {g for g in geo if not g & pinned} | set(model.joined(scores, set(free))) \
         | {frozenset([i]) for i in free}
     cands = sorted(cands, key=lambda g: (len(g), sorted(g)))
+    cands = _within_budget(cands, scores, model, n)
     read = (lambda r: vocabulary.apply(r, classifier.label_names)) if vocabulary else None
     if model.kind == "groups":
         # the group pictures: each candidate drawn whole and read by the model's classifier;
         # its term joins the pairs' in the score, its label head (the whole picture in the
         # line's context) names the group — the head's labels as the group's alternatives
-        terms, glp, res = model.group_terms(strokes, tokens, cands, scale)
+        terms, glp, res = model.group_terms(strokes, tokens, cands, scale, store=pictures)
         results = []
         for k, r in enumerate(res):
             top = glp[k].topk(min(10, glp.shape[1]))         # ten: the page's "more" chips
@@ -1331,7 +1347,11 @@ def _read_by_strokes(strokes, *, scale, classifier, params, cache, source_size, 
     # (every reading covers all strokes: no ranking changes) — chosen so the best reading
     # multiplies to 1; only hopeless readings underflow
     psis = [(model.group_score(scores, g) + h) / model.t_grouping for g, h in zip(cands, extra)]
-    per_stroke = _best_log_total(n, cands, psis, pinned) / max(len(free), 1)
+    left_to_right = sorted(range(n), key=lambda i: (strokes[i].bbox.x, i))
+    try:
+        per_stroke = _best_log_total(n, cands, psis, pinned, order=left_to_right) / max(len(free), 1)
+    except _TooTangled:
+        per_stroke = _greedy_log_total(n, cands, psis, pinned) / max(len(free), 1)
     scored = []
     if vocabulary and model.kind == "groups":              # the head's distribution, over its own labels
         read = lambda r: vocabulary.apply(r, model.labels)
@@ -1352,30 +1372,93 @@ def _read_by_strokes(strokes, *, scale, classifier, params, cache, source_size, 
                              alternatives=list(result.alternatives or []))
         scored.append((g, math.exp(psi), sym))
     # no clash rule: the boxes' geometry is the model's to judge (a subscript touching a bar)
-    partitions = _find_partitions_exact(n, scored, top_k, initial_covered=pinned,
-                                        initial_symbols=list(pinned_symbols), geometric_mean=False, clashes=False,
-                                        order=sorted(range(n), key=lambda i: (strokes[i].bbox.x, i)))
+    try:
+        partitions = _find_partitions_exact(n, scored, top_k, initial_covered=pinned,
+                                            initial_symbols=list(pinned_symbols), geometric_mean=False,
+                                            clashes=False, order=left_to_right)
+    except _TooTangled:
+        logger.warning("[grouper] %d strokes too tangled to search exactly: the first readings found are used", n)
+        partitions = _find_best_partitions(n, scored, top_k, initial_covered=pinned,
+                                           initial_symbols=list(pinned_symbols), geometric_mean=False,
+                                           clashes=False)
     if not partitions:
         return [[]]
     keep = [[st.id for st in p.strokes] for p in pinned_symbols]
     return [Partition(_postprocess(syms, keep), prob=round(score, 6)) for score, syms in partitions]
 
 
-def _best_log_total(n: int, groups, psis, covered=frozenset()) -> float:
+# Candidate groups drawn and read per reading, at most: writing gives about 3 per stroke
+# (logged requests: at most 193, for 68 strokes); a tangle of overlapping strokes (a
+# scribble, a crossing-out) gives every combination — 849 for 20 strokes, seconds and
+# gigabytes. Over the budget, the groups the pairs score best are kept (and every stroke
+# alone, so a reading always exists).
+CANDIDATES_PER_STROKE = 8
+MIN_CANDIDATES = 256
+
+
+def _within_budget(cands, scores, model, n: int):
+    budget = max(MIN_CANDIDATES, CANDIDATES_PER_STROKE * n)
+    if len(cands) <= budget:
+        return cands
+    singles = [g for g in cands if len(g) == 1]
+    groups = sorted((g for g in cands if len(g) > 1), key=lambda g: -model.group_score(scores, g))
+    kept = set(singles) | set(groups[:max(budget - len(singles), 0)])
+    logger.warning("[grouper] %d candidate groups for %d strokes: the %d the pairs score best are read",
+                   len(cands), n, len(kept))
+    return [g for g in cands if g in kept]
+
+
+# Leftover sets of strokes an exact search may solve. Writing is local — read left to right,
+# what is left is mostly "everything further right", a few sets per stroke; a tangle of
+# overlapping strokes leaves sets in every combination (40 strokes: minutes, gigabytes).
+# Past this many, the search stops (_TooTangled) and the reading takes the first readings
+# found (_find_best_partitions).
+MAX_SEARCH_STATES = 20_000
+
+
+class _TooTangled(Exception):
+    pass
+
+
+def _greedy_log_total(n: int, groups, psis, covered=frozenset()) -> float:
+    """A reading's total log-score, found greedily (each leftover set's lowest stroke takes
+    its best group): the scale for the scores when the exact best is too costly to find."""
+    order = sorted(range(len(groups)), key=lambda k: -psis[k])
+    left = set(range(n)) - set(covered)
+    total = 0.0
+    while left:
+        low = min(left)
+        k = next((k for k in order if low in groups[k] and groups[k] <= left), None)
+        if k is None:
+            left.discard(low)
+            continue
+        total += psis[k]
+        left -= groups[k]
+    return total
+
+
+def _best_log_total(n: int, groups, psis, covered=frozenset(), order: list[int] | None = None) -> float:
     """The best reading's total log-score over the uncovered strokes, exactly
-    (each leftover set of strokes solved once, its lowest stroke's group first)."""
+    (each leftover set of strokes solved once, the group of its first stroke in *order* —
+    left to right: what is left is mostly what lies further right — else its lowest)."""
     masks = [sum(1 << i for i in g) for g in groups]
-    by_low: dict[int, list[int]] = {}
+    by_stroke: dict[int, list[int]] = {}
     for k, g in enumerate(groups):
-        by_low.setdefault(min(g), []).append(k)
+        for i in g:
+            by_stroke.setdefault(i, []).append(k)
+    order = list(range(n)) if order is None else order
     best: dict[int, float] = {0: 0.0}
 
     def solve(mask):
         if mask in best:
             return best[mask]
-        low = (mask & -mask).bit_length() - 1
-        best[mask] = max((psis[k] + solve(mask ^ masks[k]) for k in by_low.get(low, ())
+        first = next(i for i in order if mask >> i & 1)
+        best[mask] = max((psis[k] + solve(mask ^ masks[k]) for k in by_stroke.get(first, ())
                           if masks[k] & mask == masks[k]), default=-math.inf)
+        if len(best) > MAX_SEARCH_STATES:
+            raise _TooTangled
+        if not len(best) & 255:
+            stopping.check()
         return best[mask]
 
     full = sum(1 << i for i in range(n) if i not in covered)
