@@ -126,30 +126,43 @@ def aggregate_evidence_soft(
 
     Returns same dict format as aggregate_evidence.
     """
+    import numpy as np
     import torch.nn.functional as F
 
     N = n_symbols
     E = NUM_EDGE_TYPES
+    f32 = np.float32
 
-    parent_votes = torch.zeros(N, N + 1, E)
-    order_sum = torch.zeros(N, N + 1)
-    order_count = torch.zeros(N, N + 1)
-    pair_cooccurrence = torch.zeros(N, N)
-    seq_votes = torch.zeros(N, N + 1)
+    # Plain float32 arrays, updated one vote at a time in the same order and with the
+    # same float32 arithmetic as tensors would be (a vote is rounded to float32, then
+    # added) — the same numbers, without a tensor operation per vote
+    parent_votes = np.zeros((N, N + 1, E), dtype=f32)
+    order_sum = np.zeros((N, N + 1), dtype=f32)
+    order_count = np.zeros((N, N + 1), dtype=f32)
+    pair_cooccurrence = np.zeros((N, N), dtype=f32)
+    seq_votes = np.zeros((N, N + 1), dtype=f32)
 
     for subset_indices, out, n_sub in partial_outputs:
         S = out["parent_scores"].shape[0]  # padded subset size
-
-        parent_probs = F.softmax(out["parent_scores"][:n_sub], dim=-1)  # (n_sub, S+1)
-        seq_probs = F.softmax(out["seq_scores"][:n_sub], dim=-1)  # (n_sub, S+1)
-        order_preds = out["order_preds"][:n_sub]  # (n_sub, S+1)
+        if n_sub > 0:
+            parent_probs = F.softmax(out["parent_scores"][:n_sub], dim=-1)  # (n_sub, S+1)
+            seq_probs = F.softmax(out["seq_scores"][:n_sub], dim=-1)  # (n_sub, S+1)
+            rows = torch.arange(n_sub)
+            # Parent: argmax, weighted by confidence
+            parents = out["parent_scores"][:n_sub].argmax(dim=-1)
+            confidences = parent_probs[rows, parents].tolist()
+            # Edge type: argmax for the chosen parent
+            edge_types = out["edge_type_scores"][rows, parents].argmax(dim=-1).tolist()
+            orders = out["order_preds"][rows, parents].tolist()
+            # SEQ: argmax, weighted by confidence
+            seqs = out["seq_scores"][:n_sub].argmax(dim=-1)
+            seq_confs = seq_probs[rows, seqs].tolist()
+            parents, seqs = parents.tolist(), seqs.tolist()
 
         for i in range(n_sub):
             gi = subset_indices[i]
-
-            # Parent: argmax, weighted by confidence
-            pi = out["parent_scores"][i].argmax().item()
-            confidence = parent_probs[i, pi].item()
+            pi = parents[i]
+            confidence = confidences[i]
 
             if pi == S:
                 global_parent = N  # root
@@ -158,46 +171,42 @@ def aggregate_evidence_soft(
             else:
                 continue
 
-            # Edge type: argmax for the chosen parent
-            et = out["edge_type_scores"][i, pi].argmax().item()
-            et = min(et, E - 1)
+            et = min(edge_types[i], E - 1)
+            order = orders[i]
 
-            order = order_preds[i, pi].item()
-
-            order_sum[gi, global_parent] += confidence * order
-            order_count[gi, global_parent] += confidence
+            order_sum[gi, global_parent] += f32(confidence * order)
+            order_count[gi, global_parent] += f32(confidence)
 
             if pi != S:  # non-root: add edge type vote
-                parent_votes[gi, global_parent, et] += confidence
+                parent_votes[gi, global_parent, et] += f32(confidence)
             else:
                 # ROOT: positive vote for ROOT column
-                parent_votes[gi, N, 0] += confidence
+                parent_votes[gi, N, 0] += f32(confidence)
                 # Also negative evidence: "nobody in this subset is my parent"
                 for j in range(n_sub):
                     if j != i:
                         gj = subset_indices[j]
-                        parent_votes[gi, gj, 0] -= confidence / (n_sub - 1)
+                        parent_votes[gi, gj, 0] -= f32(confidence / (n_sub - 1))
 
-            # SEQ: argmax, weighted by confidence
-            si = out["seq_scores"][i].argmax().item()
-            seq_conf = seq_probs[i, si].item()
+            si = seqs[i]
+            seq_conf = seq_confs[i]
             if si == S:
-                seq_votes[gi, N] += seq_conf
+                seq_votes[gi, N] += f32(seq_conf)
             elif si < n_sub:
-                seq_votes[gi, subset_indices[si]] += seq_conf
+                seq_votes[gi, subset_indices[si]] += f32(seq_conf)
 
         # Co-occurrence
         for i in range(len(subset_indices)):
             for j in range(len(subset_indices)):
                 if i != j:
-                    pair_cooccurrence[subset_indices[i], subset_indices[j]] += 1.0
+                    pair_cooccurrence[subset_indices[i], subset_indices[j]] += f32(1.0)
 
     return {
-        "parent_votes": parent_votes,
-        "order_sum": order_sum,
-        "order_count": order_count,
-        "pair_cooccurrence": pair_cooccurrence,
-        "seq_votes": seq_votes,
+        "parent_votes": torch.from_numpy(parent_votes),
+        "order_sum": torch.from_numpy(order_sum),
+        "order_count": torch.from_numpy(order_count),
+        "pair_cooccurrence": torch.from_numpy(pair_cooccurrence),
+        "seq_votes": torch.from_numpy(seq_votes),
     }
 
 
