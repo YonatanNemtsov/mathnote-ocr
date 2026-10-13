@@ -353,13 +353,22 @@ class MathOCR:
             return inside or None
 
         # every part (a region, the rest, a cell) read at the line's writing size: the size most
-        # of its strokes were last read at, else what the whole line's heights suggest — not a
-        # guess from the part's own few strokes
+        # of its strokes were last read at — not a guess from the part's own few strokes. Not
+        # known (a fresh reader, strokes dropped and sent again): the whole line read once, as
+        # unmarked, settles it (its confident symbols say the size; the heights alone don't —
+        # a matrix's tall brackets made its entries read far too small)
         model = getattr(self.grouper_params, "stroke_model", None)
         line_scale = None
         if model is not None:
-            known = [cache.writing_scale[s.id] for s in stroke_objs if s.id in getattr(cache, "writing_scale", {})]
-            line_scale = (statistics.mode(known) if known and 2 * len(known) >= len(stroke_objs)
+            memo = getattr(cache, "writing_scale", {})
+
+            def known():
+                return [memo[s.id] for s in stroke_objs if s.id in memo]
+
+            if not (known() and 2 * len(known()) >= len(stroke_objs)):
+                group_and_classify(stroke_objs, self.classifier, params=self.grouper_params, cache=cache,
+                                   source_size=cs, top_k=1, pins=pins, vocabulary=vocabulary)
+            line_scale = (statistics.mode(known()) if known() and 2 * len(known()) >= len(stroke_objs)
                           else model.default_scale(stroke_objs))
 
         def best_partition(strokes_: list[Stroke]) -> list[DetectedSymbol]:
