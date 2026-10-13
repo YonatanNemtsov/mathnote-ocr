@@ -176,10 +176,22 @@ def _render_siblings(tree: Tree, ids: tuple[SymbolId, ...]) -> str:
             i += n_glyphs
         else:
             name = tree[ids[i]].symbol.name
+            if (name == "(" and i in matched and i + 1 < len(ids) and tree[ids[i + 1]].symbol.name == ")"
+                    and _has_kids(tree, ids[i], Edge.NUM) and _has_kids(tree, ids[i], Edge.DEN)):
+                # a binomial whose ) was read beside its ( rather than as its match: the
+                # ( holds the entries, the ) what is placed on the whole (its exponent)
+                sid, close = ids[i], ids[i + 1]
+                num = _render_siblings(tree, _kids(tree, sid, Edge.NUM))
+                den = _render_siblings(tree, _kids(tree, sid, Edge.DEN))
+                rendered = _render_sup_sub(tree, close, f"\\binom{{{num}}}{{{den}}}")
+                parts.append(rendered + _render_unhandled(tree, sid, {Edge.NUM, Edge.DEN})
+                             + _render_unhandled(tree, close, _SUP_SUB))
+                i += 2
+                continue
             if i in matched and name in _LEFT_PREFIX:
                 rendered = _LEFT_PREFIX[name]
                 rendered = _render_sup_sub(tree, ids[i], rendered)
-                parts.append(rendered)
+                parts.append(rendered + _render_unhandled(tree, ids[i], _SUP_SUB))
             else:
                 parts.append(_render_node(tree, ids[i]))
             i += 1
